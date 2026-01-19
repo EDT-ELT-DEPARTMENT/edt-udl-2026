@@ -4,7 +4,7 @@ import io
 import os
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="EDT UDL 2026", layout="wide")
+st.set_page_config(page_title="EDT & Charge UDL", layout="wide")
 
 # --- STYLE CSS ---
 st.markdown("""
@@ -17,9 +17,7 @@ st.markdown("""
     .enseignant-name { color: #333; display: block; font-size: 12px; }
     .lieu-name { color: #666; font-style: italic; display: block; font-size: 11px; }
     .separator { border-top: 1px dashed #bbb; margin: 8px 0; }
-    /* Ajustement du logo dans la sidebar */
-    [data-testid="stSidebarNav"] { padding-top: 20px; }
-    .logo-img { display: block; margin-left: auto; margin-right: auto; width: 150px; }
+    .metric-card { background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 15px; border-radius: 10px; text-align: center; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -36,34 +34,29 @@ if not st.session_state["auth"]:
     st.stop()
 
 # --- INTERFACE ---
-st.markdown("<h1 class='main-title'>🏛️ Gestionnaire d'Emploi du Temps</h1>", unsafe_allow_html=True)
-st.markdown("<h5 style='text-align: center; color: #555;'>Département d'électrotechnique - Faculté de génie électrique - UDL SBA</h5>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-title'>🏛️ Gestionnaire d'EDT et des Charges</h1>", unsafe_allow_html=True)
+st.markdown("<h5 style='text-align: center; color: #555;'>Département d'électrotechnique - UDL SBA</h5>", unsafe_allow_html=True)
 
 with st.sidebar:
-    # --- AFFICHAGE DU LOGO ---
     if os.path.exists("logo.png"):
         st.image("logo.png", use_container_width=True)
-    else:
-        st.warning("⚠️ logo.png introuvable sur GitHub")
     
-    st.header("⚙️ Menu Principal")
+    st.header("⚙️ Menu")
     file = st.file_uploader("Charger le fichier Excel", type=['xlsx'])
     if st.button("🚪 Déconnexion"):
-        st.session_state["auth"] = False
+        for key in st.session_state.keys(): del st.session_state[key]
         st.rerun()
 
 if file:
-    # 1. Lecture
     df = pd.read_excel(file)
-    
-    # 2. NETTOYAGE AGRESSIF
     df.columns = [str(c).strip() for c in df.columns]
+    
+    # Nettoyage
     cols_to_fix = ['Enseignements', 'Enseignants', 'Lieu', 'Promotion', 'Horaire', 'Jours']
     for col in cols_to_fix:
         if col in df.columns:
             df[col] = df[col].fillna("Non défini").astype(str).str.replace('\n', ' ').str.replace('\r', ' ').str.strip()
 
-    # 3. FILTRES
     st.sidebar.markdown("---")
     mode = st.sidebar.radio("Afficher par :", ["Promotion", "Enseignant"])
     
@@ -77,16 +70,40 @@ if file:
             selection = st.sidebar.selectbox("👤 Choisir l'Enseignant :", options)
             df_filtered = df[df['Enseignants'] == selection]
 
-        # 4. CRÉATION DU CONTENU DES CASES
+            # --- CALCUL DE LA CHARGE (Seulement en mode Enseignant) ---
+            st.markdown("---")
+            st.subheader(f"📊 Bilan Horaire : {selection}")
+            
+            # Calcul : On regarde le début du nom de l'enseignement
+            def calculer_heures(ligne):
+                txt = ligne.upper()
+                if "COURS" in txt: return 1.5
+                elif "TD" in txt or "TP" in txt: return 1.0
+                else: return 1.0 # Par défaut si non spécifié
+            
+            df_filtered['heures_val'] = df_filtered['Enseignements'].apply(calculer_heures)
+            charge_totale = df_filtered['heures_val'].sum()
+            heures_sup = max(0, charge_totale - 9.0)
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.markdown(f"<div class='metric-card'><b>Charge Hebdo</b><br><h2>{charge_totale} h</h2></div>", unsafe_allow_html=True)
+            with col2:
+                st.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>9.0 h</h2></div>", unsafe_allow_html=True)
+            with col3:
+                color = "red" if heures_sup > 0 else "green"
+                st.markdown(f"<div class='metric-card' style='border-color:{color}'><b>Heures Sup</b><br><h2 style='color:{color}'>{heures_sup} h</h2></div>", unsafe_allow_html=True)
+            st.markdown("---")
+
+        # --- GRILLE ---
         def format_cell(rows):
             items = []
             for _, row in rows.iterrows():
                 promo = f"<br>({row['Promotion']})" if mode == "Enseignant" else ""
-                html = f"<div class='cell'> <span class='cours-title'>{row['Enseignements']}</span> <span class='enseignant-name'>{row['Enseignants']}</span> <span class='lieu-name'>{row['Lieu']}{promo}</span> </div>"
+                html = f"<div class='cell'><span class='cours-title'>{row['Enseignements']}</span><span class='enseignant-name'>{row['Enseignants']}</span><span class='lieu-name'>{row['Lieu']}{promo}</span></div>"
                 items.append(html)
             return "<div class='separator'></div>".join(items)
 
-        # 5. GRILLE
         jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
         horaires = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30 -17h00"]
 
@@ -97,6 +114,6 @@ if file:
         st.write(grid.to_html(escape=False), unsafe_allow_html=True)
         
     except Exception as e:
-        st.error(f"Erreur d'analyse : {e}")
+        st.error(f"Erreur : {e}")
 else:
-    st.info("👋 Veuillez charger votre fichier Excel pour activer les options.")
+    st.info("Veuillez charger votre fichier Excel.")
