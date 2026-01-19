@@ -1,13 +1,15 @@
 import streamlit as st
 import pandas as pd
 import io
+import os
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="EDT UDL 2026", layout="wide")
 
+# --- STYLE CSS ---
 st.markdown("""
     <style>
-    .main-title { color: #1E3A8A; text-align: center; font-family: 'serif'; font-weight: bold; border-bottom: 3px solid #D4AF37; }
+    .main-title { color: #1E3A8A; text-align: center; font-family: 'serif'; font-weight: bold; border-bottom: 3px solid #D4AF37; padding-bottom: 10px; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     th { background-color: #1E3A8A !important; color: white !important; border: 1px solid #ddd; padding: 10px; text-align: center; }
     td { border: 1px solid #ccc; padding: 8px !important; vertical-align: top; text-align: center; background-color: white; }
@@ -15,6 +17,9 @@ st.markdown("""
     .enseignant-name { color: #333; display: block; font-size: 12px; }
     .lieu-name { color: #666; font-style: italic; display: block; font-size: 11px; }
     .separator { border-top: 1px dashed #bbb; margin: 8px 0; }
+    /* Ajustement du logo dans la sidebar */
+    [data-testid="stSidebarNav"] { padding-top: 20px; }
+    .logo-img { display: block; margin-left: auto; margin-right: auto; width: 150px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -31,10 +36,17 @@ if not st.session_state["auth"]:
     st.stop()
 
 # --- INTERFACE ---
-st.markdown("<h1 class='main-title'>🏛️ Gestionnaire d'Emploi du Temps-Département d'électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-title'>🏛️ Gestionnaire d'Emploi du Temps</h1>", unsafe_allow_html=True)
+st.markdown("<h5 style='text-align: center; color: #555;'>Département d'électrotechnique - Faculté de génie électrique - UDL SBA</h5>", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.header("⚙️ Menu")
+    # --- AFFICHAGE DU LOGO ---
+    if os.path.exists("logo.png"):
+        st.image("logo.png", use_container_width=True)
+    else:
+        st.warning("⚠️ logo.png introuvable sur GitHub")
+    
+    st.header("⚙️ Menu Principal")
     file = st.file_uploader("Charger le fichier Excel", type=['xlsx'])
     if st.button("🚪 Déconnexion"):
         st.session_state["auth"] = False
@@ -44,28 +56,23 @@ if file:
     # 1. Lecture
     df = pd.read_excel(file)
     
-    # 2. NETTOYAGE AGRESSIF (Supprime les \n et convertit tout en texte propre)
+    # 2. NETTOYAGE AGRESSIF
     df.columns = [str(c).strip() for c in df.columns]
-    
-    # On s'assure que toutes les colonnes importantes sont traitées comme du texte
     cols_to_fix = ['Enseignements', 'Enseignants', 'Lieu', 'Promotion', 'Horaire', 'Jours']
     for col in cols_to_fix:
         if col in df.columns:
-            # Remplace les NaN par "Non défini" et supprime les \n
             df[col] = df[col].fillna("Non défini").astype(str).str.replace('\n', ' ').str.replace('\r', ' ').str.strip()
 
-    # 3. FILTRES (Correction du TypeError ici avec list comprehension)
+    # 3. FILTRES
     st.sidebar.markdown("---")
     mode = st.sidebar.radio("Afficher par :", ["Promotion", "Enseignant"])
     
     try:
         if mode == "Promotion":
-            # On récupère les valeurs uniques, on s'assure qu'elles sont du texte, et on trie
             options = sorted([str(x) for x in df['Promotion'].unique() if x])
             selection = st.sidebar.selectbox("🎯 Choisir la Promotion :", options)
             df_filtered = df[df['Promotion'] == selection]
         else:
-            # Même chose pour les enseignants
             options = sorted([str(x) for x in df['Enseignants'].unique() if x])
             selection = st.sidebar.selectbox("👤 Choisir l'Enseignant :", options)
             df_filtered = df[df['Enseignants'] == selection]
@@ -90,8 +97,6 @@ if file:
         st.write(grid.to_html(escape=False), unsafe_allow_html=True)
         
     except Exception as e:
-        st.error(f"Erreur d'analyse des données : {e}")
-        st.info("Vérifiez que votre fichier Excel contient bien les colonnes : Enseignements, Enseignants, Lieu, Promotion, Horaire, Jours")
-
+        st.error(f"Erreur d'analyse : {e}")
 else:
-    st.info("Veuillez charger votre fichier Excel pour activer les options.")
+    st.info("👋 Veuillez charger votre fichier Excel pour activer les options.")
