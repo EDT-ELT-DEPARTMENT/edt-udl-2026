@@ -90,7 +90,7 @@ if df is not None:
         if col in df.columns:
             df[col] = df[col].fillna("Non défini").astype(str).str.replace('\n', ' ').str.strip()
 
-    # Logique Conflits (Matières communes autorisées)
+    # Logique Conflits
     dup_ens = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
     potential_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
     real_err_ens_idx = []
@@ -127,7 +127,7 @@ if df is not None:
             df_filtered = df[df[col_target] == selection].copy()
 
             if mode_view == "Enseignant":
-                # --- CALCUL CHARGE AVEC OPTION POSTE SUP ---
+                # --- CALCUL CHARGE AVEC NOUVEAUX QUOTAS (6h / 3h) ---
                 def get_type(t):
                     t = t.upper()
                     if "COURS" in t: return "COURS"
@@ -138,13 +138,13 @@ if df is not None:
                 df_filtered['h_val'] = df_filtered['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
                 c_tot = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])['h_val'].sum()
                 
-                # Quota adaptable
-                quota = 4.5 if poste_superieur else 9.0
+                # NOUVEAUX QUOTAS : 6h Normal, 3h Poste Sup
+                quota = 3.0 if poste_superieur else 6.0
                 h_sup = max(0.0, c_tot - quota)
                 
                 st.markdown(f"### 📊 Bilan de charge : {selection}")
                 if poste_superieur:
-                    st.markdown("<span class='badge-poste'>🛡️ Poste Supérieur (Décharge 50% incluse)</span>", unsafe_allow_html=True)
+                    st.markdown("<span class='badge-poste'>🛡️ Poste Supérieur (Décharge 50% appliquée)</span>", unsafe_allow_html=True)
                 
                 c1, c2, c3 = st.columns(3)
                 c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{c_tot} h</h2></div>", unsafe_allow_html=True)
