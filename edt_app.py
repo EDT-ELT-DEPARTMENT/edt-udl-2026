@@ -8,19 +8,13 @@ import streamlit.components.v1 as components
 # --- CONFIGURATION ---
 st.set_page_config(page_title="EDT UDL 2026", layout="wide")
 
-# --- STYLE CSS ---
+# --- STYLE CSS (Interface & Impression) ---
 st.markdown("""
     <style>
     .logo-container { text-align: center; margin-bottom: 10px; }
     .main-title { 
-        color: #1E3A8A; 
-        text-align: center; 
-        font-family: 'serif'; 
-        font-weight: bold; 
-        border-bottom: 3px solid #D4AF37; 
-        padding-bottom: 15px; 
-        font-size: 22px;
-        margin-top: 10px;
+        color: #1E3A8A; text-align: center; font-family: 'serif'; font-weight: bold; 
+        border-bottom: 3px solid #D4AF37; padding-bottom: 15px; font-size: 20px; margin-top: 10px;
     }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 10px; background-color: white; }
     th { background-color: #1E3A8A !important; color: white !important; border: 1px solid #000; padding: 6px; text-align: center; font-size: 11px; }
@@ -30,6 +24,7 @@ st.markdown("""
     .lieu-name { color: #666; font-style: italic; display: block; font-size: 9px; }
     .separator { border-top: 1px dashed #bbb; margin: 4px 0; }
     .metric-card { background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 10px; border-radius: 10px; text-align: center; height: 100%; }
+    .badge-poste { background-color: #1E3A8A; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-bottom: 10px; display: inline-block; }
     
     @media print {
         @page { size: A4 landscape; margin: 0.5cm; }
@@ -66,27 +61,36 @@ with st.sidebar:
     elif default_file:
         df = pd.read_excel(default_file)
     
+    st.markdown("---")
+    mode_view = st.sidebar.radio("Vue :", ["Promotion", "Enseignant", "🚩 Vérificateur"])
+    
+    # --- OPTION POSTE SUPÉRIEUR ---
+    poste_superieur = False
+    if mode_view == "Enseignant":
+        st.markdown("---")
+        st.subheader("👤 Statut Enseignant")
+        poste_sup_choice = st.radio("Poste Supérieur (Décharge 50%) ?", ["Non", "Oui"])
+        poste_superieur = True if poste_sup_choice == "Oui" else False
+
     if st.button("🚪 Déconnexion"):
         for key in list(st.session_state.keys()): del st.session_state[key]
         st.rerun()
 
 if df is not None:
-    # --- AFFICHAGE DU LOGO ET DU TITRE ---
+    # --- AFFICHAGE LOGO ET TITRE ---
     if os.path.exists("logo.png"):
-        # On utilise des colonnes pour centrer le logo proprement
         col_l1, col_l2, col_l3 = st.columns([1, 1, 1])
-        with col_l2:
-            st.image("logo.png", width=150)
+        with col_l2: st.image("logo.png", width=120)
     
     st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
     
-    # --- LOGIQUE DE NETTOYAGE ET CONFLITS ---
+    # Nettoyage
     df.columns = [str(c).strip() for c in df.columns]
     for col in ['Enseignements', 'Enseignants', 'Lieu', 'Promotion', 'Horaire', 'Jours']:
         if col in df.columns:
             df[col] = df[col].fillna("Non défini").astype(str).str.replace('\n', ' ').str.strip()
 
-    # Détection conflits (Logique Matières Communes/Co-enseignants incluse)
+    # Logique Conflits (Matières communes autorisées)
     dup_ens = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
     potential_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
     real_err_ens_idx = []
@@ -103,10 +107,6 @@ if df is not None:
             real_err_salle_idx.extend(group.index.tolist())
     df_err_salle = df.loc[real_err_salle_idx]
 
-    # --- NAVIGATION ---
-    st.sidebar.markdown("---")
-    mode_view = st.sidebar.radio("Vue :", ["Promotion", "Enseignant", "🚩 Vérificateur"])
-    
     try:
         if mode_view == "🚩 Vérificateur":
             st.subheader("🔍 Analyse des Chevauchements")
@@ -127,6 +127,7 @@ if df is not None:
             df_filtered = df[df[col_target] == selection].copy()
 
             if mode_view == "Enseignant":
+                # --- CALCUL CHARGE AVEC OPTION POSTE SUP ---
                 def get_type(t):
                     t = t.upper()
                     if "COURS" in t: return "COURS"
@@ -137,11 +138,19 @@ if df is not None:
                 df_filtered['h_val'] = df_filtered['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
                 c_tot = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])['h_val'].sum()
                 
-                st.markdown(f"### 📊 Bilan : {selection}")
+                # Quota adaptable
+                quota = 4.5 if poste_superieur else 9.0
+                h_sup = max(0.0, c_tot - quota)
+                
+                st.markdown(f"### 📊 Bilan de charge : {selection}")
+                if poste_superieur:
+                    st.markdown("<span class='badge-poste'>🛡️ Poste Supérieur (Décharge 50% incluse)</span>", unsafe_allow_html=True)
+                
                 c1, c2, c3 = st.columns(3)
                 c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{c_tot} h</h2></div>", unsafe_allow_html=True)
-                c2.markdown(f"<div class='metric-card'><b>Charge réglementaire</b><br><h2>6.0 h</h2></div>", unsafe_allow_html=True)
-                c3.markdown(f"<div class='metric-card' style='border-color:{'#d9534f' if c_tot > 9 else '#28a745'}'><b>Heures Sup</b><br><h2>{max(0, c_tot-9)} h</h2></div>", unsafe_allow_html=True)
+                c2.markdown(f"<div class='metric-card'><b>Quota Réglementaire</b><br><h2>{quota} h</h2></div>", unsafe_allow_html=True)
+                color_sup = '#d9534f' if h_sup > 0 else '#28a745'
+                c3.markdown(f"<div class='metric-card' style='border-color:{color_sup}'><b>Heures Sup</b><br><h2 style='color:{color_sup}'>{h_sup} h</h2></div>", unsafe_allow_html=True)
 
             # --- BOUTON IMPRESSION ---
             components.html("""
