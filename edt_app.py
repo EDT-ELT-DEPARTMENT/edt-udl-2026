@@ -17,7 +17,8 @@ st.markdown("""
     .enseignant-name { color: #333; display: block; font-size: 12px; }
     .lieu-name { color: #666; font-style: italic; display: block; font-size: 11px; }
     .separator { border-top: 1px dashed #bbb; margin: 8px 0; }
-    .metric-card { background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 15px; border-radius: 10px; text-align: center; }
+    .metric-card { background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 10px; border-radius: 10px; text-align: center; height: 100%; }
+    .stat-box { background-color: #e9ecef; border-radius: 5px; padding: 5px; margin-top: 5px; font-weight: bold; color: #1E3A8A; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -70,50 +71,45 @@ if file:
             selection = st.sidebar.selectbox("👤 Choisir l'Enseignant :", options)
             df_filtered = df[df['Enseignants'] == selection]
 
-            # --- CALCUL DE LA CHARGE (Seulement en mode Enseignant) ---
-            st.markdown("---")
-            st.subheader(f"📊 Bilan Horaire : {selection}")
+            # --- ANALYSE DÉTAILLÉE DE LA CHARGE ---
+            def analyser_type(titre):
+                t = titre.upper()
+                if "COURS" in t: return "COURS"
+                elif "TD" in t: return "TD"
+                elif "TP" in t: return "TP"
+                return "AUTRE"
+
+            df_filtered['Type'] = df_filtered['Enseignements'].apply(analyser_type)
             
-            # Calcul : On regarde le début du nom de l'enseignement
-            def calculer_heures(ligne):
-                txt = ligne.upper()
-                if "COURS" in txt: return 1.5
-                elif "TD" in txt or "TP" in txt: return 1.0
-                else: return 1.0 # Par défaut si non spécifié
+            # Calcul des volumes horaires
+            def calculer_h(row):
+                if row['Type'] == "COURS": return 1.5
+                return 1.0 # TD et TP
             
-            df_filtered['heures_val'] = df_filtered['Enseignements'].apply(calculer_heures)
-            charge_totale = df_filtered['heures_val'].sum()
+            df_filtered['h_val'] = df_filtered.apply(calculer_h, axis=1)
+            
+            # Statistiques
+            nb_cours = len(df_filtered[df_filtered['Type'] == "COURS"])
+            nb_td = len(df_filtered[df_filtered['Type'] == "TD"])
+            nb_tp = len(df_filtered[df_filtered['Type'] == "TP"])
+            charge_totale = df_filtered['h_val'].sum()
             heures_sup = max(0, charge_totale - 9.0)
 
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown(f"<div class='metric-card'><b>Charge Hebdo</b><br><h2>{charge_totale} h</h2></div>", unsafe_allow_html=True)
-            with col2:
-                st.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>9.0 h</h2></div>", unsafe_allow_html=True)
-            with col3:
-                color = "red" if heures_sup > 0 else "green"
+            # Affichage des statistiques
+            st.markdown(f"### 📊 Bilan de l'enseignant : {selection}")
+            
+            row1_col1, row1_col2, row1_col3 = st.columns(3)
+            with row1_col1:
+                st.markdown(f"<div class='metric-card'><b>Charge Totale</b><br><h2>{charge_totale} h</h2></div>", unsafe_allow_html=True)
+            with row1_col2:
+                st.markdown(f"<div class='metric-card'><b>Quota Réglementaire</b><br><h2>9.0 h</h2></div>", unsafe_allow_html=True)
+            with row1_col3:
+                color = "#d9534f" if heures_sup > 0 else "#28a745"
                 st.markdown(f"<div class='metric-card' style='border-color:{color}'><b>Heures Sup</b><br><h2 style='color:{color}'>{heures_sup} h</h2></div>", unsafe_allow_html=True)
-            st.markdown("---")
-
-        # --- GRILLE ---
-        def format_cell(rows):
-            items = []
-            for _, row in rows.iterrows():
-                promo = f"<br>({row['Promotion']})" if mode == "Enseignant" else ""
-                html = f"<div class='cell'><span class='cours-title'>{row['Enseignements']}</span><span class='enseignant-name'>{row['Enseignants']}</span><span class='lieu-name'>{row['Lieu']}{promo}</span></div>"
-                items.append(html)
-            return "<div class='separator'></div>".join(items)
-
-        jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-        horaires = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30 -17h00"]
-
-        grid = df_filtered.groupby(['Horaire', 'Jours']).apply(format_cell).unstack('Jours')
-        grid = grid.reindex(index=horaires, columns=jours).fillna("")
-        
-        st.subheader(f"📋 Emploi du temps : {selection}")
-        st.write(grid.to_html(escape=False), unsafe_allow_html=True)
-        
-    except Exception as e:
-        st.error(f"Erreur : {e}")
-else:
-    st.info("Veuillez charger votre fichier Excel.")
+            
+            st.write("") # Espace
+            
+            c1, c2, c3 = st.columns(3)
+            c1.markdown(f"<div class='stat-box'>📚 Nombre de Cours : {nb_cours}</div>", unsafe_allow_html=True)
+            c2.markdown(f"<div class='stat-box'>📝 Nombre de TD : {nb_td}</div>", unsafe_allow_html=True)
+            c3.markdown(f"<div class='stat-box'>🔬 Nombre de TP : {nb_tp}</div>", unsafe
