@@ -77,22 +77,24 @@ if df is not None:
         if col in df.columns:
             df[col] = df[col].fillna("Non défini").astype(str).str.strip()
 
-    # --- DÉTECTION DES CONFLITS (VÉRIFICATEUR) ---
-    # Conflit Enseignant : même jour, même heure, mais lieu ou enseignement différent
+    # --- LOGIQUE DE CONFLITS INTELLIGENTE ---
+    # On ne considère un conflit que si l'ENSEIGNEMENT est différent pour un même créneau
     dup_ens = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
-    potential_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
+    pot_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
     real_err_ens_idx = []
-    for name, group in potential_err_ens.groupby(['Jours', 'Horaire', 'Enseignants']):
-        if len(group[['Enseignements', 'Lieu']].drop_duplicates()) > 1:
+    
+    for name, group in pot_err_ens.groupby(['Jours', 'Horaire', 'Enseignants']):
+        # Si le nombre de matières uniques > 1, alors il y a conflit (chevauchement réel)
+        if group['Enseignements'].nunique() > 1:
             real_err_ens_idx.extend(group.index.tolist())
     df_err_ens = df.loc[real_err_ens_idx]
 
-    # Conflit Salle : même jour, même heure, même lieu, mais enseignements différents
+    # Pour les salles, on garde la logique : une salle ne peut avoir deux matières différentes en même temps
     dup_salle = df[df['Lieu'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False)
-    potential_err_salle = df[df['Lieu'] != "Non défini"][dup_salle]
+    pot_err_salle = df[df['Lieu'] != "Non défini"][dup_salle]
     real_err_salle_idx = []
-    for name, group in potential_err_salle.groupby(['Jours', 'Horaire', 'Lieu']):
-        if len(group[['Enseignements']].drop_duplicates()) > 1:
+    for name, group in pot_err_salle.groupby(['Jours', 'Horaire', 'Lieu']):
+        if group['Enseignements'].nunique() > 1:
             real_err_salle_idx.extend(group.index.tolist())
     df_err_salle = df.loc[real_err_salle_idx]
 
@@ -100,24 +102,23 @@ if df is not None:
         if mode_view == "🚩 Vérificateur":
             st.subheader("🔍 Analyse des Chevauchements")
             if df_err_ens.empty and df_err_salle.empty:
-                st.success("✅ Aucun conflit détecté dans l'emploi du temps.")
+                st.success("✅ Aucun chevauchement réel détecté (Les cours communs sont acceptés).")
             else:
                 if not df_err_salle.empty:
-                    st.error("📍 Conflits de Salles / Lieux :")
+                    st.error("📍 Conflits de Salles :")
                     for _, r in df_err_salle.drop_duplicates(subset=['Jours', 'Horaire', 'Lieu']).iterrows():
-                        st.markdown(f"<div class='conflit-alert'><b>{r['Lieu']}</b> occupé par plusieurs cours le {r['Jours']} à {r['Horaire']}</div>", unsafe_allow_html=True)
-                
+                        st.markdown(f"<div class='conflit-alert'><b>{r['Lieu']}</b> : Plusieurs matières différentes à {r['Horaire']}</div>", unsafe_allow_html=True)
                 if not df_err_ens.empty:
-                    st.warning("👤 Conflits d'Enseignants :")
+                    st.warning("👤 Conflits d'Enseignants (Matières différentes au même moment) :")
                     for _, r in df_err_ens.drop_duplicates(subset=['Jours', 'Horaire', 'Enseignants']).iterrows():
-                        st.markdown(f"<div class='conflit-alert' style='background-color:#fff3cd; color:#856404;'><b>{r['Enseignants']}</b> a deux séances différentes le {r['Jours']} à {r['Horaire']}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='conflit-alert' style='background-color:#fff3cd; color:#856404;'><b>{r['Enseignants']}</b> : Conflit réel le {r['Jours']} à {r['Horaire']}</div>", unsafe_allow_html=True)
 
         elif mode_view == "Enseignant":
             options = sorted([str(x) for x in df["Enseignants"].unique() if x and x != "Non défini"])
             selection = st.sidebar.selectbox("Choisir Enseignant :", options)
             df_filtered = df[df["Enseignants"] == selection].copy()
 
-            # --- CALCULS ---
+            # CALCULS CHARGE
             def get_type(t):
                 t = t.upper()
                 if "COURS" in t: return "COURS"
@@ -127,6 +128,8 @@ if df is not None:
 
             df_filtered['Type'] = df_filtered['Enseignements'].apply(get_type)
             df_filtered['h_val'] = df_filtered['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
+            
+            # Important : Drop duplicates sur le temps pour ne compter qu'une seule fois les cours communs
             df_stats = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])
             
             charge_reelle = df_stats['h_val'].sum()
@@ -137,14 +140,12 @@ if df is not None:
             n_td = len(df_stats[df_stats['Type'] == "TD"])
             n_tp = len(df_stats[df_stats['Type'] == "TP"])
 
-            # AFFICHAGE
             st.markdown(f"### 📊 Bilan : {selection}")
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
             c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{charge_reglementaire} h</h2></div>", unsafe_allow_html=True)
             c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2>{h_sup} h</h2></div>", unsafe_allow_html=True)
             
-            st.write("")
             s1, s2, s3 = st.columns(3)
             s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {n_cours} COURS</div>", unsafe_allow_html=True)
             s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {n_td} TD</div>", unsafe_allow_html=True)
@@ -152,7 +153,10 @@ if df is not None:
 
             jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
             horaires = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30 -17h00"]
-            def fmt(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+            
+            def fmt(rows):
+                return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+            
             grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
