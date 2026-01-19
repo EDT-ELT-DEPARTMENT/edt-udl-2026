@@ -31,7 +31,7 @@ if not st.session_state["auth"]:
     st.stop()
 
 # --- INTERFACE ---
-st.markdown("<h1 class='main-title'>🏛️ Gestionnaire d'Emploi du Temps</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-title'>🏛️ Gestionnaire d'Emploi du Temps-Département d'électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.header("⚙️ Menu")
