@@ -114,4 +114,74 @@ if df is not None:
                         st.markdown(f"<div class='conflit-alert'>📍 <b>{r['Lieu']}</b> : Plusieurs matières à {r['Horaire']}</div>", unsafe_allow_html=True)
                 if not df_err_ens.empty:
                     for _, r in df_err_ens.drop_duplicates(subset=['Jours', 'Horaire', 'Enseignants']).iterrows():
-                        st.markdown(f"<div class='conflit-alert' style='background-color:#fff3cd; color:#856404;'>👤 <b>{r['Enseignants']}</b> : Conflit réel le {r['Jours']} à {r
+                        st.markdown(f"<div class='conflit-alert' style='background-color:#fff3cd; color:#856404;'>👤 <b>{r['Enseignants']}</b> : Conflit réel le {r['Jours']} à {r['Horaire']}</div>", unsafe_allow_html=True)
+
+        elif mode_view == "📍 Salles Libres":
+            st.subheader("🗓️ Disponibilité des locaux (Salles et Amphis vides)")
+            tous_les_lieux = sorted([l for l in df['Lieu'].unique() if l != "Non défini"])
+            
+            def get_lieux_libres(group):
+                occupes = group['Lieu'].unique()
+                libres = [l for l in tous_les_lieux if l not in occupes]
+                return "".join([f"<span class='salle-libre'>🟢 {l}</span>" for l in libres])
+
+            grid_libres = df.groupby(['Horaire', 'Jours']).apply(get_lieux_libres).unstack('Jours').reindex(index=horaires, columns=jours).fillna("<span class='salle-libre'>🟢 Toutes libres</span>")
+            st.write(grid_libres.to_html(escape=False), unsafe_allow_html=True)
+
+        elif mode_view == "Enseignant":
+            options = sorted([str(x) for x in df["Enseignants"].unique() if x and x != "Non défini"])
+            selection = st.sidebar.selectbox("Choisir Enseignant :", options)
+            df_filtered = df[df["Enseignants"] == selection].copy()
+
+            def get_type(t):
+                t = t.upper()
+                if "COURS" in t:
+                    return "COURS"
+                elif "TD" in t:
+                    return "TD"
+                elif "TP" in t:
+                    return "TP"
+                return "AUTRE"
+
+            df_filtered['Type'] = df_filtered['Enseignements'].apply(get_type)
+            df_filtered['h_val'] = df_filtered['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
+            df_stats = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])
+            
+            charge_reelle = df_stats['h_val'].sum()
+            charge_reg = (3.0 if poste_superieur else 6.0)
+            h_sup = charge_reelle - charge_reg
+            
+            n_c = len(df_stats[df_stats['Type'] == "COURS"])
+            n_td = len(df_stats[df_stats['Type'] == "TD"])
+            n_tp = len(df_stats[df_stats['Type'] == "TP"])
+
+            st.markdown(f"### 📊 Bilan : {selection}")
+            c1, c2, c3 = st.columns(3)
+            c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
+            c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
+            c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2>{h_sup} h</h2></div>", unsafe_allow_html=True)
+            
+            s1, s2, s3 = st.columns(3)
+            s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {n_c} COURS</div>", unsafe_allow_html=True)
+            s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {n_td} TD</div>", unsafe_allow_html=True)
+            s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {n_tp} TP</div>", unsafe_allow_html=True)
+
+            def fmt(rows):
+                return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+            
+            grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
+            st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+
+        elif mode_view == "Promotion":
+            options = sorted([str(x) for x in df["Promotion"].unique() if x and x != "Non défini"])
+            selection = st.sidebar.selectbox("Choisir Promotion :", options)
+            df_filtered = df[df["Promotion"] == selection].copy()
+            def fmt_p(rows):
+                return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+            grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_p).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
+            st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+
+        components.html("<button onclick='window.parent.print()' style='width:100%; padding:10px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold; margin-top:20px;'>🖨️ IMPRIMER LA VUE ACTUELLE</button>", height=70)
+
+    except Exception as e:
+        st.error(f"Erreur : {e}")
