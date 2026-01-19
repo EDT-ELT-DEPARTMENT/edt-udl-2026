@@ -140,7 +140,7 @@ if df is not None:
                 st.markdown(f"### 📊 Bilan : {selection}")
                 c1, c2, c3 = st.columns(3)
                 c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{c_tot} h</h2></div>", unsafe_allow_html=True)
-                c2.markdown(f"<div class='metric-card'><b>Quota</b><br><h2>9.0 h</h2></div>", unsafe_allow_html=True)
+                c2.markdown(f"<div class='metric-card'><b>Charge réglementaire</b><br><h2>6.0 h</h2></div>", unsafe_allow_html=True)
                 c3.markdown(f"<div class='metric-card' style='border-color:{'#d9534f' if c_tot > 9 else '#28a745'}'><b>Heures Sup</b><br><h2>{max(0, c_tot-9)} h</h2></div>", unsafe_allow_html=True)
 
             # --- BOUTON IMPRESSION ---
