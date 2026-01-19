@@ -4,6 +4,7 @@ import io
 import os
 import glob
 import streamlit.components.v1 as components
+import re
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="EDT UDL 2026", layout="wide")
@@ -57,7 +58,7 @@ with st.sidebar:
         df = pd.read_excel(default_file)
     
     st.markdown("---")
-    mode_view = st.sidebar.radio("Vue :", ["Promotion", "Enseignant", "🏢 Planning par Local (Regroupé)", "🚩 Vérificateur"])
+    mode_view = st.sidebar.radio("Vue :", ["Promotion", "Enseignant", "🏢 Planning par Salle/Amphi (Racine)", "🚩 Vérificateur"])
     
     poste_superieur = False
     if mode_view == "Enseignant":
@@ -80,19 +81,25 @@ if df is not None:
         if col in df.columns:
             df[col] = df[col].fillna("Non défini").astype(str).str.strip()
 
+    # Logique d'extraction de la racine du lieu (ex: S05/G2 -> S05)
+    def get_root_lieu(lieu):
+        if lieu == "Non défini": return lieu
+        # On extrait la partie alphanumérique du début (A01, S05, AmphiA, etc.)
+        match = re.search(r'([A-Z0-9]+)', lieu, re.I)
+        return match.group(1).upper() if match else lieu
+
+    df['Lieu_Racine'] = df['Lieu'].apply(get_root_lieu)
+
     jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
     horaires = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30 -17h00"]
 
     try:
-        # --- VUE : PLANNING PAR LOCAL (REGROUPÉ) ---
-        if mode_view == "🏢 Planning par Local (Regroupé)":
-            # On extrait la racine du lieu (tout avant le '/')
-            df['Lieu_Racine'] = df['Lieu'].apply(lambda x: x.split('/')[0].strip())
+        # --- VUE : PLANNING PAR LOCAL (RACINE) ---
+        if mode_view == "🏢 Planning par Salle/Amphi (Racine)":
             lieux_racines = sorted([l for l in df['Lieu_Racine'].unique() if l not in ["Non défini", ""]])
+            selection_local = st.sidebar.selectbox("Choisir la salle ou l'amphi :", lieux_racines)
             
-            selection_local = st.sidebar.selectbox("Sélectionnez le local principal :", lieux_racines)
-            st.subheader(f"📍 Occupation du Local : {selection_local}")
-            
+            st.subheader(f"📍 Emploi du Temps du Local : {selection_local}")
             df_filtered = df[df["Lieu_Racine"] == selection_local].copy()
 
             def fmt_local(rows):
@@ -104,7 +111,7 @@ if df is not None:
             grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_local).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
-        # --- VUE : ENSEIGNANT (AVEC CHARGE ET COMPTEUR) ---
+        # --- VUE : ENSEIGNANT ---
         elif mode_view == "Enseignant":
             options = sorted([str(x) for x in df["Enseignants"].unique() if x != "Non défini"])
             selection = st.sidebar.selectbox("Choisir Enseignant :", options)
@@ -118,17 +125,16 @@ if df is not None:
                 return "AUTRE"
 
             df_filtered['Type'] = df_filtered['Enseignements'].apply(get_type)
-            # Valeur horaire : Cours=1.5h, TD/TP=1h
             df_filtered['h_val'] = df_filtered['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
             
-            # Pour les calculs, on évite de compter les cours communs deux fois
+            # Déduplication pour la charge (ignore les cours communs)
             df_stats = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])
             
             charge_reelle = df_stats['h_val'].sum()
             charge_reg = (3.0 if poste_superieur else 6.0)
-            h_sup = charge_reelle - charge_reg
+            h_sup = max(0.0, charge_reelle - charge_reg)
             
-            st.markdown(f"### 📊 Bilan : {selection}")
+            st.markdown(f"### 📊 Bilan de charge : {selection}")
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
             c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
@@ -158,23 +164,19 @@ if df is not None:
 
         # --- VUE : VÉRIFICATEUR ---
         elif mode_view == "🚩 Vérificateur":
-            # Détection des doublons pour un enseignant au même moment (si matières différentes)
             dup_ens = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
             pot_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
             real_err_ens_idx = [idx for idx, row in pot_err_ens.iterrows() if pot_err_ens[(pot_err_ens['Jours']==row['Jours']) & (pot_err_ens['Horaire']==row['Horaire']) & (pot_err_ens['Enseignants']==row['Enseignants'])]['Enseignements'].nunique() > 1]
             
             if not real_err_ens_idx:
-                st.success("✅ Aucun chevauchement réel détecté pour les enseignants.")
+                st.success("✅ Aucun chevauchement réel détecté.")
             else:
                 for _, r in df.loc[real_err_ens_idx].drop_duplicates(subset=['Jours', 'Horaire', 'Enseignants']).iterrows():
-                    st.warning(f"👤 Conflit Enseignant : **{r['Enseignants']}** a plusieurs cours différents le {r['Jours']} à {r['Horaire']}")
+                    st.warning(f"👤 Conflit : **{r['Enseignants']}** a plusieurs cours différents le {r['Jours']} à {r['Horaire']}")
 
-        # BOUTON D'IMPRESSION UNIVERSEL
+        # BOUTON D'IMPRESSION
         st.write("")
-        components.html("<button onclick='window.parent.print()' style='width:100%; padding:12px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;'>🖨️ IMPRIMER L'EMPLOI DU TEMPS ACTUEL</button>", height=70)
+        components.html("<button onclick='window.parent.print()' style='width:100%; padding:12px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold; margin-top:20px;'>🖨️ IMPRIMER CE PLANNING</button>", height=70)
 
     except Exception as e:
-        st.error(f"Erreur lors du traitement des données : {e}")
-
-else:
-    st.info("👋 Bienvenue ! Veuillez charger un fichier Excel (.xlsx) dans la barre latérale pour commencer.")
+        st.error(f"Erreur : {e}")
