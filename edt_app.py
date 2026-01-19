@@ -47,7 +47,7 @@ if not st.session_state["auth"]:
     st.stop()
 
 # --- HEADER ---
-st.markdown("<h1 class='main-title'>🏛️ Département d'Électrotechnique - SBA</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-title'>🏛️ Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
 
 with st.sidebar:
     if os.path.exists("logo.png"): st.image("logo.png")
