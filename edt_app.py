@@ -8,10 +8,9 @@ import streamlit.components.v1 as components
 # --- CONFIGURATION ---
 st.set_page_config(page_title="EDT UDL 2026", layout="wide")
 
-# --- STYLE CSS (Interface & Impression) ---
+# --- STYLE CSS ---
 st.markdown("""
     <style>
-    .logo-container { text-align: center; margin-bottom: 10px; }
     .main-title { 
         color: #1E3A8A; text-align: center; font-family: 'serif'; font-weight: bold; 
         border-bottom: 3px solid #D4AF37; padding-bottom: 15px; font-size: 20px; margin-top: 10px;
@@ -24,6 +23,7 @@ st.markdown("""
     .lieu-name { color: #666; font-style: italic; display: block; font-size: 9px; }
     .separator { border-top: 1px dashed #bbb; margin: 4px 0; }
     .metric-card { background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 10px; border-radius: 10px; text-align: center; height: 100%; }
+    .stat-box { padding: 10px; border-radius: 5px; color: white; font-weight: bold; text-align: center; font-size: 14px; }
     .badge-poste { background-color: #1E3A8A; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-bottom: 10px; display: inline-block; }
     
     @media print {
@@ -32,8 +32,8 @@ st.markdown("""
         .stApp { height: auto !important; background-color: white !important; }
         .main .block-container { padding: 0 !important; max-width: 100% !important; }
         table { page-break-inside: avoid; width: 100% !important; font-size: 10pt !important; border: 1px solid black !important; }
-        th { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; background-color: #1E3A8A !important; color: white !important; }
-        td { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; border: 1px solid black !important; }
+        th { background-color: #1E3A8A !important; color: white !important; }
+        td { border: 1px solid black !important; }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -71,110 +71,76 @@ with st.sidebar:
         poste_sup_choice = st.radio("Poste Supérieur (Décharge 50%) ?", ["Non", "Oui"])
         poste_superieur = True if poste_sup_choice == "Oui" else False
 
-    if st.button("🚪 Déconnexion"):
-        for key in list(st.session_state.keys()): del st.session_state[key]
-        st.rerun()
-
 if df is not None:
-    # --- LOGO ET TITRE ---
+    # LOGO ET TITRE
     if os.path.exists("logo.png"):
         col_l1, col_l2, col_l3 = st.columns([1, 1, 1])
         with col_l2: st.image("logo.png", width=120)
     
     st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
     
-    # Nettoyage
     df.columns = [str(c).strip() for c in df.columns]
     for col in ['Enseignements', 'Enseignants', 'Lieu', 'Promotion', 'Horaire', 'Jours']:
         if col in df.columns:
-            df[col] = df[col].fillna("Non défini").astype(str).str.replace('\n', ' ').str.strip()
-
-    # Logique Conflits
-    dup_ens = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
-    potential_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
-    real_err_ens_idx = []
-    for name, group in potential_err_ens.groupby(['Jours', 'Horaire', 'Enseignants']):
-        if len(group[['Enseignements', 'Lieu']].drop_duplicates()) > 1:
-            real_err_ens_idx.extend(group.index.tolist())
-    df_err_ens = df.loc[real_err_ens_idx]
-
-    dup_salle = df[df['Lieu'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False)
-    potential_err_salle = df[df['Lieu'] != "Non défini"][dup_salle]
-    real_err_salle_idx = []
-    for name, group in potential_err_salle.groupby(['Jours', 'Horaire', 'Lieu']):
-        if len(group[['Enseignements']].drop_duplicates()) > 1:
-            real_err_salle_idx.extend(group.index.tolist())
-    df_err_salle = df.loc[real_err_salle_idx]
+            df[col] = df[col].fillna("Non défini").astype(str).str.strip()
 
     try:
-        if mode_view == "🚩 Vérificateur":
-            st.subheader("🔍 Analyse des Chevauchements")
-            if df_err_ens.empty and df_err_salle.empty:
-                st.success("✅ Aucun conflit réel détecté.")
-            else:
-                if not df_err_salle.empty:
-                    for _, r in df_err_salle.drop_duplicates(subset=['Jours', 'Horaire', 'Lieu']).iterrows():
-                        st.markdown(f"<div class='conflit-alert'>📍 <b>{r['Lieu']}</b> : Conflit de matières ({r['Jours']} à {r['Horaire']})</div>", unsafe_allow_html=True)
-                if not df_err_ens.empty:
-                    for _, r in df_err_ens.drop_duplicates(subset=['Jours', 'Horaire', 'Enseignants']).iterrows():
-                        st.markdown(f"<div class='conflit-alert' style='background-color:#fff3cd; color:#856404;'>👤 <b>{r['Enseignants']}</b> : Conflit de lieu/matière ({r['Jours']} à {r['Horaire']})</div>", unsafe_allow_html=True)
+        if mode_view == "Enseignant":
+            options = sorted([str(x) for x in df["Enseignants"].unique() if x and x != "Non défini"])
+            selection = st.sidebar.selectbox(f"Choisir Enseignant :", options)
+            df_filtered = df[df["Enseignants"] == selection].copy()
 
-        else:
-            col_target = "Promotion" if mode_view == "Promotion" else "Enseignants"
-            options = sorted([str(x) for x in df[col_target].unique() if x and x != "Non défini"])
-            selection = st.sidebar.selectbox(f"Choisir {mode_view} :", options)
-            df_filtered = df[df[col_target] == selection].copy()
+            # --- CALCULS ---
+            def get_type(t):
+                t = t.upper()
+                if "COURS" in t: return "COURS"
+                elif "TD" in t: return "TD"
+                elif "TP" in t: return "TP"
+                return "AUTRE"
 
-            if mode_view == "Enseignant":
-                # --- CALCUL CHARGE ---
-                def get_type(t):
-                    t = t.upper()
-                    if "COURS" in t: return "COURS"
-                    elif "TD" in t: return "TD"
-                    elif "TP" in t: return "TP"
-                    return "AUTRE"
-                df_filtered['Type'] = df_filtered['Enseignements'].apply(get_type)
-                df_filtered['h_val'] = df_filtered['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
-                
-                charge_reelle = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])['h_val'].sum()
-                charge_reglementaire = 3.0 if poste_superieur else 6.0
-                
-                # --- NOUVELLE FORMULE : REELLE - REGLEMENTAIRE ---
-                h_sup = charge_reelle - charge_reglementaire
-                
-                st.markdown(f"### 📊 Bilan : {selection}")
-                if poste_superieur:
-                    st.markdown("<span class='badge-poste'>🛡️ Poste Supérieur (Décharge 50% appliquée)</span>", unsafe_allow_html=True)
-                
-                c1, c2, c3 = st.columns(3)
-                c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
-                c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{charge_reglementaire} h</h2></div>", unsafe_allow_html=True)
-                
-                # Couleur : rouge si positif (surplus d'heures), gris si négatif (sous-charge)
-                color_val = "#d9534f" if h_sup > 0 else "#6c757d"
-                c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2 style='color:{color_val}'>{h_sup} h</h2></div>", unsafe_allow_html=True)
+            df_filtered['Type'] = df_filtered['Enseignements'].apply(get_type)
+            df_filtered['h_val'] = df_filtered['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
+            
+            # Unicité par créneau (pour les amphis/matières communes)
+            df_stats = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])
+            
+            charge_reelle = df_stats['h_val'].sum()
+            charge_reglementaire = 3.0 if poste_superieur else 6.0
+            h_sup = charge_reelle - charge_reglementaire
+            
+            # Nombre de séances
+            n_cours = len(df_stats[df_stats['Type'] == "COURS"])
+            n_td = len(df_stats[df_stats['Type'] == "TD"])
+            n_tp = len(df_stats[df_stats['Type'] == "TP"])
 
-            # --- BOUTON IMPRESSION ---
-            components.html("""
-                <button onclick="window.parent.print()" style="background-color: #28a745; color: white; padding: 12px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; width: 100%; font-family: sans-serif;">
-                    🖨️ Imprimer l'EDT (A4 Paysage)
-                </button>
-            """, height=55)
-
-            # --- GRILLE ---
+            # --- AFFICHAGE BILAN ---
+            st.markdown(f"### 📊 Bilan de charge : {selection}")
+            if poste_superieur:
+                st.markdown("<span class='badge-poste'>🛡️ Poste Supérieur (Décharge appliquée)</span>", unsafe_allow_html=True)
+            
+            c1, c2, c3 = st.columns(3)
+            c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
+            c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{charge_reglementaire} h</h2></div>", unsafe_allow_html=True)
+            c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2>{h_sup} h</h2></div>", unsafe_allow_html=True)
+            
+            st.write("") # Espace
+            
+            # --- AFFICHAGE NOMBRE DE COURS, TD, TP ---
+            s1, s2, s3 = st.columns(3)
+            s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {n_cours} COURS</div>", unsafe_allow_html=True)
+            s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {n_td} TD</div>", unsafe_allow_html=True)
+            s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {n_tp} TP</div>", unsafe_allow_html=True)
+            
+            st.write("---")
+            
+            # GRILLE
             def format_cell(rows):
                 items = []
                 for idx, row in rows.iterrows():
-                    is_err = "border: 2px solid red; background:#fff0f0;" if idx in df_err_ens.index or idx in df_err_salle.index else ""
                     icon = "🏛️" if "AMPHI" in row['Lieu'].upper() else "📍"
-                    label_extra = f"<br>({row['Promotion']})" if mode_view == "Enseignant" else f"<br><span class='enseignant-name'>{row['Enseignants']}</span>"
-                    html = f"<div style='{is_err} padding:4px;'><span class='cours-title'>{row['Enseignements']}</span>{label_extra}<span class='lieu-name'>{icon} {row['Lieu']}</span></div>"
+                    html = f"<div><span class='cours-title'>{row['Enseignements']}</span><br>({row['Promotion']})<br><span class='lieu-name'>{icon} {row['Lieu']}</span></div>"
                     items.append(html)
                 return "<div class='separator'></div>".join(items)
 
             jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-            horaires = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30 -17h00"]
-            grid = df_filtered.groupby(['Horaire', 'Jours']).apply(format_cell).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
-            st.write(grid.to_html(escape=False), unsafe_allow_html=True)
-
-    except Exception as e: st.error(f"Erreur : {e}")
+            horaires = ["8h-9
