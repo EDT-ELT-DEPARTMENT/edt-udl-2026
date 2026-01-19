@@ -18,14 +18,14 @@ st.markdown("""
     }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 10px; background-color: white; }
     th { background-color: #1E3A8A !important; color: white !important; border: 1px solid #000; padding: 6px; text-align: center; font-size: 11px; }
-    td { border: 1px solid #000; padding: 4px !important; vertical-align: top; text-align: center; background-color: white; height: 85px; }
+    td { border: 1px solid #000; padding: 4px !important; vertical-align: top; text-align: center; background-color: white; height: auto; min-height: 85px; }
     .cours-title { color: #1E3A8A; font-weight: bold; display: block; font-size: 11px; }
     .lieu-name { color: #666; font-style: italic; display: block; font-size: 9px; }
     .separator { border-top: 1px dashed #bbb; margin: 4px 0; }
     .metric-card { background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 10px; border-radius: 10px; text-align: center; height: 100%; }
     .stat-box { padding: 10px; border-radius: 5px; color: white; font-weight: bold; text-align: center; font-size: 14px; margin-bottom: 5px; }
     .conflit-alert { background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; border: 1px solid #f5c6cb; margin-bottom: 5px; font-size: 14px; }
-    .salle-libre { color: #28a745; font-size: 10px; font-weight: bold; display: block; margin: 1px 0; }
+    .locaux-vides { color: #155724; background-color: #d4edda; border-radius: 3px; padding: 2px 5px; font-size: 10px; font-weight: bold; display: inline-block; margin: 1px; border: 1px solid #c3e6cb; }
     
     @media print {
         @page { size: A4 landscape; margin: 0.5cm; }
@@ -61,7 +61,7 @@ with st.sidebar:
         df = pd.read_excel(default_file)
     
     st.markdown("---")
-    mode_view = st.sidebar.radio("Vue :", ["Promotion", "Enseignant", "🚩 Vérificateur", "📍 Salles Libres"])
+    mode_view = st.sidebar.radio("Vue :", ["Promotion", "Enseignant", "🚩 Vérificateur", "🔍 Locaux Non Occupés"])
     
     poste_superieur = False
     if mode_view == "Enseignant":
@@ -71,41 +71,58 @@ with st.sidebar:
         poste_superieur = (poste_sup_choice == "Oui")
 
 if df is not None:
+    # Affichage Logo
     if os.path.exists("logo.png"):
         st.markdown('<div class="logo-container">', unsafe_allow_html=True)
         st.image("logo.png", width=120)
         st.markdown('</div>', unsafe_allow_html=True)
     
+    # Titre obligatoire
     st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
     
+    # Nettoyage des données
     df.columns = [str(c).strip() for c in df.columns]
     for col in ['Enseignements', 'Enseignants', 'Lieu', 'Promotion', 'Horaire', 'Jours']:
         if col in df.columns:
             df[col] = df[col].fillna("Non défini").astype(str).str.strip()
 
-    # --- DÉTECTION DES CONFLITS ---
-    dup_ens = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
-    pot_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
-    real_err_ens_idx = []
-    for name, group in pot_err_ens.groupby(['Jours', 'Horaire', 'Enseignants']):
-        if group['Enseignements'].nunique() > 1:
-            real_err_ens_idx.extend(group.index.tolist())
-    df_err_ens = df.loc[real_err_ens_idx]
-
-    dup_salle = df[df['Lieu'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False)
-    pot_err_salle = df[df['Lieu'] != "Non défini"][dup_salle]
-    real_err_salle_idx = []
-    for name, group in pot_err_salle.groupby(['Jours', 'Horaire', 'Lieu']):
-        if group['Enseignements'].nunique() > 1:
-            real_err_salle_idx.extend(group.index.tolist())
-    df_err_salle = df.loc[real_err_salle_idx]
-
     jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
     horaires = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30 -17h00"]
 
     try:
-        if mode_view == "🚩 Vérificateur":
-            st.subheader("🔍 Analyse des Chevauchements")
+        if mode_view == "🔍 Locaux Non Occupés":
+            st.subheader("🏢 Liste des Salles et Amphis vides par créneau")
+            # Liste unique de tous les locaux mentionnés dans le fichier Excel
+            tous_locaux = sorted([l for l in df['Lieu'].unique() if l not in ["Non défini", ""]])
+            
+            def identifier_vides(group):
+                locaux_occupes = group['Lieu'].unique()
+                vides = [loc for loc in tous_locaux if loc not in locaux_occupes]
+                if not vides:
+                    return "<span style='color:red; font-size:9px;'>⚠️ Aucun local vide</span>"
+                return "".join([f"<span class='locaux-vides'>{v}</span>" for v in vides])
+
+            grid_vides = df.groupby(['Horaire', 'Jours']).apply(identifier_vides).unstack('Jours').reindex(index=horaires, columns=jours).fillna("".join([f"<span class='locaux-vides'>{v}</span>" for v in tous_locaux]))
+            st.write(grid_vides.to_html(escape=False), unsafe_allow_html=True)
+
+        elif mode_view == "🚩 Vérificateur":
+            # Détection intelligente : ignore si même enseignant + même créneau + même intitulé
+            dup_ens = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
+            pot_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
+            real_err_ens_idx = []
+            for name, group in pot_err_ens.groupby(['Jours', 'Horaire', 'Enseignants']):
+                if group['Enseignements'].nunique() > 1:
+                    real_err_ens_idx.extend(group.index.tolist())
+            df_err_ens = df.loc[real_err_ens_idx]
+            
+            dup_salle = df[df['Lieu'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False)
+            pot_err_salle = df[df['Lieu'] != "Non défini"][dup_salle]
+            real_err_salle_idx = []
+            for name, group in pot_err_salle.groupby(['Jours', 'Horaire', 'Lieu']):
+                if group['Enseignements'].nunique() > 1:
+                    real_err_salle_idx.extend(group.index.tolist())
+            df_err_salle = df.loc[real_err_salle_idx]
+            
             if df_err_ens.empty and df_err_salle.empty:
                 st.success("✅ Aucun chevauchement réel détecté.")
             else:
@@ -116,31 +133,16 @@ if df is not None:
                     for _, r in df_err_ens.drop_duplicates(subset=['Jours', 'Horaire', 'Enseignants']).iterrows():
                         st.markdown(f"<div class='conflit-alert' style='background-color:#fff3cd; color:#856404;'>👤 <b>{r['Enseignants']}</b> : Conflit réel le {r['Jours']} à {r['Horaire']}</div>", unsafe_allow_html=True)
 
-        elif mode_view == "📍 Salles Libres":
-            st.subheader("🗓️ Disponibilité des locaux (Salles et Amphis vides)")
-            tous_les_lieux = sorted([l for l in df['Lieu'].unique() if l != "Non défini"])
-            
-            def get_lieux_libres(group):
-                occupes = group['Lieu'].unique()
-                libres = [l for l in tous_les_lieux if l not in occupes]
-                return "".join([f"<span class='salle-libre'>🟢 {l}</span>" for l in libres])
-
-            grid_libres = df.groupby(['Horaire', 'Jours']).apply(get_lieux_libres).unstack('Jours').reindex(index=horaires, columns=jours).fillna("<span class='salle-libre'>🟢 Toutes libres</span>")
-            st.write(grid_libres.to_html(escape=False), unsafe_allow_html=True)
-
         elif mode_view == "Enseignant":
-            options = sorted([str(x) for x in df["Enseignants"].unique() if x and x != "Non défini"])
+            options = sorted([str(x) for x in df["Enseignants"].unique() if x != "Non défini"])
             selection = st.sidebar.selectbox("Choisir Enseignant :", options)
             df_filtered = df[df["Enseignants"] == selection].copy()
 
             def get_type(t):
                 t = t.upper()
-                if "COURS" in t:
-                    return "COURS"
-                elif "TD" in t:
-                    return "TD"
-                elif "TP" in t:
-                    return "TP"
+                if "COURS" in t: return "COURS"
+                elif "TD" in t: return "TD"
+                elif "TP" in t: return "TP"
                 return "AUTRE"
 
             df_filtered['Type'] = df_filtered['Enseignements'].apply(get_type)
@@ -151,10 +153,6 @@ if df is not None:
             charge_reg = (3.0 if poste_superieur else 6.0)
             h_sup = charge_reelle - charge_reg
             
-            n_c = len(df_stats[df_stats['Type'] == "COURS"])
-            n_td = len(df_stats[df_stats['Type'] == "TD"])
-            n_tp = len(df_stats[df_stats['Type'] == "TP"])
-
             st.markdown(f"### 📊 Bilan : {selection}")
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
@@ -162,26 +160,25 @@ if df is not None:
             c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2>{h_sup} h</h2></div>", unsafe_allow_html=True)
             
             s1, s2, s3 = st.columns(3)
-            s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {n_c} COURS</div>", unsafe_allow_html=True)
-            s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {n_td} TD</div>", unsafe_allow_html=True)
-            s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {n_tp} TP</div>", unsafe_allow_html=True)
+            s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {len(df_stats[df_stats['Type'] == 'COURS'])} COURS</div>", unsafe_allow_html=True)
+            s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {len(df_stats[df_stats['Type'] == 'TD'])} TD</div>", unsafe_allow_html=True)
+            s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {len(df_stats[df_stats['Type'] == 'TP'])} TP</div>", unsafe_allow_html=True)
 
-            def fmt(rows):
-                return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
-            
+            def fmt(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
             grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
         elif mode_view == "Promotion":
-            options = sorted([str(x) for x in df["Promotion"].unique() if x and x != "Non défini"])
+            options = sorted([str(x) for x in df["Promotion"].unique() if x != "Non défini"])
             selection = st.sidebar.selectbox("Choisir Promotion :", options)
             df_filtered = df[df["Promotion"] == selection].copy()
-            def fmt_p(rows):
-                return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+            def fmt_p(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
             grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_p).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
-        components.html("<button onclick='window.parent.print()' style='width:100%; padding:10px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold; margin-top:20px;'>🖨️ IMPRIMER LA VUE ACTUELLE</button>", height=70)
+        # Bouton d'impression
+        st.write("")
+        components.html("<button onclick='window.parent.print()' style='width:100%; padding:10px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;'>🖨️ IMPRIMER LA VUE ACTUELLE</button>", height=70)
 
     except Exception as e:
-        st.error(f"Erreur : {e}")
+        st.error(f"Erreur lors du traitement : {e}")
