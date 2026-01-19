@@ -66,7 +66,7 @@ with st.sidebar:
         st.rerun()
 
 if df is not None:
-    st.markdown("<h1 class='main-title'>🏛️ Département d'Électrotechnique - SBA</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='main-title'>🏛️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
     
     df.columns = [str(c).strip() for c in df.columns]
     for col in ['Enseignements', 'Enseignants', 'Lieu', 'Promotion', 'Horaire', 'Jours']:
