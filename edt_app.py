@@ -19,21 +19,18 @@ st.markdown("""
     th { background-color: #1E3A8A !important; color: white !important; border: 1px solid #000; padding: 6px; text-align: center; font-size: 11px; }
     td { border: 1px solid #000; padding: 4px !important; vertical-align: top; text-align: center; background-color: white; height: 85px; }
     .cours-title { color: #1E3A8A; font-weight: bold; display: block; font-size: 11px; }
-    .enseignant-name { color: #333; display: block; font-size: 10px; }
     .lieu-name { color: #666; font-style: italic; display: block; font-size: 9px; }
     .separator { border-top: 1px dashed #bbb; margin: 4px 0; }
     .metric-card { background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 10px; border-radius: 10px; text-align: center; height: 100%; }
     .stat-box { padding: 10px; border-radius: 5px; color: white; font-weight: bold; text-align: center; font-size: 14px; margin-bottom: 5px; }
-    .badge-poste { background-color: #1E3A8A; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-bottom: 10px; display: inline-block; }
+    .conflit-alert { background-color: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; border: 1px solid #f5c6cb; margin-bottom: 5px; font-size: 14px; }
     
     @media print {
         @page { size: A4 landscape; margin: 0.5cm; }
         section[data-testid="stSidebar"], .stActionButton, footer, header, [data-testid="stHeader"], .no-print, button { display: none !important; }
         .stApp { height: auto !important; background-color: white !important; }
-        .main .block-container { padding: 0 !important; max-width: 100% !important; }
-        table { page-break-inside: avoid; width: 100% !important; font-size: 10pt !important; border: 1px solid black !important; }
+        table { page-break-inside: avoid; width: 100% !important; border: 1px solid black !important; }
         th { background-color: #1E3A8A !important; color: white !important; -webkit-print-color-adjust: exact; }
-        td { border: 1px solid black !important; -webkit-print-color-adjust: exact; }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -72,21 +69,55 @@ with st.sidebar:
         poste_superieur = (poste_sup_choice == "Oui")
 
 if df is not None:
-    # TITRE
     st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
     
+    # Nettoyage
     df.columns = [str(c).strip() for c in df.columns]
     for col in ['Enseignements', 'Enseignants', 'Lieu', 'Promotion', 'Horaire', 'Jours']:
         if col in df.columns:
             df[col] = df[col].fillna("Non défini").astype(str).str.strip()
 
+    # --- DÉTECTION DES CONFLITS (VÉRIFICATEUR) ---
+    # Conflit Enseignant : même jour, même heure, mais lieu ou enseignement différent
+    dup_ens = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
+    potential_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
+    real_err_ens_idx = []
+    for name, group in potential_err_ens.groupby(['Jours', 'Horaire', 'Enseignants']):
+        if len(group[['Enseignements', 'Lieu']].drop_duplicates()) > 1:
+            real_err_ens_idx.extend(group.index.tolist())
+    df_err_ens = df.loc[real_err_ens_idx]
+
+    # Conflit Salle : même jour, même heure, même lieu, mais enseignements différents
+    dup_salle = df[df['Lieu'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False)
+    potential_err_salle = df[df['Lieu'] != "Non défini"][dup_salle]
+    real_err_salle_idx = []
+    for name, group in potential_err_salle.groupby(['Jours', 'Horaire', 'Lieu']):
+        if len(group[['Enseignements']].drop_duplicates()) > 1:
+            real_err_salle_idx.extend(group.index.tolist())
+    df_err_salle = df.loc[real_err_salle_idx]
+
     try:
-        if mode_view == "Enseignant":
+        if mode_view == "🚩 Vérificateur":
+            st.subheader("🔍 Analyse des Chevauchements")
+            if df_err_ens.empty and df_err_salle.empty:
+                st.success("✅ Aucun conflit détecté dans l'emploi du temps.")
+            else:
+                if not df_err_salle.empty:
+                    st.error("📍 Conflits de Salles / Lieux :")
+                    for _, r in df_err_salle.drop_duplicates(subset=['Jours', 'Horaire', 'Lieu']).iterrows():
+                        st.markdown(f"<div class='conflit-alert'><b>{r['Lieu']}</b> occupé par plusieurs cours le {r['Jours']} à {r['Horaire']}</div>", unsafe_allow_html=True)
+                
+                if not df_err_ens.empty:
+                    st.warning("👤 Conflits d'Enseignants :")
+                    for _, r in df_err_ens.drop_duplicates(subset=['Jours', 'Horaire', 'Enseignants']).iterrows():
+                        st.markdown(f"<div class='conflit-alert' style='background-color:#fff3cd; color:#856404;'><b>{r['Enseignants']}</b> a deux séances différentes le {r['Jours']} à {r['Horaire']}</div>", unsafe_allow_html=True)
+
+        elif mode_view == "Enseignant":
             options = sorted([str(x) for x in df["Enseignants"].unique() if x and x != "Non défini"])
             selection = st.sidebar.selectbox("Choisir Enseignant :", options)
             df_filtered = df[df["Enseignants"] == selection].copy()
 
-            # --- LOGIQUE DE CALCUL ---
+            # --- CALCULS ---
             def get_type(t):
                 t = t.upper()
                 if "COURS" in t: return "COURS"
@@ -96,63 +127,46 @@ if df is not None:
 
             df_filtered['Type'] = df_filtered['Enseignements'].apply(get_type)
             df_filtered['h_val'] = df_filtered['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
-            
-            # Unicité par créneau (matières communes)
             df_stats = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])
             
             charge_reelle = df_stats['h_val'].sum()
             charge_reglementaire = 3.0 if poste_superieur else 6.0
             h_sup = charge_reelle - charge_reglementaire
             
-            # Nombre de séances
             n_cours = len(df_stats[df_stats['Type'] == "COURS"])
             n_td = len(df_stats[df_stats['Type'] == "TD"])
             n_tp = len(df_stats[df_stats['Type'] == "TP"])
 
-            # --- AFFICHAGE DU BILAN ---
-            st.markdown(f"### 📊 Bilan de charge : {selection}")
-            if poste_superieur:
-                st.markdown("<span class='badge-poste'>🛡️ Poste Supérieur (Charge Réglementaire 03h)</span>", unsafe_allow_html=True)
-            
+            # AFFICHAGE
+            st.markdown(f"### 📊 Bilan : {selection}")
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
             c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{charge_reglementaire} h</h2></div>", unsafe_allow_html=True)
-            color_sup = "#d9534f" if h_sup > 0 else "#6c757d"
-            c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2 style='color:{color_sup}'>{h_sup} h</h2></div>", unsafe_allow_html=True)
+            c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2>{h_sup} h</h2></div>", unsafe_allow_html=True)
             
-            # --- AFFICHAGE DU NOMBRE DE COURS, TD, TP ---
             st.write("")
             s1, s2, s3 = st.columns(3)
             s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {n_cours} COURS</div>", unsafe_allow_html=True)
             s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {n_td} TD</div>", unsafe_allow_html=True)
             s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {n_tp} TP</div>", unsafe_allow_html=True)
-            st.write("---")
 
             jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
             horaires = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30 -17h00"]
-            
-            def fmt_ens(rows):
-                return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
-            
-            grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_ens).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
+            def fmt(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+            grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
         elif mode_view == "Promotion":
             options = sorted([str(x) for x in df["Promotion"].unique() if x and x != "Non défini"])
             selection = st.sidebar.selectbox("Choisir Promotion :", options)
             df_filtered = df[df["Promotion"] == selection].copy()
-            
             jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
             horaires = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30 -17h00"]
-            
-            def fmt_prom(rows):
-                return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
-            
-            grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_prom).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
+            def fmt_p(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+            grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_p).unstack('Jours').reindex(index=horaires, columns=jours).fillna("")
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
-        st.write("")
-        components.html("<button onclick='window.parent.print()' style='width:100%; padding:10px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;'>🖨️ IMPRIMER L'EMPLOI DU TEMPS</button>", height=60)
+        components.html("<button onclick='window.parent.print()' style='width:100%; padding:10px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold; margin-top:20px;'>🖨️ IMPRIMER L'EMPLOI DU TEMPS</button>", height=70)
 
     except Exception as e:
-        st.error(f"Détails de l'erreur : {e}")
+        st.error(f"Erreur : {e}")
