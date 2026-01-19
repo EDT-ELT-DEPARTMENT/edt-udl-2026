@@ -8,7 +8,7 @@ import streamlit.components.v1 as components
 # --- CONFIGURATION ---
 st.set_page_config(page_title="EDT UDL 2026", layout="wide")
 
-# --- STYLE CSS (Interface & Impression) ---
+# --- STYLE CSS ---
 st.markdown("""
     <style>
     .logo-container { text-align: center; margin-bottom: 10px; }
@@ -64,7 +64,6 @@ with st.sidebar:
     st.markdown("---")
     mode_view = st.sidebar.radio("Vue :", ["Promotion", "Enseignant", "🚩 Vérificateur"])
     
-    # --- OPTION POSTE SUPÉRIEUR ---
     poste_superieur = False
     if mode_view == "Enseignant":
         st.markdown("---")
@@ -77,20 +76,18 @@ with st.sidebar:
         st.rerun()
 
 if df is not None:
-    # --- AFFICHAGE LOGO ET TITRE ---
     if os.path.exists("logo.png"):
         col_l1, col_l2, col_l3 = st.columns([1, 1, 1])
         with col_l2: st.image("logo.png", width=120)
     
     st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
     
-    # Nettoyage des données
     df.columns = [str(c).strip() for c in df.columns]
     for col in ['Enseignements', 'Enseignants', 'Lieu', 'Promotion', 'Horaire', 'Jours']:
         if col in df.columns:
             df[col] = df[col].fillna("Non défini").astype(str).str.replace('\n', ' ').str.strip()
 
-    # Logique de détection des conflits réels
+    # --- LOGIQUE DE CONFLIT ---
     dup_ens = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
     potential_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
     real_err_ens_idx = []
@@ -137,12 +134,11 @@ if df is not None:
                 df_filtered['Type'] = df_filtered['Enseignements'].apply(get_type)
                 df_filtered['h_val'] = df_filtered['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
                 
-                # Charge réelle (en ignorant les doublons de créneaux pour les matières communes)
                 charge_reelle = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])['h_val'].sum()
-                
-                # Charge Réglementaire : 6h Normal, 3h Poste Sup
                 charge_reglementaire = 3.0 if poste_superieur else 6.0
-                h_sup = max(0.0, charge_reelle - charge_reglementaire)
+                
+                # --- FORMULE DEMANDÉE : Reglementaire - Reelle ---
+                h_sup = charge_reglementaire - charge_reelle
                 
                 st.markdown(f"### 📊 Bilan : {selection}")
                 if poste_superieur:
@@ -151,8 +147,8 @@ if df is not None:
                 c1, c2, c3 = st.columns(3)
                 c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
                 c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{charge_reglementaire} h</h2></div>", unsafe_allow_html=True)
-                color_sup = '#d9534f' if h_sup > 0 else '#28a745'
-                c3.markdown(f"<div class='metric-card' style='border-color:{color_sup}'><b>Heures Sup</b><br><h2 style='color:{color_sup}'>{h_sup} h</h2></div>", unsafe_allow_html=True)
+                # Couleur dynamique : rouge si positif (manque d'heures), vert si négatif (surplus) ou selon votre besoin
+                c3.markdown(f"<div class='metric-card'><b>Heures Sup (Calcul)</b><br><h2>{h_sup} h</h2></div>", unsafe_allow_html=True)
 
             # --- BOUTON IMPRESSION ---
             components.html("""
@@ -161,7 +157,7 @@ if df is not None:
                 </button>
             """, height=55)
 
-            # --- GRILLE D'AFFICHAGE ---
+            # --- GRILLE ---
             def format_cell(rows):
                 items = []
                 for idx, row in rows.iterrows():
