@@ -148,7 +148,7 @@ if df is not None:
                 
                 c1, c2, c3 = st.columns(3)
                 c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{c_tot} h</h2></div>", unsafe_allow_html=True)
-                c2.markdown(f"<div class='metric-card'><b>Quota Réglementaire</b><br><h2>{quota} h</h2></div>", unsafe_allow_html=True)
+                c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{quota} h</h2></div>", unsafe_allow_html=True)
                 color_sup = '#d9534f' if h_sup > 0 else '#28a745'
                 c3.markdown(f"<div class='metric-card' style='border-color:{color_sup}'><b>Heures Sup</b><br><h2 style='color:{color_sup}'>{h_sup} h</h2></div>", unsafe_allow_html=True)
 
