@@ -8,7 +8,7 @@ import streamlit.components.v1 as components
 # --- CONFIGURATION ---
 st.set_page_config(page_title="EDT & Charge UDL", layout="wide")
 
-# --- STYLE CSS ---
+# --- STYLE CSS (Interface & Impression Page Unique) ---
 st.markdown("""
     <style>
     .main-title { color: #1E3A8A; text-align: center; font-family: 'serif'; font-weight: bold; border-bottom: 3px solid #D4AF37; padding-bottom: 10px; }
@@ -59,7 +59,7 @@ with st.sidebar:
         df = pd.read_excel(uploaded_file)
     elif default_file:
         df = pd.read_excel(default_file)
-        st.sidebar.info(f"📁 Fichier : {default_file}")
+        st.sidebar.info(f"📁 Source par défaut : {default_file}")
     
     if st.button("🚪 Déconnexion"):
         for key in list(st.session_state.keys()): del st.session_state[key]
@@ -68,39 +68,34 @@ with st.sidebar:
 if df is not None:
     st.markdown("<h1 class='main-title'>🏛️ Département d'Électrotechnique - SBA</h1>", unsafe_allow_html=True)
     
-    # Nettoyage
     df.columns = [str(c).strip() for c in df.columns]
     for col in ['Enseignements', 'Enseignants', 'Lieu', 'Promotion', 'Horaire', 'Jours']:
         if col in df.columns:
             df[col] = df[col].fillna("Non défini").astype(str).str.replace('\n', ' ').str.strip()
 
-    # --- LOGIQUE DE CONFLIT AMÉLIORÉE ---
-    # Un conflit Enseignant n'est réel que si (Jour, Horaire, Enseignant) sont identiques MAIS que le Lieu ou l'Enseignement diffère.
-    # Si tout est identique (Enseignant, Lieu, Enseignement), c'est une MATIÈRE COMMUNE.
+    # --- LOGIQUE DE CONFLIT AVANCÉE ---
     
-    # 1. Identifier les doublons par créneau pour les enseignants
+    # 1. Conflit Enseignant : Ignorer si c'est la même matière dans le même lieu (Matière commune)
     dup_ens = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
-    potential_errors_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
+    potential_err_ens = df[df['Enseignants'] != "Non défini"][dup_ens]
     
-    # Filtrer pour exclure les matières communes (même lieu + même matière)
-    real_errors_ens_idx = []
-    for name, group in potential_errors_ens.groupby(['Jours', 'Horaire', 'Enseignants']):
+    real_err_ens_idx = []
+    for name, group in potential_err_ens.groupby(['Jours', 'Horaire', 'Enseignants']):
+        # Erreur si l'enseignant est sur deux matières différentes OU deux lieux différents au même moment
         if len(group[['Enseignements', 'Lieu']].drop_duplicates()) > 1:
-            real_errors_ens_idx.extend(group.index.tolist())
-    
-    df_err_ens = df.loc[real_errors_ens_idx]
+            real_err_ens_idx.extend(group.index.tolist())
+    df_err_ens = df.loc[real_err_ens_idx]
 
-    # 2. Conflit de Lieu (Salles/Amphis)
-    # Même logique : si deux promos ont la même matière avec le même prof dans le même lieu, ce n'est pas un conflit de salle.
+    # 2. Conflit de Lieu : Ignorer si c'est la même matière (Matière commune ou Co-enseignement)
     dup_salle = df[df['Lieu'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False)
-    potential_errors_salle = df[df['Lieu'] != "Non défini"][dup_salle]
+    potential_err_salle = df[df['Lieu'] != "Non défini"][dup_salle]
     
-    real_errors_salle_idx = []
-    for name, group in potential_errors_salle.groupby(['Jours', 'Horaire', 'Lieu']):
-        if len(group[['Enseignants', 'Enseignements']].drop_duplicates()) > 1:
-            real_errors_salle_idx.extend(group.index.tolist())
-            
-    df_err_salle = df.loc[real_errors_salle_idx]
+    real_err_salle_idx = []
+    for name, group in potential_err_salle.groupby(['Jours', 'Horaire', 'Lieu']):
+        # Erreur si le lieu contient deux matières différentes au même moment
+        if len(group[['Enseignements']].drop_duplicates()) > 1:
+            real_err_salle_idx.extend(group.index.tolist())
+    df_err_salle = df.loc[real_err_salle_idx]
 
     st.sidebar.markdown("---")
     mode_view = st.sidebar.radio("Vue :", ["Promotion", "Enseignant", "🚩 Vérificateur"])
@@ -109,14 +104,14 @@ if df is not None:
         if mode_view == "🚩 Vérificateur":
             st.subheader("🔍 Analyse des Chevauchements")
             if df_err_ens.empty and df_err_salle.empty:
-                st.success("✅ Aucun conflit réel. Les cours simultanés détectés sont identifiés comme matières communes.")
+                st.success("✅ Aucun conflit. Les séances partagées (matières communes ou co-enseignement) sont autorisées.")
             else:
                 if not df_err_salle.empty:
                     for _, r in df_err_salle.drop_duplicates(subset=['Jours', 'Horaire', 'Lieu']).iterrows():
-                        st.markdown(f"<div class='conflit-alert'>📍 <b>{r['Lieu']}</b> : Occupé par différents enseignements le {r['Jours']} à {r['Horaire']}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='conflit-alert'>📍 <b>{r['Lieu']}</b> : Conflit de matières ({r['Jours']} à {r['Horaire']})</div>", unsafe_allow_html=True)
                 if not df_err_ens.empty:
                     for _, r in df_err_ens.drop_duplicates(subset=['Jours', 'Horaire', 'Enseignants']).iterrows():
-                        st.markdown(f"<div class='conflit-alert' style='background-color:#fff3cd; color:#856404;'>👤 <b>{r['Enseignants']}</b> : Doit être à deux endroits différents le {r['Jours']} à {r['Horaire']}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='conflit-alert' style='background-color:#fff3cd; color:#856404;'>👤 <b>{r['Enseignants']}</b> : Conflit de lieu ou de matière ({r['Jours']} à {r['Horaire']})</div>", unsafe_allow_html=True)
 
         else:
             col_target = "Promotion" if mode_view == "Promotion" else "Enseignants"
@@ -133,7 +128,7 @@ if df is not None:
                     return "AUTRE"
                 df_filtered['Type'] = df_filtered['Enseignements'].apply(get_type)
                 df_filtered['h_val'] = df_filtered['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
-                # Note: Pour la charge, on compte une seule fois les matières communes (même créneau)
+                # On ne compte la charge qu'une fois par créneau (évite de doubler pour les matières communes)
                 c_tot = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])['h_val'].sum()
                 
                 st.markdown(f"### 📊 Bilan : {selection}")
@@ -145,7 +140,7 @@ if df is not None:
             # --- BOUTON IMPRESSION ---
             components.html("""
                 <button onclick="window.parent.print()" style="background-color: #28a745; color: white; padding: 12px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; width: 100%; font-family: sans-serif;">
-                    🖨️ Imprimer l'EDT (A4 Paysage)
+                    🖨️ Imprimer l'EDT (Une seule page A4 Paysage)
                 </button>
             """, height=55)
 
@@ -155,8 +150,9 @@ if df is not None:
                 for idx, row in rows.iterrows():
                     is_err = "border: 2px solid red; background:#fff0f0;" if idx in df_err_ens.index or idx in df_err_salle.index else ""
                     icon = "🏛️" if "AMPHI" in row['Lieu'].upper() else "📍"
-                    p_info = f"<br>({row['Promotion']})" if mode_view == "Enseignant" else ""
-                    html = f"<div style='{is_err} padding:4px;'><span class='cours-title'>{row['Enseignements']}</span><span class='enseignant-name'>{row['Enseignants']}</span><span class='lieu-name'>{icon} {row['Lieu']}{p_info}</span></div>"
+                    # En mode Promotion, on affiche le prof. En mode Enseignant, on affiche la Promo.
+                    label_extra = f"<br>({row['Promotion']})" if mode_view == "Enseignant" else f"<br><span class='enseignant-name'>{row['Enseignants']}</span>"
+                    html = f"<div style='{is_err} padding:4px;'><span class='cours-title'>{row['Enseignements']}</span>{label_extra}<span class='lieu-name'>{icon} {row['Lieu']}</span></div>"
                     items.append(html)
                 return "<div class='separator'></div>".join(items)
 
