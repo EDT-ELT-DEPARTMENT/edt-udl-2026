@@ -169,7 +169,6 @@ if df is not None:
             df_surv = pd.read_excel(NOM_SURV)
             df_surv.columns = [str(c).strip() for c in df_surv.columns]
             
-            # Nettoyage global
             for col in df_surv.columns:
                 df_surv[col] = df_surv[col].fillna("").astype(str).str.strip()
 
@@ -186,26 +185,45 @@ if df is not None:
             with tab_perso:
                 if not df_u.empty:
                     grid_s = pd.DataFrame("", index=horaires_examens, columns=jours_list)
-                    
                     for _, r in df_u.iterrows():
-                        # Nettoyage de la date pour éviter le format 2026-01-11 00:00:00
                         date_claire = str(r['Date']).split(' ')[0]
-                        
-                        # Construction du texte sur UNE SEULE LIGNE pour éliminer les \n
                         txt = f"<div style='font-size:11px; line-height:1.2;'><b>{r['Matière']}</b><br><span style='color:#d35400; font-weight:bold;'>📅 {date_claire}</span><br>📍 <b>{r['Salle']}</b><br><small>🎓 {r['Promotion']}</small></div>"
-                        
                         j_ex = str(r['Jour']).strip().capitalize()
                         h_ex = str(r['Heure']).strip()
-                        
                         if j_ex in grid_s.columns and h_ex in grid_s.index:
                             if grid_s.at[h_ex, j_ex] != "":
-                                # Utilisation de <hr> au lieu de div pour une séparation plus propre
                                 grid_s.at[h_ex, j_ex] += f"<hr style='margin:5px 0;'>{txt}"
                             else:
                                 grid_s.at[h_ex, j_ex] = txt
                     
-                    # Rendu final sans échappement
                     st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
+
+                    # --- BLOC IMPRESSION ET TÉLÉCHARGEMENT ---
+                    st.divider()
+                    col_act1, col_act2 = st.columns(2)
+                    
+                    with col_act1:
+                        # Bouton Impression / Sauvegarde PDF
+                        components.html(f"""
+                            <button onclick="window.parent.print()" style="width:100%; padding:12px; background-color:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer; font-family:sans-serif;">
+                            🖨️ IMPRIMER / ENREGISTRER PDF
+                            </button>
+                        """, height=60)
+                    
+                    with col_act2:
+                        # Bouton Téléchargement Excel
+                        import io
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            df_u.to_excel(writer, index=False, sheet_name='Ma_Surveillance')
+                        excel_data = output.getvalue()
+                        st.download_button(
+                            label="📥 TÉLÉCHARGER (.XLSX)",
+                            data=excel_data,
+                            file_name=f"Surveillance_{prof_selectionne}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
                 else:
                     st.warning("Aucune donnée trouvée.")
 
