@@ -25,7 +25,7 @@ date_str = now.strftime("%d/%m/%Y")
 heure_str = now.strftime("%H:%M")
 nom_jour_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][now.weekday()]
 
-# --- STYLE CSS (VERSION ORIGINALE) ---
+# --- STYLE CSS ---
 st.markdown(f"""
     <style>
     .main-title {{ 
@@ -98,26 +98,26 @@ if not st.session_state["user_data"]:
         adm_code = st.text_input("Code Admin", type="password")
         if st.button("Accès Administration"):
             if adm_code == "doctorat2026":
-                st.session_state["user_data"] = {"nom_officiel": "ADMIN", "role": "admin"}
+                st.session_state["user_data"] = {"nom_officiel": "ADMINISTRATEUR", "role": "admin"}
                 st.rerun()
     st.stop()
 
 # --- ZONE CONNECTÉE ---
 user = st.session_state["user_data"]
-is_admin = user.get("role") == "admin"
-poste_superieur = False
+is_admin = (user.get("role") == "admin")
 
 with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
     if is_admin:
         mode_view = st.radio("Choisir une Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"])
+        poste_sup_checkbox = st.checkbox("Simuler Poste Supérieur (3h)")
     else:
         mode_view = "Personnel"
         st.subheader("⚙️ Paramètres")
-        # --- CAS DU POSTE SUPÉRIEUR ---
-        poste_superieur = st.checkbox("Poste Supérieur (Décharge 50%)")
+        # CASE À COCHER BIEN PLACÉE
+        poste_sup_checkbox = st.checkbox("Poste Supérieur (Décharge 50%)")
     
-    if st.button("🚪 Déconnexion"):
+    if st.button("🚪 Se déconnecter"):
         st.session_state["user_data"] = None; st.rerun()
 
 # --- AFFICHAGE ---
@@ -148,8 +148,9 @@ if df is not None:
         df_stats = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])
         
         charge_reelle = df_stats['h_val'].sum()
-        # --- LOGIQUE POSTE SUPÉRIEURE ---
-        charge_reg = 3.0 if poste_superieur else 6.0
+        
+        # LOGIQUE POSTE SUPÉRIEURE UTILISANT LA VARIABLE DE LA SIDEBAR
+        charge_reg = 3.0 if poste_sup_checkbox else 6.0
         
         st.markdown(f"### 📊 Bilan de charge : {cible}")
         c1, c2, c3 = st.columns(3)
