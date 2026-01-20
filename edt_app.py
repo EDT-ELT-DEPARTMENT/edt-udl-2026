@@ -169,64 +169,63 @@ if df is not None:
             df_surv = pd.read_excel(NOM_SURV)
             df_surv.columns = [str(c).strip() for c in df_surv.columns]
             
+            # Nettoyage et conversion des dates pour le tri
             for col in df_surv.columns:
                 df_surv[col] = df_surv[col].fillna("").astype(str).str.strip()
+            
+            liste_profs = sorted(df_surv['Surveillant(s)'].unique())
+            prof_sel = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs, index=liste_profs.index(user['nom_officiel']) if user['nom_officiel'] in liste_profs else 0)
+            
+            # Filtrage et Tri par Date
+            df_u = df_surv[df_surv['Surveillant(s)'] == prof_sel].copy()
+            # On s'assure que le tri par date fonctionne (format JJ/MM/AAAA)
+            try:
+                df_u['temp_date'] = pd.to_datetime(df_u['Date'], dayfirst=True)
+                df_u = df_u.sort_values(by='temp_date')
+            except:
+                pass # En cas de format de date exotique
 
-            liste_profs_surv = sorted(df_surv['Surveillant(s)'].unique())
-            
-            st.markdown("### 🏛️ Espace des Surveillances (S2-2026)")
-            prof_selectionne = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs_surv)
-            df_u = df_surv[df_surv['Surveillant(s)'] == prof_selectionne]
-            
             st.metric("Nombre de séances", f"{len(df_u)} séance(s)")
             
-            tab_perso, tab_global = st.tabs(["👤 Planning Individuel", "🌍 Vue Globale"])
+            tab1, tab2 = st.tabs(["👤 Planning Individuel", "🌍 Vue Globale"])
             
-            with tab_perso:
+            with tab1:
                 if not df_u.empty:
+                    # --- NOUVEAU : RÉCAPITULATIF PAR LIGNES (AVANT LE TABLEAU) ---
+                    st.markdown("#### 📝 Résumé chronologique des missions")
+                    for _, r in df_u.iterrows():
+                        date_c = str(r['Date']).split(' ')[0]
+                        st.markdown(f"""
+                            <div style="background-color: #f1f4f9; padding: 10px; border-left: 5px solid #D4AF37; margin-bottom: 5px; border-radius: 5px;">
+                                <span style="color: #1E3A8A; font-weight: bold;">📅 {r['Jour']} {date_c}</span> | 
+                                <span style="color: #d35400; font-weight: bold;">🕒 {r['Heure']}</span><br>
+                                📘 <b>Matière :</b> {r['Matière']} <br>
+                                👤 <b>Responsable :</b> {r['Chargé de matière']} | 📍 <b>Salle :</b> {r['Salle']} | 🎓 <b>Promo :</b> {r['Promotion']}
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    st.markdown("<br>#### 🗓️ Vue Calendrier", unsafe_allow_html=True)
+                    
+                    # --- TABLEAU VISUEL (GRILLE) ---
                     grid_s = pd.DataFrame("", index=horaires_examens, columns=jours_list)
                     for _, r in df_u.iterrows():
-                        date_claire = str(r['Date']).split(' ')[0]
-                        txt = f"<div style='font-size:11px; line-height:1.2;'><b>{r['Matière']}</b><br><span style='color:#d35400; font-weight:bold;'>📅 {date_claire}</span><br>📍 <b>{r['Salle']}</b><br><small>🎓 {r['Promotion']}</small></div>"
-                        j_ex = str(r['Jour']).strip().capitalize()
-                        h_ex = str(r['Heure']).strip()
-                        if j_ex in grid_s.columns and h_ex in grid_s.index:
-                            if grid_s.at[h_ex, j_ex] != "":
-                                grid_s.at[h_ex, j_ex] += f"<hr style='margin:5px 0;'>{txt}"
-                            else:
-                                grid_s.at[h_ex, j_ex] = txt
+                        dt = str(r['Date']).split(' ')[0]
+                        txt = f"<div style='font-size:11px; line-height:1.2;'><b>{r['Matière']}</b><br><span style='color:#d35400; font-weight:bold;'>📅 {dt}</span><br>📍 <b>{r['Salle']}</b><br><small>🎓 {r['Promotion']}</small></div>"
+                        j, h = str(r['Jour']).strip().capitalize(), str(r['Heure']).strip()
+                        if j in grid_s.columns and h in grid_s.index:
+                            grid_s.at[h, j] += (f"<hr style='margin:5px 0;'>" if grid_s.at[h, j] != "" else "") + txt
                     
                     st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
-
-                    # --- BLOC IMPRESSION ET TÉLÉCHARGEMENT ---
+                    
+                    # BOUTONS ACTIONS
                     st.divider()
-                    col_act1, col_act2 = st.columns(2)
-                    
-                    with col_act1:
-                        # Bouton Impression / Sauvegarde PDF
-                        components.html(f"""
-                            <button onclick="window.parent.print()" style="width:100%; padding:12px; background-color:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer; font-family:sans-serif;">
-                            🖨️ IMPRIMER / ENREGISTRER PDF
-                            </button>
-                        """, height=60)
-                    
-                    with col_act2:
-                        # Bouton Téléchargement Excel
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        components.html(f'<button onclick="window.parent.print()" style="width:100%; padding:12px; background:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🖨️ IMPRIMER / PDF</button>', height=60)
+                    with c2:
                         import io
-                        output = io.BytesIO()
-                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                            df_u.to_excel(writer, index=False, sheet_name='Ma_Surveillance')
-                        excel_data = output.getvalue()
-                        st.download_button(
-                            label="📥 TÉLÉCHARGER (.XLSX)",
-                            data=excel_data,
-                            file_name=f"Surveillance_{prof_selectionne}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True
-                        )
+                        out = io.BytesIO()
+                        with pd.ExcelWriter(out, engine='xlsxwriter') as wr: df_u.to_excel(wr, index=False)
+                        st.download_button("📥 TÉLÉCHARGER (.XLSX)", out.getvalue(), f"Surv_{prof_sel}.xlsx", "application/vnd.ms-excel", use_container_width=True)
                 else:
                     st.warning("Aucune donnée trouvée.")
-
-            with tab_global:
-                st.dataframe(df_surv, use_container_width=True, hide_index=True)
-
