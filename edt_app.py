@@ -160,37 +160,49 @@ if df is not None:
             if err.empty: st.success("✅ Aucun conflit détecté.")
             else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err)
 
-    # ================= PORTAIL 2 : SURVEILLANCES (INTÉGRATION) =================
+   # ================= PORTAIL 2 : SURVEILLANCES =================
     elif portail == "📅 Surveillances Examens":
-        NOM_SURV = "surveillances.xlsx"
+        # NOM CORRIGÉ ICI
+        NOM_SURV = "surveillances_2026.xlsx" 
+        
         if os.path.exists(NOM_SURV):
-            df_surv = pd.read_excel(NOM_SURV)
-            df_surv.columns = [str(c).strip() for c in df_surv.columns]
-            
-            tab_perso, tab_global = st.tabs(["👤 Mes Surveillances", "🌍 Vue Globale"])
-            
-            with tab_perso:
-                nom_u = user['nom_officiel']
-                df_u = df_surv[df_surv['Surveillant(s)'] == nom_u]
-                if not df_u.empty:
-                    st.success(f"Planning pour {nom_u}")
-                    # Grille visuelle individuelle
-                    grid_s = pd.DataFrame("", index=horaires_list, columns=jours_list)
-                    for _, r in df_u.iterrows():
-                        txt = f"<b>{r['Matière']}</b><br>📍 {r['Salle']}<br><small>{r['Promotion']}</small>"
-                        j, h = str(r['Jour']).strip(), str(r['Heure']).strip()
-                        if j in grid_s.columns and h in grid_s.index: grid_s.at[h, j] = txt
-                    st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
-                else: st.info("Aucune surveillance à votre nom.")
+            try:
+                # Lecture forcée avec openpyxl pour les fichiers 2026
+                df_surv = pd.read_excel(NOM_SURV, engine='openpyxl')
+                df_surv.columns = [str(c).strip() for c in df_surv.columns]
+                
+                tab_perso, tab_global = st.tabs(["👤 Mes Surveillances", "🌍 Vue Globale"])
+                
+                with tab_perso:
+                    nom_u = user['nom_officiel']
+                    # Vérifiez bien que la colonne s'appelle 'Surveillant(s)' dans votre Excel
+                    df_u = df_surv[df_surv['Surveillant(s)'] == nom_u]
+                    
+                    if not df_u.empty:
+                        st.success(f"Planning de surveillance pour : {nom_u}")
+                        # Grille visuelle individuelle utilisant vos horaires et jours initiaux
+                        grid_s = pd.DataFrame("", index=horaires_list, columns=jours_list)
+                        for _, r in df_u.iterrows():
+                            txt = f"<b>{r['Matière']}</b><br>📍 {r['Salle']}<br><small>🎓 {r['Promotion']}</small>"
+                            j, h = str(r['Jour']).strip(), str(r['Heure']).strip()
+                            if j in grid_s.columns and h in grid_s.index: 
+                                grid_s.at[h, j] = txt
+                        st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
+                    else: 
+                        st.info(f"Aucune surveillance trouvée au nom de : {nom_u}")
+                        st.warning("Conseil : Vérifiez que l'orthographe du nom dans le fichier Excel est identique à celle de votre compte.")
 
-            with tab_global:
-                find = st.text_input("🔍 Rechercher dans les 474 lignes :")
-                if find:
-                    mask = df_surv.apply(lambda r: r.astype(str).str.contains(find, case=False).any(), axis=1)
-                    st.dataframe(df_surv[mask], use_container_width=True, hide_index=True)
-                else:
-                    st.dataframe(df_surv, use_container_width=True, hide_index=True, height=400)
+                with tab_global:
+                    find = st.text_input("🔍 Rechercher un collègue ou une salle :")
+                    if find:
+                        mask = df_surv.apply(lambda r: r.astype(str).str.contains(find, case=False).any(), axis=1)
+                        st.dataframe(df_surv[mask], use_container_width=True, hide_index=True)
+                    else:
+                        st.dataframe(df_surv, use_container_width=True, hide_index=True, height=400)
+            
+            except Exception as e:
+                st.error(f"Erreur lors de la lecture du fichier : {e}")
         else:
-            st.error("Fichier 'surveillances.xlsx' introuvable.")
-
-    components.html("<button onclick='window.parent.print()' style='width:100%; padding:12px; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer; margin-top:10px;'>🖨️ IMPRIMER</button>", height=70)
+            st.error(f"⚠️ Le fichier '{NOM_SURV}' est introuvable sur le serveur.")
+            # Cette ligne vous aide à voir ce qui se passe sur GitHub
+            st.write("Fichiers présents à la racine :", os.listdir("."))
