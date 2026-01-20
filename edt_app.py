@@ -114,9 +114,12 @@ is_admin = user.get("role") == "admin"
 with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
     if is_admin:
-        mode_view = st.sidebar.radio("Choisir une Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"])
+        mode_view = st.radio("Choisir une Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"])
+        # Pour l'admin, on peut ajouter une option pour simuler un poste supérieur lors de la consultation d'un enseignant
+        poste_superieur = st.checkbox("Simuler Poste Supérieur (3h)")
     else:
         mode_view = "Personnel"
+        # Ajout du cas Poste Supérieur pour l'enseignant
         poste_superieur = st.checkbox("Poste Supérieur (Décharge 50%)")
     
     if st.button("🚪 Se déconnecter"):
@@ -151,13 +154,19 @@ if df is not None:
         df_stats = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])
         
         charge_reelle = df_stats['h_val'].sum()
-        c_reg = 3.0 if (not is_admin and poste_superieur) else 6.0
+        
+        # --- GESTION DU POSTE SUPÉRIEUR ---
+        c_reg = 3.0 if poste_superieur else 6.0
+        
+        # --- CALCUL DEMANDÉ : RÉELLE - RÉGLEMENTAIRE ---
+        h_sup = charge_reelle - c_reg
         
         st.markdown(f"### 📊 Bilan de charge : {cible}")
         c1, c2, c3 = st.columns(3)
         c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
-        c2.markdown(f"<div class='metric-card'><b>Réglementaire</b><br><h2>{c_reg} h</h2></div>", unsafe_allow_html=True)
-        c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2>{max(0.0, charge_reelle - c_reg)} h</h2></div>", unsafe_allow_html=True)
+        c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{c_reg} h</h2></div>", unsafe_allow_html=True)
+        # Affichage du résultat (peut être négatif si sous-charge)
+        c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2>{h_sup} h</h2></div>", unsafe_allow_html=True)
         
         s1, s2, s3 = st.columns(3)
         s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {len(df_stats[df_stats['Type'] == 'COURS'])} COURS</div>", unsafe_allow_html=True)
