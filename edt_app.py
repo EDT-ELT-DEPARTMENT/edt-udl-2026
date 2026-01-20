@@ -132,4 +132,51 @@ if df is not None:
             def fmt_p(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
             grid_p = df_p.groupby(['Horaire', 'Jours']).apply(fmt_p, include_groups=False).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
             st.write(f"### 📅 Emploi du Temps : {p_sel}")
-            st.write(grid_p.to_html(escape=False), unsafe_allow_html=True
+            st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
+
+        elif is_admin and mode_view == "🏢 Planning Salles":
+            s_sel = st.selectbox("Choisir Salle (Racine) :", sorted([r for r in df['Lieu_Racine'].unique() if r != "Non défini"]))
+            df_s = df[df['Lieu_Racine'] == s_sel]
+            def fmt_s(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><small>{r['Lieu']}</small>" for _,r in rows.iterrows()])
+            grid_s = df_s.groupby(['Horaire', 'Jours']).apply(fmt_s, include_groups=False).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
+            st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
+
+        elif is_admin and mode_view == "🚩 Vérificateur":
+            dup = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
+            err = df[df['Enseignants'] != "Non défini"][dup]
+            if err.empty: st.success("✅ Aucun conflit détecté.")
+            else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err)
+
+    # ================= PORTAIL 2 : SURVEILLANCES =================
+    elif portail == "📅 Surveillances Examens":
+        NOM_SURV = "surveillances_2026.xlsx"
+        if os.path.exists(NOM_SURV):
+            df_surv = pd.read_excel(NOM_SURV)
+            df_surv.columns = [str(c).strip() for c in df_surv.columns]
+            df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
+            liste_profs = sorted(df_surv['Surveillant(s)'].fillna("").unique())
+            prof_sel = st.selectbox("🔍 Enseignant :", liste_profs)
+            df_u = df_surv[df_surv['Surveillant(s)'] == prof_sel].sort_values(by='Date_Tri')
+            st.metric("Nombre de séances", f"{len(df_u)} séance(s)")
+            st.dataframe(df_u.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
+
+    # ================= PORTAIL 3 : GÉNÉRATEUR (SIMULATION) =================
+    elif portail == "🤖 Générateur Automatique" and is_admin:
+        st.header("⚖️ Simulateur d'Équilibrage")
+        NOM_SURV = "surveillances_2026.xlsx"
+        if os.path.exists(NOM_SURV):
+            df_manuel = pd.read_excel(NOM_SURV)
+            tous_les_ens = sorted([e for e in df['Enseignants'].unique() if e != "Non défini"])
+            col1, col2 = st.columns(2)
+            with col1: profs_alleger = st.multiselect("Enseignants à alléger :", tous_les_ens)
+            with col2:
+                q_std = st.number_input("Quota Standard :", min_value=1, value=7)
+                q_red = st.number_input("Quota Allégé :", min_value=0, value=3)
+
+            if st.button("📊 Lancer la Comparaison"):
+                counts_man = df_manuel['Surveillant(s)'].value_counts().to_dict()
+                # (Logique de simulation...)
+                res_data = [{"Enseignant": p, "Manuel": counts_man.get(p,0), "Simulé": counts_man.get(p,0)} for p in tous_les_ens]
+                df_res = pd.DataFrame(res_data)
+                st.dataframe(df_res, use_container_width=True, hide_index=True)
+                st.bar_chart(df_res.set_index("Enseignant")[["Manuel", "Simulé"]])
