@@ -94,7 +94,7 @@ horaires_list = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", 
 
 with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
-    portail = st.selectbox("🚀 MODULE", ["📖 Emploi du Temps", "📅 Surveillances Examens"])
+    portail = st.selectbox("🚀 Espace", ["📖 Emploi du Temps", "📅 Surveillances Examens"])
     st.divider()
     if portail == "📖 Emploi du Temps":
         mode_view = st.radio("Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"]) if is_admin else "Personnel"
@@ -229,3 +229,4 @@ if df is not None:
 
             with tab_global:
                 st.dataframe(df_surv, use_container_width=True, hide_index=True)
+
