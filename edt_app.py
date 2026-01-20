@@ -163,4 +163,41 @@ if df is not None:
         s1, s2, s3 = st.columns(3)
         s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {len(df_stats[df_stats['Type'] == 'COURS'])} COURS</div>", unsafe_allow_html=True)
         s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {len(df_stats[df_stats['Type'] == 'TD'])} TD</div>", unsafe_allow_html=True)
-        s3.markdown(f"<div class='
+        s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {len(df_stats[df_stats['Type'] == 'TP'])} TP</div>", unsafe_allow_html=True)
+
+        def fmt_ens(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+        grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_ens).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
+        st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+
+    # --- VUE PROMOTION (ADMIN UNIQUEMENT) ---
+    elif mode_view == "Promotion" and is_admin:
+        selection = st.sidebar.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
+        df_filtered = df[df["Promotion"] == selection].copy()
+        def fmt_p(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+        grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_p).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
+        st.write(f"### Emploi du Temps : {selection}")
+        st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+
+    # --- LOGIQUE PLANNING SALLES (NOUVEAU) ---
+    elif mode_view == "🏢 Planning Salles" and is_admin:
+        salle_selection = st.sidebar.selectbox("Choisir une Salle/Amphi :", sorted(df["Lieu"].unique()))
+        df_salle = df[df["Lieu"] == salle_selection].copy()
+        
+        def fmt_salle(rows): 
+            return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br>({r['Promotion']})" for _,r in rows.iterrows()])
+        
+        grid_salle = df_salle.groupby(['Horaire', 'Jours']).apply(fmt_salle).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
+        st.write(f"### 🏢 Occupation : {salle_selection}")
+        st.write(grid_salle.to_html(escape=False), unsafe_allow_html=True)
+
+    # --- VÉRIFICATEUR (ADMIN UNIQUEMENT) ---
+    elif mode_view == "🚩 Vérificateur" and is_admin:
+        st.subheader("🚩 Analyse des conflits d'horaires")
+        dup = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
+        err = df[df['Enseignants'] != "Non défini"][dup]
+        if err.empty: st.success("✅ Aucun chevauchement détecté pour les enseignants.")
+        else: 
+            st.warning("Attention : Les enseignants suivants ont deux cours en même temps :")
+            st.dataframe(err[['Jours', 'Horaire', 'Enseignants', 'Enseignements', 'Lieu', 'Promotion']])
+
+    components.html("<button onclick='window.parent.print()' style='width:100%; padding:12px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold; margin-top:20px;'>🖨️ IMPRIMER CE PLANNING</button>", height=70)
