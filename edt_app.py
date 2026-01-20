@@ -169,63 +169,71 @@ if df is not None:
             df_surv = pd.read_excel(NOM_SURV)
             df_surv.columns = [str(c).strip() for c in df_surv.columns]
             
-            # Nettoyage et conversion des dates pour le tri
-            for col in df_surv.columns:
-                df_surv[col] = df_surv[col].fillna("").astype(str).str.strip()
+            # 1. Conversion forcée de la colonne Date en format Date Python pour le tri
+            # On utilise errors='coerce' pour éviter les plantages si une date est mal écrite
+            df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
             
+            # Nettoyage des autres colonnes (en texte)
+            cols_to_clean = ['Surveillant(s)', 'Jour', 'Heure', 'Matière', 'Chargé de matière', 'Salle', 'Promotion']
+            for col in cols_to_clean:
+                if col in df_surv.columns:
+                    df_surv[col] = df_surv[col].fillna("").astype(str).str.strip()
+
             liste_profs = sorted(df_surv['Surveillant(s)'].unique())
             prof_sel = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs, index=liste_profs.index(user['nom_officiel']) if user['nom_officiel'] in liste_profs else 0)
             
-            # Filtrage et Tri par Date
-            df_u = df_surv[df_surv['Surveillant(s)'] == prof_sel].copy()
-            # On s'assure que le tri par date fonctionne (format JJ/MM/AAAA)
-            try:
-                df_u['temp_date'] = pd.to_datetime(df_u['Date'], dayfirst=True)
-                df_u = df_u.sort_values(by='temp_date')
-            except:
-                pass # En cas de format de date exotique
-
+            # 2. Filtrage et TRI CHRONOLOGIQUE RÉEL
+            df_u = df_surv[df_surv['Surveillant(s)'] == prof_sel].sort_values(by='Date_Tri', ascending=True)
+            
             st.metric("Nombre de séances", f"{len(df_u)} séance(s)")
             
             tab1, tab2 = st.tabs(["👤 Planning Individuel", "🌍 Vue Globale"])
             
             with tab1:
                 if not df_u.empty:
-                    # --- NOUVEAU : RÉCAPITULATIF PAR LIGNES (AVANT LE TABLEAU) ---
                     st.markdown("#### 📝 Résumé chronologique des missions")
+                    
+                    # Affichage des lignes de résumé
                     for _, r in df_u.iterrows():
-                        date_c = str(r['Date']).split(' ')[0]
+                        # On récupère la date propre (sans l'heure du tri)
+                        dt_display = r['Date'].split(' ')[0] if ' ' in str(r['Date']) else r['Date']
+                        
                         st.markdown(f"""
-                            <div style="background-color: #f1f4f9; padding: 10px; border-left: 5px solid #D4AF37; margin-bottom: 5px; border-radius: 5px;">
-                                <span style="color: #1E3A8A; font-weight: bold;">📅 {r['Jour']} {date_c}</span> | 
-                                <span style="color: #d35400; font-weight: bold;">🕒 {r['Heure']}</span><br>
-                                📘 <b>Matière :</b> {r['Matière']} <br>
-                                👤 <b>Responsable :</b> {r['Chargé de matière']} | 📍 <b>Salle :</b> {r['Salle']} | 🎓 <b>Promo :</b> {r['Promotion']}
+                            <div style="background-color: #f8f9fa; padding: 12px; border-left: 5px solid #D4AF37; margin-bottom: 8px; border-radius: 5px; border: 1px solid #e0e0e0;">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: #1E3A8A; font-weight: bold; font-size:15px;">📅 {r['Jour']} {dt_display}</span>
+                                    <span style="background-color: #1E3A8A; color: white; padding: 2px 10px; border-radius: 15px; font-size: 12px;">🕒 {r['Heure']}</span>
+                                </div>
+                                <div style="margin-top: 5px;">
+                                    <b style="font-size: 14px; color: #333;">{r['Matière']}</b><br>
+                                    <span style="font-size: 13px;">
+                                        👤 Resp: <b>{r['Chargé de matière']}</b> | 📍 Salle: <b>{r['Salle']}</b> | 🎓 Promo: <b>{r['Promotion']}</b>
+                                    </span>
+                                </div>
                             </div>
                         """, unsafe_allow_html=True)
                     
                     st.markdown("<br>#### 🗓️ Vue Calendrier", unsafe_allow_html=True)
                     
-                    # --- TABLEAU VISUEL (GRILLE) ---
+                    # 3. Grille Visuelle (inchangée)
                     grid_s = pd.DataFrame("", index=horaires_examens, columns=jours_list)
                     for _, r in df_u.iterrows():
-                        dt = str(r['Date']).split(' ')[0]
-                        txt = f"<div style='font-size:11px; line-height:1.2;'><b>{r['Matière']}</b><br><span style='color:#d35400; font-weight:bold;'>📅 {dt}</span><br>📍 <b>{r['Salle']}</b><br><small>🎓 {r['Promotion']}</small></div>"
+                        dt_grid = str(r['Date']).split(' ')[0]
+                        txt = f"<div style='font-size:11px; line-height:1.2;'><b>{r['Matière']}</b><br><span style='color:#d35400; font-weight:bold;'>📅 {dt_grid}</span><br>📍 <b>{r['Salle']}</b><br><small>🎓 {r['Promotion']}</small></div>"
                         j, h = str(r['Jour']).strip().capitalize(), str(r['Heure']).strip()
                         if j in grid_s.columns and h in grid_s.index:
                             grid_s.at[h, j] += (f"<hr style='margin:5px 0;'>" if grid_s.at[h, j] != "" else "") + txt
                     
                     st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
                     
-                    # BOUTONS ACTIONS
+                    # BOUTONS (Impression / Excel)
                     st.divider()
                     c1, c2 = st.columns(2)
                     with c1:
-                        components.html(f'<button onclick="window.parent.print()" style="width:100%; padding:12px; background:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🖨️ IMPRIMER / PDF</button>', height=60)
+                        components.html(f'<button onclick="window.parent.print()" style="width:100%; padding:12px; background:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🖨️ IMPRIMER LA FICHE</button>', height=60)
                     with c2:
                         import io
                         out = io.BytesIO()
-                        with pd.ExcelWriter(out, engine='xlsxwriter') as wr: df_u.to_excel(wr, index=False)
-                        st.download_button("📥 TÉLÉCHARGER (.XLSX)", out.getvalue(), f"Surv_{prof_sel}.xlsx", "application/vnd.ms-excel", use_container_width=True)
-                else:
-                    st.warning("Aucune donnée trouvée.")
+                        # On exporte le dataframe trié sans la colonne technique 'Date_Tri'
+                        df_u.drop(columns=['Date_Tri']).to_excel(out, index=False)
+                        st.download_button("📥 TÉLÉCHARGER (.XLSX)", out.getvalue(), f"Fiche_Surv_{prof_sel}.xlsx", use_container_width=True)
