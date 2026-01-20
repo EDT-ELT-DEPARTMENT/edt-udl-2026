@@ -211,80 +211,67 @@ if df is not None:
 elif portail == "🤖 Générateur Automatique" and is_admin:
     st.header("⚙️ Répartition Équitable (Duo/Trio)")
     
-    # --- DIAGNOSTIC ÉTAPE 1 : Les Enseignants ---
-    if df is not None:
-        tous_les_ens = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "Non défini", "À définir"]])
-        st.success(f"✅ Étape 1 : {len(tous_les_ens)} enseignants trouvés dans l'EDT.")
-    else:
-        st.error("❌ Étape 1 : Aucun enseignant trouvé (Fichier EDT absent).")
-        st.stop()
-
     NOM_SURV = "surveillances_2026.xlsx"
     
-    # --- DIAGNOSTIC ÉTAPE 2 : Le fichier Surveillances ---
-    if not os.path.exists(NOM_SURV):
-        st.warning(f"⚠️ Étape 2 : Le fichier '{NOM_SURV}' n'existe pas. Création automatique...")
-        # Création d'un fichier de test pour débloquer l'affichage
-        df_test = pd.DataFrame({
-            'Date': ['07/01/2026', '08/01/2026'],
-            'Heure': ['08h30 – 10h30', '11h00 – 13h00'],
-            'Salle': ['Salle 01', 'Amphi A'],
-            'Matière': ['Examen Test 1', 'Examen Test 2'],
-            'Jour': ['Dimanche', 'Lundi']
-        })
-        df_test.to_excel(NOM_SURV, index=False)
-        st.rerun()
-
-    # --- ÉTAPE 3 : Chargement et Calcul ---
-    df_base = pd.read_excel(NOM_SURV)
-    st.write("📊 Contenu du fichier source détecté :", df_base.head(2))
-
-    profs_alleger = st.multiselect("Enseignants avec décharge :", tous_les_ens)
-    coef = st.slider("Charge pour décharge (%)", 10, 100, 50) / 100
-
-    if st.button("🚀 GÉNÉRER LA RÉPARTITION MAINTENANT"):
-        st.write("⏳ Calcul en cours...")
-        
-        # Nettoyage des colonnes
+    if os.path.exists(NOM_SURV):
+        df_base = pd.read_excel(NOM_SURV)
+        # Nettoyage des colonnes pour éviter les erreurs d'espaces
         df_base.columns = [str(c).strip() for c in df_base.columns]
         
-        rows_final = []
-        stats_charge = {ens: 0 for ens in tous_les_ens}
+        # Liste des enseignants depuis l'EDT principal
+        tous_les_ens = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "Non défini", "À définir"]])
         
-        # Algorithme
-        for _, r in df_base.iterrows():
-            salle_txt = str(r.get('Salle', r.get('SALLE', ''))).upper()
-            nb_besoin = 3 if "AMPHI" in salle_txt else 2
-            
-            for _ in range(nb_besoin):
-                # Tri par charge pondérée
-                file_prio = sorted(tous_les_ens, key=lambda e: (stats_charge[e] / (coef if e in profs_alleger else 1.0)))
-                
-                for prof in file_prio:
-                    # Anti-conflit sur Date et Heure
-                    conflit = any(x for x in rows_final if x['Date'] == r['Date'] and x['Heure'] == r['Heure'] and x['Surveillant(s)'] == prof)
-                    
-                    if not conflit:
-                        new_row = r.to_dict()
-                        new_row['Surveillant(s)'] = prof
-                        rows_final.append(new_row)
-                        stats_charge[prof] += 1
-                        break
+        st.write(f"✅ **{len(tous_les_ens)}** enseignants chargés depuis l'EDT.")
+        
+        profs_alleger = st.multiselect("Enseignants avec décharge (Poste Sup) :", tous_les_ens)
+        coef = st.slider("Charge pour décharge (%)", 10, 100, 50) / 100
 
-        if rows_final:
-            df_res = pd.DataFrame(rows_final)
-            st.subheader("✅ RÉSULTAT")
+        if st.button("🚀 LANCER LA GÉNÉRATION ÉQUITABLE"):
+            # On récupère les examens uniques (une ligne par salle/heure)
+            # On ignore ce qui est écrit dans "Surveillant(s)" pour tout recalculer
+            df_unique = df_base.drop_duplicates(subset=['Date', 'Heure', 'Salle', 'Matière']).copy()
             
-            # Affichage du bilan
-            st.write("### 📊 Bilan des charges")
-            st.table(pd.DataFrame([{"Nom": k, "Missions": v} for k, v in stats_charge.items()]).sort_values("Missions", ascending=False))
+            rows_final = []
+            stats_charge = {ens: 0 for ens in tous_les_ens}
             
-            # Download
-            buf = io.BytesIO()
-            df_res.to_excel(buf, index=False)
-            st.download_button("📥 TÉLÉCHARGER LE PLANNING", buf.getvalue(), "Planning_Final.xlsx", use_container_width=True)
-            
-            # Aperçu
-            st.dataframe(df_res)
-        else:
-            st.error("❌ L'algorithme n'a trouvé aucune solution. Vérifiez les noms des colonnes 'Date', 'Heure' et 'Salle'.")
+            # --- ALGORITHME ---
+            for _, r in df_unique.iterrows():
+                salle_txt = str(r['Salle']).upper()
+                # Détection Amphi : Si contient 'AMPHI' ou si le nom est juste 'A', 'B', 'C'
+                is_amphi = any(x in salle_txt for x in ["AMPHI", "AMP"]) 
+                nb_besoin = 3 if is_amphi else 2
+                
+                for _ in range(nb_besoin):
+                    # Tri par charge pondérée pour l'équité
+                    file_prio = sorted(tous_les_ens, key=lambda e: (stats_charge[e] / (coef if e in profs_alleger else 1.0)))
+                    
+                    for prof in file_prio:
+                        # Vérifier si le prof est déjà dans cette salle OU à cette heure-là
+                        deja_pris = any(x for x in rows_final if x['Date'] == r['Date'] and x['Heure'] == r['Heure'] and x['Surveillant(s)'] == prof)
+                        
+                        if not deja_pris:
+                            new_row = r.to_dict()
+                            new_row['Surveillant(s)'] = prof
+                            rows_final.append(new_row)
+                            stats_charge[prof] += 1
+                            break
+
+            if rows_final:
+                df_res = pd.DataFrame(rows_final)
+                
+                # --- AFFICHAGE ---
+                st.subheader("📊 Bilan de l'équité (07/01 au 20/01)")
+                bilan_df = pd.DataFrame([{"Enseignant": k, "Missions": v} for k, v in stats_charge.items()])
+                st.table(bilan_df.sort_values("Missions", ascending=False))
+                
+                # --- EXPORT ---
+                buf = io.BytesIO()
+                df_res.to_excel(buf, index=False)
+                st.download_button("📥 TÉLÉCHARGER LE PLANNING FINAL", buf.getvalue(), "Planning_Equilibre_S2.xlsx", use_container_width=True)
+                
+                st.subheader("📝 Aperçu du nouveau planning")
+                st.dataframe(df_res[['Jour', 'Date', 'Matière', 'Surveillant(s)', 'Heure', 'Salle', 'Promotion']])
+            else:
+                st.error("L'algorithme n'a pas pu générer de lignes. Vérifiez les noms de colonnes.")
+    else:
+        st.error(f"Fichier '{NOM_SURV}' introuvable. Assurez-vous qu'il est à la racine.")
