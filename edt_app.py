@@ -207,54 +207,57 @@ if df is not None:
             with tab2:
                 st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
 
-   # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+# ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
 elif portail == "🤖 Générateur Automatique" and is_admin:
     st.header("⚙️ Répartition Équitable des Surveillances (S2-2026)")
-    st.info("🎯 Critères : 02 surveillants/Salle, 03 surveillants/Amphi. Équilibrage sur la période du 07/01 au 20/01.")
+    st.info("🎯 Critères : 02 surveillants/Salle, 03 surveillants/Amphi. Équilibrage du 07/01 au 20/01.")
     
     NOM_SURV = "surveillances_2026.xlsx"
     
     if os.path.exists(NOM_SURV):
-        # Chargement du fichier source (contenant les dates, matières et salles)
+        # Chargement et nettoyage immédiat
         df_base = pd.read_excel(NOM_SURV)
         df_base.columns = [str(c).strip() for c in df_base.columns]
         
-        # Identification des enseignants depuis l'EDT principal (Saved Info)
-        tous_les_ens = sorted([e for e in df['Enseignants'].unique() if e not in ["Non défini", "À définir"]])
+        # Récupération des enseignants (Source : EDT Global)
+        # On s'assure qu'ils sont bien extraits
+        tous_les_ens = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "Non défini", "À définir"]])
         
-        # --- CONFIGURATION DES QUOTAS ---
-        st.subheader("1️⃣ Paramètres de décharge")
-        profs_alleger = st.multiselect("Enseignants avec Poste Supérieur (Charge réduite) :", tous_les_ens)
-        coef_reduction = st.slider("Coefficient de charge pour les postes supérieurs (%)", 10, 100, 50) / 100
+        if not tous_les_ens:
+            st.error("❌ Aucun enseignant trouvé dans l'EDT principal. Vérifiez la source des données.")
+            st.stop()
 
-        if st.button("🔄 Générer la Répartition Chronologique"):
-            # Préparation chronologique
+        st.subheader("1️⃣ Paramètres de décharge")
+        profs_alleger = st.multiselect("Enseignants avec décharge (Poste Sup) :", tous_les_ens)
+        coef_reduction = st.slider("Charge pour les postes supérieurs (%)", 10, 100, 50) / 100
+
+        if st.button("🚀 Lancer la Génération"):
+            # Préparation des dates
             df_base['Date_DT'] = pd.to_datetime(df_base['Date'], dayfirst=True, errors='coerce')
-            # On récupère chaque examen unique par salle
+            
+            # On identifie les séances d'examen à remplir
+            # On ignore les lignes où le surveillant est déjà inscrit si on veut tout refaire
             df_seances = df_base.sort_values(by=['Date_DT', 'Heure']).drop_duplicates(subset=['Date', 'Heure', 'Salle', 'Matière'])
             
+            if df_seances.empty:
+                st.warning("⚠️ Le fichier source ne contient aucune séance d'examen valide.")
+                st.stop()
+
             rows_final = []
-            # Dictionnaire pour suivre la charge réelle accumulée (VH de surveillance)
             stats_charge = {ens: 0 for ens in tous_les_ens}
             
             # --- ALGORITHME DE RÉPARTITION ---
             for _, r in df_seances.iterrows():
-                nom_salle = str(r['Salle'])
-                is_amphi = "Amphi" in nom_salle
-                nb_besoin = 3 if is_amphi else 2 # Règle Duo/Trio
+                nom_salle = str(r['Salle']).upper()
+                nb_besoin = 3 if "AMPHI" in nom_salle else 2 
                 
                 for _ in range(nb_besoin):
-                    # Calcul de la priorité : on trie les enseignants par charge pondérée
-                    # (Charge réelle / Coef) pour que les profs allégés paraissent "plus chargés" plus vite
-                    def priorite_calcul(e):
-                        charge_actuelle = stats_charge[e]
-                        coef = coef_reduction if e in profs_alleger else 1.0
-                        return charge_actuelle / coef
-
-                    file_priorite = sorted(tous_les_ens, key=priorite_calcul)
+                    # Calcul de priorité (Charge / Coef)
+                    file_priorite = sorted(tous_les_ens, key=lambda e: (stats_charge[e] / (coef_reduction if e in profs_alleger else 1.0)))
                     
+                    attribue = False
                     for prof in file_priorite:
-                        # Vérifier si l'enseignant est déjà affecté à cet examen (même date/heure)
+                        # Vérification anti-conflit (pas deux salles à la même heure)
                         conflit = any(x for x in rows_final if x['Date'] == r['Date'] and 
                                       x['Heure'] == r['Heure'] and 
                                       x['Surveillant(s)'] == prof)
@@ -264,37 +267,31 @@ elif portail == "🤖 Générateur Automatique" and is_admin:
                             new_row['Surveillant(s)'] = prof
                             rows_final.append(new_row)
                             stats_charge[prof] += 1
+                            attribue = True
                             break
-
-            # Conversion en DataFrame final
-            df_final = pd.DataFrame(rows_final).drop(columns=['Date_DT'])
             
-            # --- AFFICHAGE DES RÉSULTATS ---
-            st.success(f"✅ Répartition effectuée sur {len(df_final)} postes de surveillance.")
-            
-            # Tableau de bord de l'équité
-            st.subheader("📊 Bilan de charge sur la période (07/01 au 20/01)")
-            res_charge = pd.DataFrame([
-                {
-                    "Enseignant": e, 
-                    "Nombre de Surveillances": stats_charge[e], 
-                    "Statut": "Poste Supérieur" if e in profs_alleger else "Standard"
-                } for e in tous_les_ens
-            ]).sort_values(by="Nombre de Surveillances", ascending=False)
-            
-            st.table(res_charge)
-            
-            # --- EXPORT ---
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                df_final.to_excel(writer, index=False, sheet_name='EDT_Surveillances_Final')
-            
-            st.download_button(
-                label="📥 Télécharger le Planning Général Équilibré (.xlsx)",
-                data=buf.getvalue(),
-                file_name=f"EDT_Surveillances_S2_2026_Final.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+            if rows_final:
+                df_final = pd.DataFrame(rows_final).drop(columns=['Date_DT'], errors='ignore')
+                
+                st.success(f"✅ Génération terminée : {len(df_final)} affectations créées.")
+                
+                # Bilan de charge
+                st.subheader("📊 Bilan de l'équité")
+                res_charge = pd.DataFrame([
+                    {"Enseignant": e, "Missions": stats_charge[e], "Type": "Allégé" if e in profs_alleger else "Standard"} 
+                    for e in tous_les_ens
+                ]).sort_values(by="Missions", ascending=False)
+                
+                st.table(res_charge)
+                
+                # Aperçu et Téléchargement
+                st.subheader("📝 Aperçu du planning généré")
+                st.dataframe(df_final, use_container_width=True)
+                
+                buf = io.BytesIO()
+                df_final.to_excel(buf, index=False)
+                st.download_button("📥 Télécharger le fichier (.xlsx)", buf.getvalue(), "Planning_Surveillances_Equilibre.xlsx", use_container_width=True)
+            else:
+                st.error("L'algorithme n'a pas pu générer d'affectations. Vérifiez les conflits d'horaires.")
     else:
-        st.error(f"⚠️ Erreur : Le fichier '{NOM_SURV}' est introuvable dans le répertoire.")
+        st.error(f"Fichier '{NOM_SURV}' manquant. Veuillez l'uploader ou le créer.")
