@@ -244,3 +244,75 @@ if df is not None:
 
             with tab2:
                 st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
+
+# ================= ESPACE : SIMULATEUR D'ÉQUILIBRAGE =================
+    elif portail == "🤖 Générateur Automatique" and is_admin:
+        st.header("⚖️ Simulateur : Comparaison Manuel vs Automatique")
+        
+        if os.path.exists(NOM_SURV) and df is not None:
+            # On charge les données réelles (Manuelles)
+            df_manuel = pd.read_excel(NOM_SURV)
+            df_manuel.columns = [str(c).strip() for c in df_manuel.columns]
+            tous_les_ens = sorted([e for e in df['Enseignants'].unique() if e != "Non défini"])
+            
+            # --- CONFIGURATION DE LA SIMULATION ---
+            st.subheader("⚙️ Paramètres de la Simulation")
+            col1, col2 = st.columns(2)
+            with col1:
+                profs_alleger = st.multiselect("Enseignants à alléger :", tous_les_ens)
+            with col2:
+                q_std = st.number_input("Quota Standard :", min_value=1, value=7)
+                q_red = st.number_input("Quota Allégé :", min_value=0, value=3)
+
+            if st.button("📊 Lancer la Comparaison"):
+                # --- CALCUL CHARGE MANUELLE ---
+                counts_man = df_manuel['Surveillant(s)'].value_counts().to_dict()
+                
+                # --- CALCUL CHARGE AUTOMATIQUE (SIMULATION) ---
+                df_simu = df_manuel.copy()
+                charges_simu = {ens: counts_man.get(ens, 0) for ens in tous_les_ens}
+                
+                mask_vide = (df_simu['Surveillant(s)'].isna()) | (df_simu['Surveillant(s)'] == "") | (df_simu['Surveillant(s)'].astype(str) == "nan")
+                indices_vides = df_simu[mask_vide].index.tolist()
+                
+                for idx in indices_vides:
+                    j, h = str(df_simu.at[idx, 'Jour']), str(df_simu.at[idx, 'Heure'])
+                    file = sorted([p for p in tous_les_ens if p not in prof_alleger], key=lambda x: charges_simu[x]) + \
+                           sorted(profs_alleger, key=lambda x: charges_simu[x])
+                    
+                    for prof in file:
+                        limite = q_red if prof in prof_alleger else q_std
+                        deja_pris = not df_simu[(df_simu['Jour'] == j) & (df_simu['Heure'] == h) & (df_simu['Surveillant(s)'] == prof)].empty
+                        if not deja_pris and charges_simu[prof] < limite:
+                            df_simu.at[idx, 'Surveillant(s)'] = prof
+                            charges_simu[prof] += 1
+                            break
+
+                # --- CONSTRUCTION DU TABLEAU COMPARATIF ---
+                st.divider()
+                st.subheader("📈 Résultat de la Comparaison")
+                
+                donnees_comp = []
+                for p in tous_les_ens:
+                    c_man = counts_man.get(p, 0)
+                    c_sim = charges_simu.get(p, 0)
+                    donnees_comp.append({
+                        "Enseignant": p,
+                        "Charge Manuelle (Actuelle)": c_man,
+                        "Charge Simulée (Auto)": c_sim,
+                        "Différence": c_sim - c_man,
+                        "Statut": "Allégé" if p in prof_alleger else "Standard"
+                    })
+                
+                df_comparatif = pd.DataFrame(donnees_comp).sort_values("Différence", ascending=False)
+                
+                # Affichage avec style pour repérer les changements
+                st.dataframe(df_comparatif.style.background_gradient(subset=['Différence'], cmap='Blues'), use_container_width=True, hide_index=True)
+
+                st.info("💡 La colonne 'Différence' montre combien de séances l'algorithme a ajouté à chaque enseignant pour atteindre les quotas sans modifier votre fichier réel.")
+                
+                # Option de téléchargement du résultat simulé uniquement si l'admin le souhaite
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='xlsxwriter') as wr:
+                    df_simu.to_excel(wr, index=False)
+                st.download_button("💾 Télécharger la simulation (pour test)", buf.getvalue(), "simulation_surveillance.xlsx")
