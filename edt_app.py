@@ -160,26 +160,24 @@ if df is not None:
             if err.empty: st.success("✅ Aucun conflit détecté.")
             else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err)
 
- # ================= PORTAIL 2 : SURVEILLANCES =================
+# ================= PORTAIL 2 : SURVEILLANCES =================
     elif portail == "📅 Surveillances Examens":
         NOM_SURV = "surveillances_2026.xlsx"
         
-        # Liste spécifique des horaires d'EXAMENS (pour correspondre à votre alerte)
+        # Horaires des examens (respectant le tiret moyen de votre Excel)
         horaires_examens = ["08h30 – 10h30", "11h00 – 13h00", "13h30 – 15h30"]
         
         if os.path.exists(NOM_SURV):
             df_surv = pd.read_excel(NOM_SURV)
             df_surv.columns = [str(c).strip() for c in df_surv.columns]
             
-            # Nettoyage des colonnes
-            for col in ['Surveillant(s)', 'Jour', 'Heure']:
-                if col in df_surv.columns:
-                    df_surv[col] = df_surv[col].astype(str).str.strip()
+            # Nettoyage et conversion en texte de toutes les colonnes
+            for col in df_surv.columns:
+                df_surv[col] = df_surv[col].fillna("").astype(str).str.strip()
 
             liste_profs_surv = sorted(df_surv['Surveillant(s)'].unique())
             
             st.markdown("### 🏛️ Espace des Surveillances (S2-2026)")
-            
             prof_selectionne = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs_surv)
             df_u = df_surv[df_surv['Surveillant(s)'] == prof_selectionne]
             
@@ -189,20 +187,31 @@ if df is not None:
             
             with tab_perso:
                 if not df_u.empty:
-                    # On crée la grille avec les horaires d'examens au lieu des cours
+                    # Création de la grille (Jours en colonnes, Horaires en lignes)
                     grid_s = pd.DataFrame("", index=horaires_examens, columns=jours_list)
                     
                     for _, r in df_u.iterrows():
-                        txt = f"<b>{r['Matière']}</b><br>📍 {r['Salle']}<br><small>{r['Promotion']}</small>"
+                        # --- RÉCUPÉRATION ET AFFICHAGE DE LA DATE ---
+                        # On récupère la date et on enlève les éventuels "00:00:00" si Excel a détecté un format date
+                        date_brute = str(r['Date']).split(' ')[0] 
+                        
+                        txt = f"""
+                            <div style="font-size:11px;">
+                                <b style="color:#1E3A8A;">{r['Matière']}</b><br>
+                                <span style="color: #d35400; font-weight: bold;">📅 {date_brute}</span><br>
+                                📍 <b>{r['Salle']}</b><br>
+                                <small>🎓 {r['Promotion']}</small>
+                            </div>
+                        """
                         
                         j_ex = str(r['Jour']).strip().capitalize()
-                        h_ex = str(r['Heure']).strip() # Garde le format "08h30 – 10h30"
+                        h_ex = str(r['Heure']).strip()
                         
                         if j_ex in grid_s.columns and h_ex in grid_s.index:
-                            grid_s.at[h_ex, j_ex] = txt
-                        else:
-                            # Affichage de secours si l'heure est encore différente
-                            st.warning(f"⚠️ Format non reconnu : {r['Matière']} ({j_ex} à {h_ex})")
+                            if grid_s.at[h_ex, j_ex] != "":
+                                grid_s.at[h_ex, j_ex] += f"<div class='separator'></div>{txt}"
+                            else:
+                                grid_s.at[h_ex, j_ex] = txt
                     
                     st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
                 else:
@@ -210,5 +219,3 @@ if df is not None:
 
             with tab_global:
                 st.dataframe(df_surv, use_container_width=True, hide_index=True)
-        else:
-            st.error(f"Fichier '{NOM_SURV}' introuvable.")
