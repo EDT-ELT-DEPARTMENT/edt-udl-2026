@@ -163,15 +163,13 @@ if df is not None:
 # ================= PORTAIL 2 : SURVEILLANCES =================
     elif portail == "📅 Surveillances Examens":
         NOM_SURV = "surveillances_2026.xlsx"
-        
-        # Horaires des examens (respectant le tiret moyen de votre Excel)
         horaires_examens = ["08h30 – 10h30", "11h00 – 13h00", "13h30 – 15h30"]
         
         if os.path.exists(NOM_SURV):
             df_surv = pd.read_excel(NOM_SURV)
             df_surv.columns = [str(c).strip() for c in df_surv.columns]
             
-            # Nettoyage et conversion en texte de toutes les colonnes
+            # Nettoyage global
             for col in df_surv.columns:
                 df_surv[col] = df_surv[col].fillna("").astype(str).str.strip()
 
@@ -187,32 +185,26 @@ if df is not None:
             
             with tab_perso:
                 if not df_u.empty:
-                    # Création de la grille (Jours en colonnes, Horaires en lignes)
                     grid_s = pd.DataFrame("", index=horaires_examens, columns=jours_list)
                     
                     for _, r in df_u.iterrows():
-                        # --- RÉCUPÉRATION ET AFFICHAGE DE LA DATE ---
-                        # On récupère la date et on enlève les éventuels "00:00:00" si Excel a détecté un format date
-                        date_brute = str(r['Date']).split(' ')[0] 
+                        # Nettoyage de la date pour éviter le format 2026-01-11 00:00:00
+                        date_claire = str(r['Date']).split(' ')[0]
                         
-                        txt = f"""
-                            <div style="font-size:11px;">
-                                <b style="color:#1E3A8A;">{r['Matière']}</b><br>
-                                <span style="color: #d35400; font-weight: bold;">📅 {date_brute}</span><br>
-                                📍 <b>{r['Salle']}</b><br>
-                                <small>🎓 {r['Promotion']}</small>
-                            </div>
-                        """
+                        # Construction du texte sur UNE SEULE LIGNE pour éliminer les \n
+                        txt = f"<div style='font-size:11px; line-height:1.2;'><b>{r['Matière']}</b><br><span style='color:#d35400; font-weight:bold;'>📅 {date_claire}</span><br>📍 <b>{r['Salle']}</b><br><small>🎓 {r['Promotion']}</small></div>"
                         
                         j_ex = str(r['Jour']).strip().capitalize()
                         h_ex = str(r['Heure']).strip()
                         
                         if j_ex in grid_s.columns and h_ex in grid_s.index:
                             if grid_s.at[h_ex, j_ex] != "":
-                                grid_s.at[h_ex, j_ex] += f"<div class='separator'></div>{txt}"
+                                # Utilisation de <hr> au lieu de div pour une séparation plus propre
+                                grid_s.at[h_ex, j_ex] += f"<hr style='margin:5px 0;'>{txt}"
                             else:
                                 grid_s.at[h_ex, j_ex] = txt
                     
+                    # Rendu final sans échappement
                     st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
                 else:
                     st.warning("Aucune donnée trouvée.")
