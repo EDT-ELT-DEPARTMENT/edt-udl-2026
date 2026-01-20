@@ -164,13 +164,14 @@ if df is not None:
     elif portail == "📅 Surveillances Examens":
         NOM_SURV = "surveillances_2026.xlsx"
         
+        # Liste spécifique des horaires d'EXAMENS (pour correspondre à votre alerte)
+        horaires_examens = ["08h30 – 10h30", "11h00 – 13h00", "13h30 – 15h30"]
+        
         if os.path.exists(NOM_SURV):
             df_surv = pd.read_excel(NOM_SURV)
-            # Nettoyage strict des noms de colonnes
             df_surv.columns = [str(c).strip() for c in df_surv.columns]
             
-            # --- NETTOYAGE DES DONNÉES POUR LA CORRESPONDANCE ---
-            # On s'assure que les colonnes critiques existent et sont propres
+            # Nettoyage des colonnes
             for col in ['Surveillant(s)', 'Jour', 'Heure']:
                 if col in df_surv.columns:
                     df_surv[col] = df_surv[col].astype(str).str.strip()
@@ -179,48 +180,35 @@ if df is not None:
             
             st.markdown("### 🏛️ Espace des Surveillances (S2-2026)")
             
-            prof_selectionne = st.selectbox(
-                "🔍 Sélectionner un enseignant :", 
-                liste_profs_surv, 
-                index=0
-            )
-            
+            prof_selectionne = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs_surv)
             df_u = df_surv[df_surv['Surveillant(s)'] == prof_selectionne]
             
-            # --- AFFICHAGE DU COMPTEUR ---
             st.metric("Nombre de séances", f"{len(df_u)} séance(s)")
             
             tab_perso, tab_global = st.tabs(["👤 Planning Individuel", "🌍 Vue Globale"])
             
             with tab_perso:
                 if not df_u.empty:
-                    # Création de la grille
-                    grid_s = pd.DataFrame("", index=horaires_list, columns=jours_list)
+                    # On crée la grille avec les horaires d'examens au lieu des cours
+                    grid_s = pd.DataFrame("", index=horaires_examens, columns=jours_list)
                     
-                    # Logique de remplissage flexible
                     for _, r in df_u.iterrows():
                         txt = f"<b>{r['Matière']}</b><br>📍 {r['Salle']}<br><small>{r['Promotion']}</small>"
                         
-                        # On cherche le jour et l'heure dans la grille (insensible à la casse)
-                        jour_excel = str(r['Jour']).strip().capitalize()
-                        heure_excel = str(r['Heure']).strip().replace(" ", "") # "8h-9h30"
+                        j_ex = str(r['Jour']).strip().capitalize()
+                        h_ex = str(r['Heure']).strip() # Garde le format "08h30 – 10h30"
                         
-                        # On nettoie aussi les listes de référence pour comparer
-                        clean_jours = [j.strip().capitalize() for j in jours_list]
-                        clean_heures = [h.strip().replace(" ", "") for h in horaires_list]
-                        
-                        if jour_excel in clean_jours and heure_excel in clean_heures:
-                            idx_h = horaires_list[clean_heures.index(heure_excel)]
-                            col_j = jours_list[clean_jours.index(jour_excel)]
-                            grid_s.at[idx_h, col_j] = txt
+                        if j_ex in grid_s.columns and h_ex in grid_s.index:
+                            grid_s.at[h_ex, j_ex] = txt
                         else:
-                            # Si ça ne rentre pas dans la grille, on l'affiche en dessous
-                            st.warning(f"⚠️ Créneau hors-grille : {r['Matière']} le {r['Jour']} à {r['Heure']}")
+                            # Affichage de secours si l'heure est encore différente
+                            st.warning(f"⚠️ Format non reconnu : {r['Matière']} ({j_ex} à {h_ex})")
                     
                     st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
                 else:
                     st.warning("Aucune donnée trouvée.")
 
             with tab_global:
-                st.dataframe(df_surv, use_container_width=True)
-
+                st.dataframe(df_surv, use_container_width=True, hide_index=True)
+        else:
+            st.error(f"Fichier '{NOM_SURV}' introuvable.")
