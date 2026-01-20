@@ -211,86 +211,80 @@ if df is not None:
 elif portail == "🤖 Générateur Automatique" and is_admin:
     st.header("⚙️ Répartition Équitable (Duo/Trio)")
     
+    # --- DIAGNOSTIC ÉTAPE 1 : Les Enseignants ---
+    if df is not None:
+        tous_les_ens = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "Non défini", "À définir"]])
+        st.success(f"✅ Étape 1 : {len(tous_les_ens)} enseignants trouvés dans l'EDT.")
+    else:
+        st.error("❌ Étape 1 : Aucun enseignant trouvé (Fichier EDT absent).")
+        st.stop()
+
     NOM_SURV = "surveillances_2026.xlsx"
     
-    # --- VERIFICATION / CREATION DU FICHIER SOURCE ---
+    # --- DIAGNOSTIC ÉTAPE 2 : Le fichier Surveillances ---
     if not os.path.exists(NOM_SURV):
-        st.warning(f"⚠️ Le fichier '{NOM_SURV}' est absent. Création d'un modèle d'exemple...")
-        df_exemple = pd.DataFrame({
-            'Date': ['07/01/2026', '07/01/2026', '08/01/2026'],
-            'Jour': ['Dimanche', 'Dimanche', 'Lundi'],
-            'Heure': ['08h30 – 10h30', '11h00 – 13h00', '08h30 – 10h30'],
-            'Matière': ['Maths', 'Physique', 'Électrotechnique'],
-            'Salle': ['Salle 01', 'Amphi A', 'Salle 02'],
-            'Promotion': ['L3', 'M1', 'L2'],
-            'Surveillant(s)': ['', '', '']
+        st.warning(f"⚠️ Étape 2 : Le fichier '{NOM_SURV}' n'existe pas. Création automatique...")
+        # Création d'un fichier de test pour débloquer l'affichage
+        df_test = pd.DataFrame({
+            'Date': ['07/01/2026', '08/01/2026'],
+            'Heure': ['08h30 – 10h30', '11h00 – 13h00'],
+            'Salle': ['Salle 01', 'Amphi A'],
+            'Matière': ['Examen Test 1', 'Examen Test 2'],
+            'Jour': ['Dimanche', 'Lundi']
         })
-        df_exemple.to_excel(NOM_SURV, index=False)
-        st.success("Fichier exemple créé ! Re-cliquez sur le menu.")
+        df_test.to_excel(NOM_SURV, index=False)
+        st.rerun()
 
-    # --- CHARGEMENT DES DONNÉES ---
-    try:
-        df_base = pd.read_excel(NOM_SURV)
-        # Nettoyage radical des noms de colonnes (suppression espaces et mise en minuscule)
-        df_base.columns = [str(c).strip().lower() for c in df_base.columns]
-        
-        # Mappage des colonnes critiques
-        col_map = {
-            'date': 'date', 'heure': 'heure', 'salle': 'salle', 
-            'matière': 'matiere', 'matiere': 'matiere', 'surveillant(s)': 'surv'
-        }
-        
-        # Extraction des enseignants (Depuis l'EDT principal mémorisé)
-        tous_les_ens = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "Non défini", "À définir"]])
-        
-        st.write(f"✅ **{len(tous_les_ens)}** enseignants détectés.")
-        
-        profs_alleger = st.multiselect("Enseignants avec décharge (Poste Sup) :", tous_les_ens)
-        coef = st.slider("Charge (%)", 10, 100, 50) / 100
+    # --- ÉTAPE 3 : Chargement et Calcul ---
+    df_base = pd.read_excel(NOM_SURV)
+    st.write("📊 Contenu du fichier source détecté :", df_base.head(2))
 
-        if st.button("🚀 LANCER LA GÉNÉRATION"):
-            # Identification des colonnes réelles
-            c_date = 'date' if 'date' in df_base.columns else df_base.columns[0]
-            c_heure = 'heure' if 'heure' in df_base.columns else df_base.columns[2]
-            c_salle = 'salle' if 'salle' in df_base.columns else df_base.columns[4]
+    profs_alleger = st.multiselect("Enseignants avec décharge :", tous_les_ens)
+    coef = st.slider("Charge pour décharge (%)", 10, 100, 50) / 100
+
+    if st.button("🚀 GÉNÉRER LA RÉPARTITION MAINTENANT"):
+        st.write("⏳ Calcul en cours...")
+        
+        # Nettoyage des colonnes
+        df_base.columns = [str(c).strip() for c in df_base.columns]
+        
+        rows_final = []
+        stats_charge = {ens: 0 for ens in tous_les_ens}
+        
+        # Algorithme
+        for _, r in df_base.iterrows():
+            salle_txt = str(r.get('Salle', r.get('SALLE', ''))).upper()
+            nb_besoin = 3 if "AMPHI" in salle_txt else 2
             
-            rows_final = []
-            stats_charge = {ens: 0 for ens in tous_les_ens}
-            
-            # On traite chaque ligne du fichier source
-            for _, r in df_base.iterrows():
-                salle_txt = str(r[c_salle]).upper()
-                nb_besoin = 3 if "AMPHI" in salle_txt else 2
+            for _ in range(nb_besoin):
+                # Tri par charge pondérée
+                file_prio = sorted(tous_les_ens, key=lambda e: (stats_charge[e] / (coef if e in profs_alleger else 1.0)))
                 
-                for _ in range(nb_besoin):
-                    # Tri par charge pondérée
-                    file_prio = sorted(tous_les_ens, key=lambda e: (stats_charge[e] / (coef if e in profs_alleger else 1.0)))
+                for prof in file_prio:
+                    # Anti-conflit sur Date et Heure
+                    conflit = any(x for x in rows_final if x['Date'] == r['Date'] and x['Heure'] == r['Heure'] and x['Surveillant(s)'] == prof)
                     
-                    for prof in file_prio:
-                        # Anti-conflit : Pas le même prof dans la même salle au même moment
-                        conflit = any(x for x in rows_final if x[c_date] == r[c_date] and x[c_heure] == r[c_heure] and x['Surveillant(s)'] == prof)
-                        
-                        if not conflit:
-                            new_row = r.to_dict()
-                            new_row['Surveillant(s)'] = prof
-                            rows_final.append(new_row)
-                            stats_charge[prof] += 1
-                            break
+                    if not conflit:
+                        new_row = r.to_dict()
+                        new_row['Surveillant(s)'] = prof
+                        rows_final.append(new_row)
+                        stats_charge[prof] += 1
+                        break
 
-            if rows_final:
-                df_res = pd.DataFrame(rows_final)
-                st.subheader("📊 Bilan des Charges")
-                st.table(pd.DataFrame([{"Nom": k, "Missions": v} for k, v in stats_charge.items()]).sort_values("Missions", ascending=False))
-                
-                st.subheader("📝 Aperçu du Planning")
-                st.dataframe(df_res)
-                
-                # Export
-                buf = io.BytesIO()
-                df_res.to_excel(buf, index=False)
-                st.download_button("📥 Télécharger le résultat", buf.getvalue(), "EDT_FINAL.xlsx")
-            else:
-                st.error("L'algorithme n'a généré aucune ligne. Vérifiez les noms des colonnes de votre Excel.")
-                
-    except Exception as e:
-        st.error(f"Erreur de lecture : {e}")
+        if rows_final:
+            df_res = pd.DataFrame(rows_final)
+            st.subheader("✅ RÉSULTAT")
+            
+            # Affichage du bilan
+            st.write("### 📊 Bilan des charges")
+            st.table(pd.DataFrame([{"Nom": k, "Missions": v} for k, v in stats_charge.items()]).sort_values("Missions", ascending=False))
+            
+            # Download
+            buf = io.BytesIO()
+            df_res.to_excel(buf, index=False)
+            st.download_button("📥 TÉLÉCHARGER LE PLANNING", buf.getvalue(), "Planning_Final.xlsx", use_container_width=True)
+            
+            # Aperçu
+            st.dataframe(df_res)
+        else:
+            st.error("❌ L'algorithme n'a trouvé aucune solution. Vérifiez les noms des colonnes 'Date', 'Heure' et 'Salle'.")
