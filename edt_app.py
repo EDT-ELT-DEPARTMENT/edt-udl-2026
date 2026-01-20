@@ -160,49 +160,93 @@ if df is not None:
             if err.empty: st.success("✅ Aucun conflit détecté.")
             else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err)
 
-   # ================= PORTAIL 2 : SURVEILLANCES =================
+  # ================= PORTAIL 2 : SURVEILLANCES =================
     elif portail == "📅 Surveillances Examens":
-        # NOM CORRIGÉ ICI
-        NOM_SURV = "surveillances_2026.xlsx" 
+        NOM_SURV = "surveillances_2026.xlsx"
         
         if os.path.exists(NOM_SURV):
-            try:
-                # Lecture forcée avec openpyxl pour les fichiers 2026
-                df_surv = pd.read_excel(NOM_SURV, engine='openpyxl')
-                df_surv.columns = [str(c).strip() for c in df_surv.columns]
-                
-                tab_perso, tab_global = st.tabs(["👤 Mes Surveillances", "🌍 Vue Globale"])
-                
-                with tab_perso:
-                    nom_u = user['nom_officiel']
-                    # Vérifiez bien que la colonne s'appelle 'Surveillant(s)' dans votre Excel
-                    df_u = df_surv[df_surv['Surveillant(s)'] == nom_u]
-                    
-                    if not df_u.empty:
-                        st.success(f"Planning de surveillance pour : {nom_u}")
-                        # Grille visuelle individuelle utilisant vos horaires et jours initiaux
-                        grid_s = pd.DataFrame("", index=horaires_list, columns=jours_list)
-                        for _, r in df_u.iterrows():
-                            txt = f"<b>{r['Matière']}</b><br>📍 {r['Salle']}<br><small>🎓 {r['Promotion']}</small>"
-                            j, h = str(r['Jour']).strip(), str(r['Heure']).strip()
-                            if j in grid_s.columns and h in grid_s.index: 
-                                grid_s.at[h, j] = txt
-                        st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
-                    else: 
-                        st.info(f"Aucune surveillance trouvée au nom de : {nom_u}")
-                        st.warning("Conseil : Vérifiez que l'orthographe du nom dans le fichier Excel est identique à celle de votre compte.")
-
-                with tab_global:
-                    find = st.text_input("🔍 Rechercher un collègue ou une salle :")
-                    if find:
-                        mask = df_surv.apply(lambda r: r.astype(str).str.contains(find, case=False).any(), axis=1)
-                        st.dataframe(df_surv[mask], use_container_width=True, hide_index=True)
-                    else:
-                        st.dataframe(df_surv, use_container_width=True, hide_index=True, height=400)
+            df_surv = pd.read_excel(NOM_SURV)
+            df_surv.columns = [str(c).strip() for c in df_surv.columns]
             
-            except Exception as e:
-                st.error(f"Erreur lors de la lecture du fichier : {e}")
+            liste_profs_surv = sorted(df_surv['Surveillant(s)'].dropna().unique())
+            
+            st.markdown("### 🏛️ Espace des Surveillances (S2-2026)")
+            
+            idx_defaut = 0
+            if user['nom_officiel'] in liste_profs_surv:
+                idx_defaut = liste_profs_surv.index(user['nom_officiel'])
+            
+            prof_selectionne = st.selectbox(
+                "🔍 Sélectionner un enseignant pour consulter son planning :", 
+                liste_profs_surv, 
+                index=idx_defaut
+            )
+            
+            # --- CALCUL ET AFFICHAGE DU NOMBRE DE SURVEILLANCES ---
+            df_u = df_surv[df_surv['Surveillant(s)'] == prof_selectionne]
+            nb_surv = len(df_u)
+            
+            st.markdown(f"""
+                <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+                    <div class='metric-card' style="width: 300px; border-top: 5px solid #D4AF37; padding:15px; background-color:#fcfcfc; border-radius:10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
+                        <span style="font-size:14px; color:#666;">Nombre total de surveillances</span><br>
+                        <h2 style="color: #1E3A8A; margin: 0; font-size:28px;">{nb_surv} séance(s)</h2>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            tab_perso, tab_global = st.tabs(["👤 Planning Individuel", "🌍 Planning Global (474 lignes)"])
+            
+            with tab_perso:
+                if not df_u.empty:
+                    # Génération de la grille
+                    grid_s = pd.DataFrame("", index=horaires_list, columns=jours_list)
+                    for _, r in df_u.iterrows():
+                        txt = f"<b>{r['Matière']}</b><br>📍 {r['Salle']}<br><small>🎓 {r['Promotion']}</small>"
+                        j, h = str(r['Jour']).strip(), str(r['Heure']).strip()
+                        if j in grid_s.columns and h in grid_s.index:
+                            if grid_s.at[h, j] != "":
+                                grid_s.at[h, j] += f"<div class='separator'></div>{txt}"
+                            else:
+                                grid_s.at[h, j] = txt
+                                
+                    st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
+
+                    # --- OPTIONS D'IMPRESSION ET TÉLÉCHARGEMENT ---
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    col_down1, col_down2 = st.columns(2)
+                    
+                    with col_down1:
+                        # Bouton Impression (JavaScript)
+                        components.html(f"""
+                            <button onclick="window.parent.print()" style="width:100%; padding:10px; background-color:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">
+                            🖨️ IMPRIMER MON PLANNING (PDF)
+                            </button>
+                        """, height=60)
+
+                    with col_down2:
+                        # Bouton Téléchargement Excel
+                        import io
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            df_u.to_excel(writer, index=False, sheet_name='Surveillances')
+                        excel_data = output.getvalue()
+                        st.download_button(
+                            label="📥 TÉLÉCHARGER MON EDT (.XLSX)",
+                            data=excel_data,
+                            file_name=f"Surveillances_{prof_selectionne.replace(' ', '_')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                else:
+                    st.warning(f"Aucune donnée de surveillance trouvée pour : {prof_selectionne}")
+
+            with tab_global:
+                find = st.text_input("🔎 Recherche rapide :", key="search_surv")
+                if find:
+                    mask = df_surv.apply(lambda r: r.astype(str).str.contains(find, case=False).any(), axis=1)
+                    st.dataframe(df_surv[mask], use_container_width=True, hide_index=True)
+                else:
+                    st.dataframe(df_surv, use_container_width=True, hide_index=True, height=450)
         else:
-            st.error(f"⚠️ Le fichier '{NOM_SURV}' est introuvable sur le serveur.")
-            # Cette ligne vous aide à voir ce qui se passe sur GitHub
-            st.write("Fichiers présents à la racine :", os.listdir("."))
+            st.error(f"⚠️ Fichier '{NOM_SURV}' introuvable.")
