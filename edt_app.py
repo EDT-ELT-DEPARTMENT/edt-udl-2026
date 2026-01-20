@@ -160,93 +160,67 @@ if df is not None:
             if err.empty: st.success("✅ Aucun conflit détecté.")
             else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err)
 
-  # ================= PORTAIL 2 : SURVEILLANCES =================
+ # ================= PORTAIL 2 : SURVEILLANCES =================
     elif portail == "📅 Surveillances Examens":
         NOM_SURV = "surveillances_2026.xlsx"
         
         if os.path.exists(NOM_SURV):
             df_surv = pd.read_excel(NOM_SURV)
+            # Nettoyage strict des noms de colonnes
             df_surv.columns = [str(c).strip() for c in df_surv.columns]
             
-            liste_profs_surv = sorted(df_surv['Surveillant(s)'].dropna().unique())
+            # --- NETTOYAGE DES DONNÉES POUR LA CORRESPONDANCE ---
+            # On s'assure que les colonnes critiques existent et sont propres
+            for col in ['Surveillant(s)', 'Jour', 'Heure']:
+                if col in df_surv.columns:
+                    df_surv[col] = df_surv[col].astype(str).str.strip()
+
+            liste_profs_surv = sorted(df_surv['Surveillant(s)'].unique())
             
             st.markdown("### 🏛️ Espace des Surveillances (S2-2026)")
             
-            idx_defaut = 0
-            if user['nom_officiel'] in liste_profs_surv:
-                idx_defaut = liste_profs_surv.index(user['nom_officiel'])
-            
             prof_selectionne = st.selectbox(
-                "🔍 Sélectionner un enseignant pour consulter son planning :", 
+                "🔍 Sélectionner un enseignant :", 
                 liste_profs_surv, 
-                index=idx_defaut
+                index=0
             )
             
-            # --- CALCUL ET AFFICHAGE DU NOMBRE DE SURVEILLANCES ---
             df_u = df_surv[df_surv['Surveillant(s)'] == prof_selectionne]
-            nb_surv = len(df_u)
             
-            st.markdown(f"""
-                <div style="display: flex; justify-content: center; margin-bottom: 20px;">
-                    <div class='metric-card' style="width: 300px; border-top: 5px solid #D4AF37; padding:15px; background-color:#fcfcfc; border-radius:10px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
-                        <span style="font-size:14px; color:#666;">Nombre total de surveillances</span><br>
-                        <h2 style="color: #1E3A8A; margin: 0; font-size:28px;">{nb_surv} séance(s)</h2>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
+            # --- AFFICHAGE DU COMPTEUR ---
+            st.metric("Nombre de séances", f"{len(df_u)} séance(s)")
             
-            tab_perso, tab_global = st.tabs(["👤 Planning Individuel", "🌍 Planning Global (474 lignes)"])
+            tab_perso, tab_global = st.tabs(["👤 Planning Individuel", "🌍 Vue Globale"])
             
             with tab_perso:
                 if not df_u.empty:
-                    # Génération de la grille
+                    # Création de la grille
                     grid_s = pd.DataFrame("", index=horaires_list, columns=jours_list)
-                    for _, r in df_u.iterrows():
-                        txt = f"<b>{r['Matière']}</b><br>📍 {r['Salle']}<br><small>🎓 {r['Promotion']}</small>"
-                        j, h = str(r['Jour']).strip(), str(r['Heure']).strip()
-                        if j in grid_s.columns and h in grid_s.index:
-                            if grid_s.at[h, j] != "":
-                                grid_s.at[h, j] += f"<div class='separator'></div>{txt}"
-                            else:
-                                grid_s.at[h, j] = txt
-                                
-                    st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
-
-                    # --- OPTIONS D'IMPRESSION ET TÉLÉCHARGEMENT ---
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    col_down1, col_down2 = st.columns(2)
                     
-                    with col_down1:
-                        # Bouton Impression (JavaScript)
-                        components.html(f"""
-                            <button onclick="window.parent.print()" style="width:100%; padding:10px; background-color:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">
-                            🖨️ IMPRIMER MON PLANNING (PDF)
-                            </button>
-                        """, height=60)
-
-                    with col_down2:
-                        # Bouton Téléchargement Excel
-                        import io
-                        output = io.BytesIO()
-                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                            df_u.to_excel(writer, index=False, sheet_name='Surveillances')
-                        excel_data = output.getvalue()
-                        st.download_button(
-                            label="📥 TÉLÉCHARGER MON EDT (.XLSX)",
-                            data=excel_data,
-                            file_name=f"Surveillances_{prof_selectionne.replace(' ', '_')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True
-                        )
+                    # Logique de remplissage flexible
+                    for _, r in df_u.iterrows():
+                        txt = f"<b>{r['Matière']}</b><br>📍 {r['Salle']}<br><small>{r['Promotion']}</small>"
+                        
+                        # On cherche le jour et l'heure dans la grille (insensible à la casse)
+                        jour_excel = str(r['Jour']).strip().capitalize()
+                        heure_excel = str(r['Heure']).strip().replace(" ", "") # "8h-9h30"
+                        
+                        # On nettoie aussi les listes de référence pour comparer
+                        clean_jours = [j.strip().capitalize() for j in jours_list]
+                        clean_heures = [h.strip().replace(" ", "") for h in horaires_list]
+                        
+                        if jour_excel in clean_jours and heure_excel in clean_heures:
+                            idx_h = horaires_list[clean_heures.index(heure_excel)]
+                            col_j = jours_list[clean_jours.index(jour_excel)]
+                            grid_s.at[idx_h, col_j] = txt
+                        else:
+                            # Si ça ne rentre pas dans la grille, on l'affiche en dessous
+                            st.warning(f"⚠️ Créneau hors-grille : {r['Matière']} le {r['Jour']} à {r['Heure']}")
+                    
+                    st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
                 else:
-                    st.warning(f"Aucune donnée de surveillance trouvée pour : {prof_selectionne}")
+                    st.warning("Aucune donnée trouvée.")
 
             with tab_global:
-                find = st.text_input("🔎 Recherche rapide :", key="search_surv")
-                if find:
-                    mask = df_surv.apply(lambda r: r.astype(str).str.contains(find, case=False).any(), axis=1)
-                    st.dataframe(df_surv[mask], use_container_width=True, hide_index=True)
-                else:
-                    st.dataframe(df_surv, use_container_width=True, hide_index=True, height=450)
-        else:
-            st.error(f"⚠️ Fichier '{NOM_SURV}' introuvable.")
+                st.dataframe(df_surv, use_container_width=True)
+
