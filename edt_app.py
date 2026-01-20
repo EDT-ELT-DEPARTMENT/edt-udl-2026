@@ -147,36 +147,122 @@ if df is not None:
             if err.empty: st.success("✅ Aucun conflit détecté.")
             else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err)
 
-    # ================= PORTAIL 2 : SURVEILLANCES =================
+  # ================= PORTAIL 2 : SURVEILLANCES EXAMENS =================
     elif portail == "📅 Surveillances Examens":
         NOM_SURV = "surveillances_2026.xlsx"
+        horaires_examens = ["08h30 – 10h30", "11h00 – 13h00", "13h30 – 15h30"]
+        
         if os.path.exists(NOM_SURV):
             df_surv = pd.read_excel(NOM_SURV)
             df_surv.columns = [str(c).strip() for c in df_surv.columns]
             df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
-            liste_profs = sorted(df_surv['Surveillant(s)'].fillna("").unique())
-            prof_sel = st.selectbox("🔍 Enseignant :", liste_profs)
+            
+            # Nettoyage
+            for c in ['Surveillant(s)', 'Jour', 'Heure', 'Matière', 'Salle']:
+                if c in df_surv.columns: df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
+
+            liste_profs = sorted(df_surv['Surveillant(s)'].unique())
+            u_nom = user['nom_officiel']
+            idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
+            prof_sel = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs, index=idx_p)
+            
             df_u = df_surv[df_surv['Surveillant(s)'] == prof_sel].sort_values(by='Date_Tri')
-            st.metric("Nombre de séances", f"{len(df_u)} séance(s)")
-            st.dataframe(df_u.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
+            st.metric("Total Missions", f"{len(df_u)} séance(s)")
+            
+            tab1, tab2 = st.tabs(["👤 Mon Planning", "🌍 Liste Globale"])
+            
+            with tab1:
+                if not df_u.empty:
+                    # Affichage des cartes de surveillance
+                    for _, r in df_u.iterrows():
+                        dt_disp = pd.to_datetime(r['Date'], dayfirst=True).strftime('%d/%m/%Y') if r['Date'] else "Date ND"
+                        st.markdown(f"""
+                            <div style="background-color: #f8f9fa; padding: 10px; border-left: 5px solid #1E3A8A; margin-bottom: 5px; border: 1px solid #ddd; border-radius: 5px;">
+                                <small>📅 {r['Jour']} {dt_disp} | 🕒 {r['Heure']}</small><br>
+                                <b>{r['Matière']}</b><br>
+                                <small>📍 Salle: {r['Salle']} | 🎓 {r['Promotion']}</small>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Grille visuelle
+                    st.markdown("#### 🗓️ Vue Calendrier")
+                    grid_surv = pd.DataFrame("", index=horaires_examens, columns=jours_list)
+                    for _, r in df_u.iterrows():
+                        j, h = str(r['Jour']).strip().capitalize(), str(r['Heure']).strip()
+                        if j in grid_surv.columns and h in grid_surv.index:
+                            grid_surv.at[h, j] = f"<b>{r['Matière']}</b><br><small>{r['Salle']}</small>"
+                    st.write(grid_surv.to_html(escape=False), unsafe_allow_html=True)
 
-    # ================= PORTAIL 3 : GÉNÉRATEUR (SIMULATION) =================
+                    # Exportations
+                    st.divider()
+                    ex1, ex2 = st.columns(2)
+                    with ex1: components.html('<button onclick="window.parent.print()" style="width:100%; padding:10px; background:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🖨️ IMPRIMER / PDF</button>', height=60)
+                    with ex2:
+                        out = io.BytesIO()
+                        df_u.drop(columns=['Date_Tri']).to_excel(out, index=False)
+                        st.download_button("📥 EXCEL (.XLSX)", out.getvalue(), f"Surv_{prof_sel}.xlsx", use_container_width=True)
+                else:
+                    st.info("Aucune surveillance trouvée.")
+
+            with tab2:
+                st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
+
+    # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
     elif portail == "🤖 Générateur Automatique" and is_admin:
-        st.header("⚖️ Simulateur d'Équilibrage")
+        st.header("⚙️ Répartition Automatique des Surveillances")
         NOM_SURV = "surveillances_2026.xlsx"
+        
         if os.path.exists(NOM_SURV):
-            df_manuel = pd.read_excel(NOM_SURV)
+            df_source = pd.read_excel(NOM_SURV)
+            df_source.columns = [str(c).strip() for c in df_source.columns]
             tous_les_ens = sorted([e for e in df['Enseignants'].unique() if e != "Non défini"])
+            
+            st.subheader("1️⃣ Configuration des Quotas")
             col1, col2 = st.columns(2)
-            with col1: profs_alleger = st.multiselect("Enseignants à alléger :", tous_les_ens)
+            with col1: profs_alleger = st.multiselect("Enseignants avec décharge :", tous_les_ens)
             with col2:
-                q_std = st.number_input("Quota Standard :", min_value=1, value=7)
-                q_red = st.number_input("Quota Allégé :", min_value=0, value=3)
+                q_std = st.number_input("Quota (Standard) :", min_value=1, value=7)
+                q_red = st.number_input("Quota (Allégé) :", min_value=0, value=3)
 
-            if st.button("📊 Lancer la Comparaison"):
-                counts_man = df_manuel['Surveillant(s)'].value_counts().to_dict()
-                # (Logique de simulation...)
-                res_data = [{"Enseignant": p, "Manuel": counts_man.get(p,0), "Simulé": counts_man.get(p,0)} for p in tous_les_ens]
-                df_res = pd.DataFrame(res_data)
-                st.dataframe(df_res, use_container_width=True, hide_index=True)
-                st.bar_chart(df_res.set_index("Enseignant")[["Manuel", "Simulé"]])
+            if st.button("🚀 Lancer la Répartition Automatique"):
+                df_simu = df_source.copy()
+                charges = {ens: 0 for ens in tous_les_ens}
+                
+                # Compter les affectations existantes
+                for p in df_simu['Surveillant(s)'].dropna():
+                    p_clean = str(p).strip()
+                    if p_clean in charges: charges[p_clean] += 1
+
+                # Identifier les créneaux vides
+                mask_vide = (df_simu['Surveillant(s)'].isna()) | (df_simu['Surveillant(s)'].astype(str).isin(["nan", "", "None"]))
+                idx_vides = df_simu[mask_vide].index.tolist()
+                
+                barre = st.progress(0)
+                for i, idx in enumerate(idx_vides):
+                    j, h = str(df_simu.at[idx, 'Jour']).strip(), str(df_simu.at[idx, 'Heure']).strip()
+                    # Trier par charge et priorité (Standard avant Allégé)
+                    file = sorted(tous_les_ens, key=lambda x: (x in profs_alleger, charges[x]))
+                    
+                    for prof in file:
+                        limite = q_red if prof in profs_alleger else q_std
+                        if charges[prof] >= limite: continue
+                        
+                        # Vérifier conflit horaire
+                        conflit = not df_simu[(df_simu['Jour'] == j) & (df_simu['Heure'] == h) & (df_simu['Surveillant(s)'] == prof)].empty
+                        if not conflit:
+                            df_simu.at[idx, 'Surveillant(s)'] = prof
+                            charges[prof] += 1
+                            break
+                    barre.progress((i + 1) / len(idx_vides))
+
+                st.success("✅ Répartition terminée !")
+                
+                # Affichage des résultats de charge
+                res_df = pd.DataFrame([{"Enseignant": p, "Séances": charges[p], "Statut": "Allégé" if p in profs_alleger else "Standard"} for p in tous_les_ens])
+                st.subheader("📊 Bilan des charges")
+                st.dataframe(res_df.sort_values("Séances", ascending=False), use_container_width=True, hide_index=True)
+                
+                # Téléchargement du nouveau fichier
+                buf = io.BytesIO()
+                df_simu.to_excel(buf, index=False)
+                st.download_button("💾 TÉLÉCHARGER LE FICHIER FINAL", buf.getvalue(), "EDT_Surveillances_Final.xlsx", use_container_width=True)
