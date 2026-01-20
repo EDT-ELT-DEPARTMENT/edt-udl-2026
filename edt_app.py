@@ -207,63 +207,94 @@ if df is not None:
             with tab2:
                 st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
 
-    # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
-    elif portail == "🤖 Générateur Automatique" and is_admin:
-        st.header("⚙️ Répartition Automatique des Surveillances")
-        NOM_SURV = "surveillances_2026.xlsx"
+   # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+elif portail == "🤖 Générateur Automatique" and is_admin:
+    st.header("⚙️ Répartition Équitable des Surveillances (S2-2026)")
+    st.info("🎯 Critères : 02 surveillants/Salle, 03 surveillants/Amphi. Équilibrage sur la période du 07/01 au 20/01.")
+    
+    NOM_SURV = "surveillances_2026.xlsx"
+    
+    if os.path.exists(NOM_SURV):
+        # Chargement du fichier source (contenant les dates, matières et salles)
+        df_base = pd.read_excel(NOM_SURV)
+        df_base.columns = [str(c).strip() for c in df_base.columns]
         
-        if os.path.exists(NOM_SURV):
-            df_source = pd.read_excel(NOM_SURV)
-            df_source.columns = [str(c).strip() for c in df_source.columns]
-            tous_les_ens = sorted([e for e in df['Enseignants'].unique() if e != "Non défini"])
+        # Identification des enseignants depuis l'EDT principal (Saved Info)
+        tous_les_ens = sorted([e for e in df['Enseignants'].unique() if e not in ["Non défini", "À définir"]])
+        
+        # --- CONFIGURATION DES QUOTAS ---
+        st.subheader("1️⃣ Paramètres de décharge")
+        profs_alleger = st.multiselect("Enseignants avec Poste Supérieur (Charge réduite) :", tous_les_ens)
+        coef_reduction = st.slider("Coefficient de charge pour les postes supérieurs (%)", 10, 100, 50) / 100
+
+        if st.button("🔄 Générer la Répartition Chronologique"):
+            # Préparation chronologique
+            df_base['Date_DT'] = pd.to_datetime(df_base['Date'], dayfirst=True, errors='coerce')
+            # On récupère chaque examen unique par salle
+            df_seances = df_base.sort_values(by=['Date_DT', 'Heure']).drop_duplicates(subset=['Date', 'Heure', 'Salle', 'Matière'])
             
-            st.subheader("1️⃣ Configuration des Quotas")
-            col1, col2 = st.columns(2)
-            with col1: profs_alleger = st.multiselect("Enseignants avec décharge :", tous_les_ens)
-            with col2:
-                q_std = st.number_input("Quota (Standard) :", min_value=1, value=7)
-                q_red = st.number_input("Quota (Allégé) :", min_value=0, value=3)
-
-            if st.button("🚀 Lancer la Répartition Automatique"):
-                df_simu = df_source.copy()
-                charges = {ens: 0 for ens in tous_les_ens}
+            rows_final = []
+            # Dictionnaire pour suivre la charge réelle accumulée (VH de surveillance)
+            stats_charge = {ens: 0 for ens in tous_les_ens}
+            
+            # --- ALGORITHME DE RÉPARTITION ---
+            for _, r in df_seances.iterrows():
+                nom_salle = str(r['Salle'])
+                is_amphi = "Amphi" in nom_salle
+                nb_besoin = 3 if is_amphi else 2 # Règle Duo/Trio
                 
-                # Compter les affectations existantes
-                for p in df_simu['Surveillant(s)'].dropna():
-                    p_clean = str(p).strip()
-                    if p_clean in charges: charges[p_clean] += 1
+                for _ in range(nb_besoin):
+                    # Calcul de la priorité : on trie les enseignants par charge pondérée
+                    # (Charge réelle / Coef) pour que les profs allégés paraissent "plus chargés" plus vite
+                    def priorite_calcul(e):
+                        charge_actuelle = stats_charge[e]
+                        coef = coef_reduction if e in profs_alleger else 1.0
+                        return charge_actuelle / coef
 
-                # Identifier les créneaux vides
-                mask_vide = (df_simu['Surveillant(s)'].isna()) | (df_simu['Surveillant(s)'].astype(str).isin(["nan", "", "None"]))
-                idx_vides = df_simu[mask_vide].index.tolist()
-                
-                barre = st.progress(0)
-                for i, idx in enumerate(idx_vides):
-                    j, h = str(df_simu.at[idx, 'Jour']).strip(), str(df_simu.at[idx, 'Heure']).strip()
-                    # Trier par charge et priorité (Standard avant Allégé)
-                    file = sorted(tous_les_ens, key=lambda x: (x in profs_alleger, charges[x]))
+                    file_priorite = sorted(tous_les_ens, key=priorite_calcul)
                     
-                    for prof in file:
-                        limite = q_red if prof in profs_alleger else q_std
-                        if charges[prof] >= limite: continue
+                    for prof in file_priorite:
+                        # Vérifier si l'enseignant est déjà affecté à cet examen (même date/heure)
+                        conflit = any(x for x in rows_final if x['Date'] == r['Date'] and 
+                                      x['Heure'] == r['Heure'] and 
+                                      x['Surveillant(s)'] == prof)
                         
-                        # Vérifier conflit horaire
-                        conflit = not df_simu[(df_simu['Jour'] == j) & (df_simu['Heure'] == h) & (df_simu['Surveillant(s)'] == prof)].empty
                         if not conflit:
-                            df_simu.at[idx, 'Surveillant(s)'] = prof
-                            charges[prof] += 1
+                            new_row = r.to_dict()
+                            new_row['Surveillant(s)'] = prof
+                            rows_final.append(new_row)
+                            stats_charge[prof] += 1
                             break
-                    barre.progress((i + 1) / len(idx_vides))
 
-                st.success("✅ Répartition terminée !")
-                
-                # Affichage des résultats de charge
-                res_df = pd.DataFrame([{"Enseignant": p, "Séances": charges[p], "Statut": "Allégé" if p in profs_alleger else "Standard"} for p in tous_les_ens])
-                st.subheader("📊 Bilan des charges")
-                st.dataframe(res_df.sort_values("Séances", ascending=False), use_container_width=True, hide_index=True)
-                
-                # Téléchargement du nouveau fichier
-                buf = io.BytesIO()
-                df_simu.to_excel(buf, index=False)
-                st.download_button("💾 TÉLÉCHARGER LE FICHIER FINAL", buf.getvalue(), "EDT_Surveillances_Final.xlsx", use_container_width=True)
-
+            # Conversion en DataFrame final
+            df_final = pd.DataFrame(rows_final).drop(columns=['Date_DT'])
+            
+            # --- AFFICHAGE DES RÉSULTATS ---
+            st.success(f"✅ Répartition effectuée sur {len(df_final)} postes de surveillance.")
+            
+            # Tableau de bord de l'équité
+            st.subheader("📊 Bilan de charge sur la période (07/01 au 20/01)")
+            res_charge = pd.DataFrame([
+                {
+                    "Enseignant": e, 
+                    "Nombre de Surveillances": stats_charge[e], 
+                    "Statut": "Poste Supérieur" if e in profs_alleger else "Standard"
+                } for e in tous_les_ens
+            ]).sort_values(by="Nombre de Surveillances", ascending=False)
+            
+            st.table(res_charge)
+            
+            # --- EXPORT ---
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                df_final.to_excel(writer, index=False, sheet_name='EDT_Surveillances_Final')
+            
+            st.download_button(
+                label="📥 Télécharger le Planning Général Équilibré (.xlsx)",
+                data=buf.getvalue(),
+                file_name=f"EDT_Surveillances_S2_2026_Final.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+    else:
+        st.error(f"⚠️ Erreur : Le fichier '{NOM_SURV}' est introuvable dans le répertoire.")
