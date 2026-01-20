@@ -115,11 +115,9 @@ with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
     if is_admin:
         mode_view = st.radio("Choisir une Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"])
-        # Pour l'admin, on peut ajouter une option pour simuler un poste supérieur lors de la consultation d'un enseignant
         poste_superieur = st.checkbox("Simuler Poste Supérieur (3h)")
     else:
         mode_view = "Personnel"
-        # Ajout du cas Poste Supérieur pour l'enseignant
         poste_superieur = st.checkbox("Poste Supérieur (Décharge 50%)")
     
     if st.button("🚪 Se déconnecter"):
@@ -141,7 +139,6 @@ if df is not None:
         if mode_view == "Personnel":
             st.markdown(f"<div class='welcome-box'><b>👋 Bienvenue, M. {cible} !</b><br>Note importante : Voici votre planning personnel et vos statistiques de charge.</div>", unsafe_allow_html=True)
 
-        # Calculs de charge
         def get_type(t):
             t = str(t).upper()
             if "COURS" in t: return "COURS"
@@ -154,44 +151,16 @@ if df is not None:
         df_stats = df_filtered.drop_duplicates(subset=['Jours', 'Horaire'])
         
         charge_reelle = df_stats['h_val'].sum()
-        
-        # --- GESTION DU POSTE SUPÉRIEUR ---
         c_reg = 3.0 if poste_superieur else 6.0
-        
-        # --- CALCUL DEMANDÉ : RÉELLE - RÉGLEMENTAIRE ---
         h_sup = charge_reelle - c_reg
         
         st.markdown(f"### 📊 Bilan de charge : {cible}")
         c1, c2, c3 = st.columns(3)
         c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
         c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{c_reg} h</h2></div>", unsafe_allow_html=True)
-        # Affichage du résultat (peut être négatif si sous-charge)
         c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2>{h_sup} h</h2></div>", unsafe_allow_html=True)
         
         s1, s2, s3 = st.columns(3)
         s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {len(df_stats[df_stats['Type'] == 'COURS'])} COURS</div>", unsafe_allow_html=True)
         s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {len(df_stats[df_stats['Type'] == 'TD'])} TD</div>", unsafe_allow_html=True)
-        s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {len(df_stats[df_stats['Type'] == 'TP'])} TP</div>", unsafe_allow_html=True)
-
-        def fmt_ens(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
-        grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_ens).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
-        st.write(grid.to_html(escape=False), unsafe_allow_html=True)
-
-    # --- VUE PROMOTION (ADMIN UNIQUEMENT) ---
-    elif mode_view == "Promotion" and is_admin:
-        selection = st.sidebar.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
-        df_filtered = df[df["Promotion"] == selection].copy()
-        def fmt_p(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
-        grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_p).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
-        st.write(f"### Emploi du Temps : {selection}")
-        st.write(grid.to_html(escape=False), unsafe_allow_html=True)
-
-    # --- VÉRIFICATEUR (ADMIN UNIQUEMENT) ---
-    elif mode_view == "🚩 Vérificateur" and is_admin:
-        st.subheader("🚩 Analyse des conflits d'horaires")
-        dup = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
-        err = df[df['Enseignants'] != "Non défini"][dup]
-        if err.empty: st.success("✅ Aucun chevauchement détecté pour les enseignants.")
-        else: st.warning("Attention : Les enseignants suivants ont deux cours en même temps :"); st.dataframe(err)
-
-    components.html("<button onclick='window.parent.print()' style='width:100%; padding:12px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold; margin-top:20px;'>🖨️ IMPRIMER CE PLANNING</button>", height=70)
+        s3.markdown(f"<div class='
