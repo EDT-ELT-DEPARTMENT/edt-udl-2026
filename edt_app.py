@@ -167,7 +167,7 @@ if df is not None:
             prof_sel = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs, index=idx_p)
             
             df_u = df_surv[df_surv['Surveillant(s)'] == prof_sel].sort_values(by='Date_Tri')
-            st.metric("Total Missions", f"{len(df_u)} séance(s)")
+            st.metric("Total surveillances", f"{len(df_u)} séance(s)")
             
             tab1, tab2 = st.tabs(["👤 Mon Planning", "🌍 Liste Globale"])
             
@@ -266,3 +266,4 @@ if df is not None:
                 buf = io.BytesIO()
                 df_simu.to_excel(buf, index=False)
                 st.download_button("💾 TÉLÉCHARGER LE FICHIER FINAL", buf.getvalue(), "EDT_Surveillances_Final.xlsx", use_container_width=True)
+
