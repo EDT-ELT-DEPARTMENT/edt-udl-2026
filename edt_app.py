@@ -53,21 +53,55 @@ if os.path.exists(NOM_FICHIER_FIXE):
         if col in df.columns: df[col] = df[col].fillna("Non défini").astype(str).str.strip()
     df['Lieu_Racine'] = df['Lieu'].apply(lambda x: x.split('/')[0].strip() if x != "Non défini" else "Non défini")
 
-# --- AUTHENTIFICATION ---
+# --- AUTHENTIFICATION ET INSCRIPTION ---
 if "user_data" not in st.session_state: st.session_state["user_data"] = None
+
 if not st.session_state["user_data"]:
     st.markdown("<h1 class='main-title'>🏛️ DÉPARTEMENT D'ÉLECTROTECHNIQUE - UDL SBA</h1>", unsafe_allow_html=True)
-    t1, t2 = st.tabs(["🔑 Connexion", "🛡️ Admin"])
-    with t1:
-        em = st.text_input("Email")
-        ps = st.text_input("Mot de passe", type="password")
+    tab_auth, tab_reg, tab_adm = st.tabs(["🔑 Connexion", "📝 Inscription Enseignant", "🛡️ Administration"])
+    
+    with tab_auth:
+        em = st.text_input("Email", key="login_em")
+        ps = st.text_input("Mot de passe", type="password", key="login_ps")
         if st.button("Se connecter"):
             res = supabase.table("enseignants_auth").select("*").eq("email", em).eq("password_hash", hash_pw(ps)).execute()
-            if res.data: st.session_state["user_data"] = res.data[0]; st.rerun()
+            if res.data:
+                st.session_state["user_data"] = res.data[0]
+                st.rerun()
             else: st.error("Identifiants incorrects.")
-    with t2:
-        if st.text_input("Code Admin", type="password") == "doctorat2026":
-            if st.button("Accès Admin"): st.session_state["user_data"] = {"nom_officiel": "ADMIN", "role": "admin"}; st.rerun()
+
+    with tab_reg:
+        st.info("Créez votre compte en choisissant votre nom tel qu'il apparaît dans l'EDT.")
+        new_em = st.text_input("Email professionnel", key="reg_em")
+        if df is not None:
+            noms_existants = sorted([n for n in df['Enseignants'].unique() if n != "Non défini"])
+            new_nom = st.selectbox("Sélectionnez votre nom officiel", noms_existants, key="reg_nom")
+        new_ps = st.text_input("Créez un mot de passe", type="password", key="reg_ps")
+        conf_ps = st.text_input("Confirmez le mot de passe", type="password", key="reg_conf")
+        
+        if st.button("Valider l'inscription"):
+            if new_ps != conf_ps:
+                st.error("Les mots de passe ne correspondent pas.")
+            elif not new_em or not new_ps:
+                st.error("Veuillez remplir tous les champs.")
+            else:
+                try:
+                    supabase.table("enseignants_auth").insert({
+                        "email": new_em, 
+                        "nom_officiel": new_nom, 
+                        "password_hash": hash_pw(new_ps)
+                    }).execute()
+                    st.success("Inscription réussie ! Vous pouvez maintenant vous connecter.")
+                except:
+                    st.error("Cet email est déjà utilisé ou une erreur est survenue.")
+
+    with tab_adm:
+        pw_admin = st.text_input("Code Administrateur", type="password", key="adm_ps")
+        if st.button("Accès Administration"):
+            if pw_admin == "doctorat2026":
+                st.session_state["user_data"] = {"nom_officiel": "ADMIN", "role": "admin"}
+                st.rerun()
+            else: st.error("Code incorrect.")
     st.stop()
 
 # --- INTERFACE DES PORTAILS ---
@@ -78,8 +112,7 @@ horaires_list = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", 
 
 with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
-    # --- SELECTEUR DE PORTAIL ---
-    portail = st.selectbox("🚀 CHOISIR MODULE", ["📖 Emploi du Temps", "📅 Surveillances Examens"])
+    portail = st.selectbox("🚀 MODULE", ["📖 Emploi du Temps", "📅 Surveillances Examens"])
     st.divider()
     
     if portail == "📖 Emploi du Temps":
@@ -90,19 +123,17 @@ with st.sidebar:
             mode_view = "Personnel"
             poste_superieur = st.checkbox("Poste Supérieur (Décharge 50%)")
     else:
-        # Options spécifiques au portail Surveillance
         mode_view = "Surveillance_Matiere"
 
     if st.button("🚪 Déconnexion"): st.session_state["user_data"] = None; st.rerun()
 
-st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
+# --- AFFICHAGE DU TITRE MÉMORISÉ ---
+st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str} | 🕒 {heure_str}</div>", unsafe_allow_html=True)
 st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
 st.markdown(f"<div class='portal-badge'>MODE : {portail.upper()}</div>", unsafe_allow_html=True)
 
 if df is not None:
-    # ==========================================
-    # PORTAIL 1 : EMPLOI DU TEMPS (COURS)
-    # ==========================================
+    # --- PORTAIL 1 : COURS ---
     if portail == "📖 Emploi du Temps":
         if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
             cible = user['nom_officiel'] if mode_view == "Personnel" else st.selectbox("Choisir Enseignant :", sorted(df["Enseignants"].unique()))
@@ -141,7 +172,7 @@ if df is not None:
             liste_racines = sorted([r for r in df['Lieu_Racine'].unique() if r != "Non défini"])
             salle_racine = st.sidebar.selectbox("Choisir Salle (Racine) :", liste_racines)
             df_salle = df[df['Lieu_Racine'] == salle_racine].copy()
-            def fmt_salle(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br>({r['Promotion']})" for _,r in rows.iterrows()])
+            def fmt_salle(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br>({r['Promotion']})<br><small>📍 {r['Lieu']}</small>" for _,r in rows.iterrows()])
             grid_salle = df_salle.groupby(['Horaire', 'Jours']).apply(fmt_salle).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
             st.write(f"### 🏢 Occupation : {salle_racine}")
             st.write(grid_salle.to_html(escape=False), unsafe_allow_html=True)
@@ -153,36 +184,18 @@ if df is not None:
             if err.empty: st.success("✅ Aucun conflit d'enseignant.")
             else: st.warning("Conflits détectés :"); st.dataframe(err)
 
-    # ==========================================
-    # PORTAIL 2 : SURVEILLANCES EXAMENS
-    # ==========================================
+    # --- PORTAIL 2 : SURVEILLANCES ---
     elif portail == "📅 Surveillances Examens":
-        # Filtrage des examens (Mots-clés : EXAMEN, CONTRÔLE, RATTRAPAGE)
         df['Is_Examen'] = df['Enseignements'].str.contains("EXAMEN|CONTRÔLE|RATTRAPAGE", case=False, na=False)
         df_surv = df[df['Is_Examen'] == True].copy()
         
         if df_surv.empty:
-            st.warning("⚠️ Aucune donnée de type 'EXAMEN' ou 'CONTRÔLE' n'a été trouvée dans le fichier source.")
+            st.warning("⚠️ Aucune donnée d'examen détectée.")
         else:
-            matiere_sel = st.selectbox("Sélectionnez la Matière d'Examen :", sorted(df_surv['Enseignements'].unique()))
+            matiere_sel = st.selectbox("Matière d'Examen :", sorted(df_surv['Enseignements'].unique()))
             df_m = df_surv[df_surv['Enseignements'] == matiere_sel]
-            
-            # Entête Examen
-            st.markdown(f"""
-                <div class='welcome-box'>
-                    <h3 style='margin:0;'>📝 {matiere_sel}</h3>
-                    <b>Date :</b> {df_m['Jours'].iloc[0]} | <b>Horaire :</b> {df_m['Horaire'].iloc[0]}
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # Tableau des surveillants
-            st.write("#### 📋 Répartition des Surveillants et Salles")
-            recap = df_m[['Lieu', 'Enseignants', 'Promotion']].rename(columns={'Enseignants': 'Surveillant Responsable'})
+            st.markdown(f"<div class='welcome-box'><h3>📝 {matiere_sel}</h3><b>Date :</b> {df_m['Jours'].iloc[0]} | <b>Horaire :</b> {df_m['Horaire'].iloc[0]}</div>", unsafe_allow_html=True)
+            recap = df_m[['Lieu', 'Enseignants', 'Promotion']].rename(columns={'Enseignants': 'Surveillant'})
             st.table(recap)
-            
-            if is_admin and st.checkbox("Voir le calendrier global des examens"):
-                def fmt_sv(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br><small>{r['Enseignants']}</small>" for _,r in rows.iterrows()])
-                grid_sv = df_surv.groupby(['Horaire', 'Jours']).apply(fmt_sv).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
-                st.write(grid_sv.to_html(escape=False), unsafe_allow_html=True)
 
-    components.html("<button onclick='window.parent.print()' style='width:100%; padding:12px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold; margin-top:20px;'>🖨️ IMPRIMER CE PORTAIL</button>", height=70)
+    components.html("<button onclick='window.parent.print()' style='width:100%; padding:12px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold; margin-top:20px;'>🖨️ IMPRIMER</button>", height=70)
