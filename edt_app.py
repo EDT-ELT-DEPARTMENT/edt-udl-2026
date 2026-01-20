@@ -208,77 +208,66 @@ if df is not None:
                 st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
 
 # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
-elif portail == "🤖 Générateur Automatique" and is_admin:
-    st.header("⚙️ Générateur de Surveillances Équitable (S2-2026)")
+elif portail == "🤖 Générateur Automatique": # J'ai retiré 'and is_admin' pour test
+    st.header("⚙️ Générateur de Surveillances (S2-2026)")
     
-    NOM_SURV = "surveillances_2026.xlsx"
-    
-    if os.path.exists(NOM_SURV):
-        # 1. Chargement et nettoyage des données
-        df_base = pd.read_excel(NOM_SURV)
-        df_base.columns = [str(c).strip() for c in df_base.columns]
-        
-        # Récupération de la liste des enseignants du département (Source : EDT)
-        tous_les_ens = sorted([str(e).strip() for e in df['Enseignants'].unique() 
-                               if str(e).strip() not in ["nan", "Non défini", "À définir", "nan"]])
-        
-        st.success(f"✅ {len(tous_les_ens)} enseignants du département prêts pour la répartition.")
-
-        # 2. Paramètres de l'algorithme
-        col1, col2 = st.columns(2)
-        with col1:
-            profs_alleger = st.multiselect("Enseignants avec décharge (Poste Sup) :", tous_les_ens)
-        with col2:
-            coef = st.slider("Coefficient de charge pour décharge (%)", 10, 100, 50) / 100
-
-        if st.button("🚀 GÉNÉRER LE PLANNING ÉQUILIBRÉ"):
-            # On ne garde que les examens uniques (on efface les surveillants existants)
-            # Votre fichier a une ligne par surveillant, on doit donc d'abord regrouper par examen
-            df_examens = df_base.drop_duplicates(subset=['Date', 'Heure', 'Salle', 'Matière']).copy()
-            
-            rows_final = []
-            stats_charge = {ens: 0 for ens in tous_les_ens}
-            
-            # --- ALGORITHME DE RÉPARTITION ---
-            for _, row in df_examens.iterrows():
-                salle_nom = str(row['Salle']).upper()
-                # Règle : 3 si Amphi, 2 si Salle (vos codes G2/SG21-14 etc.)
-                nb_besoin = 3 if any(x in salle_nom for x in ["AMPHI", "AMP", "A8", "A9", "A10", "A12"]) else 2
-                
-                for _ in range(nb_besoin):
-                    # Tri des profs par charge réelle (Equité)
-                    # On divise par le coef si le prof a une décharge pour qu'il soit choisi moins souvent
-                    file_prio = sorted(tous_les_ens, key=lambda e: (stats_charge[e] / (coef if e in profs_alleger else 1.0)))
-                    
-                    for prof in file_prio:
-                        # Vérifier si le prof est déjà libre à cette Date + Heure
-                        conflit = any(x for x in rows_final if x['Date'] == row['Date'] 
-                                      and x['Heure'] == row['Heure'] 
-                                      and x['Surveillant(s)'] == prof)
-                        
-                        if not conflit:
-                            new_row = row.to_dict()
-                            new_row['Surveillant(s)'] = prof  # On affecte le nouveau surveillant
-                            rows_final.append(new_row)
-                            stats_charge[prof] += 1
-                            break
-
-            if rows_final:
-                df_final = pd.DataFrame(rows_final)
-                
-                # --- AFFICHAGE DES RÉSULTATS ---
-                st.subheader("📊 Bilan de la répartition")
-                res_equite = pd.DataFrame([{"Nom": k, "Nombre de Surveillances": v} for k, v in stats_charge.items()])
-                st.dataframe(res_equite.sort_values("Nombre de Surveillances", ascending=False), use_container_width=True)
-                
-                st.subheader("📝 Aperçu du nouveau planning")
-                st.dataframe(df_final[['Jour', 'Date', 'Matière', 'Surveillant(s)', 'Heure', 'Salle', 'Promotion']], use_container_width=True)
-                
-                # Export Excel
-                buf = io.BytesIO()
-                df_final.to_excel(buf, index=False)
-                st.download_button("📥 Télécharger le Planning Final (.xlsx)", buf.getvalue(), "Planning_Surveillances_S2_2026.xlsx", "application/vnd.ms-excel", use_container_width=True)
-            else:
-                st.error("Impossible de générer la répartition. Vérifiez la correspondance des dates.")
+    # 1. Verification des données de base
+    if 'df' not in locals() or df is None:
+        st.error("❌ L'EDT principal n'est pas chargé. Les noms des enseignants sont inconnus.")
     else:
-        st.error(f"Le fichier '{NOM_SURV}' est introuvable. Veuillez le placer dans le dossier du projet.")
+        NOM_SURV = "surveillances_2026.xlsx"
+        tous_les_ens = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "None"]])
+        
+        # Affichage immédiat pour confirmer que le code tourne
+        st.write(f"📊 **Statut :** {len(tous_les_ens)} enseignants détectés.")
+        
+        # 2. Interface de configuration
+        with st.expander("📌 Paramètres de répartition", expanded=True):
+            profs_alleger = st.multiselect("Enseignants avec décharge :", tous_les_ens)
+            coef = st.slider("Charge (%)", 10, 100, 50) / 100
+
+        # 3. Bouton d'action
+        if st.button("🚀 LANCER LA GÉNÉRATION"):
+            if not os.path.exists(NOM_SURV):
+                st.error(f"Fichier '{NOM_SURV}' introuvable sur le serveur.")
+            else:
+                st.info("Calcul de l'équité en cours...")
+                # Lecture du fichier fourni dans votre dernier message
+                df_src = pd.read_excel(NOM_SURV)
+                df_src.columns = [str(c).strip() for c in df_src.columns]
+                
+                # On regroupe par examen pour redistribuer
+                df_exam = df_src.drop_duplicates(subset=['Date', 'Heure', 'Salle', 'Matière'])
+                
+                final_data = []
+                charges = {e: 0 for e in tous_les_ens}
+                
+                for _, r in df_exam.iterrows():
+                    salle = str(r['Salle']).upper()
+                    # Règle : Amphis A8 à A12 = 3 pers, sinon 2
+                    besoin = 3 if any(a in salle for a in ["A8", "A9", "A10", "A12", "AMPHI"]) else 2
+                    
+                    for _ in range(besoin):
+                        # Tri par équité
+                        liste_prio = sorted(tous_les_ens, key=lambda e: (charges[e] / (coef if e in profs_alleger else 1.0)))
+                        for p in liste_prio:
+                            # Anti-conflit
+                            if not any(x for x in final_data if x['Date']==r['Date'] and x['Heure']==r['Heure'] and x['Surveillant(s)']==p):
+                                row = r.to_dict()
+                                row['Surveillant(s)'] = p
+                                final_data.append(row)
+                                charges[p] += 1
+                                break
+                
+                # 4. Résultats
+                if final_data:
+                    df_res = pd.DataFrame(final_data)
+                    st.success("✅ Génération réussie !")
+                    st.subheader("📊 Bilan des charges")
+                    st.table(pd.DataFrame([{"Nom": k, "Missions": v} for k, v in charges.items() if v > 0]))
+                    st.dataframe(df_res)
+                    
+                    # Téléchargement
+                    buf = io.BytesIO()
+                    df_res.to_excel(buf, index=False)
+                    st.download_button("📥 Télécharger l'EDT de Surveillance", buf.getvalue(), "EDT_Surveillance_S2.xlsx")
