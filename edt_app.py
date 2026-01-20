@@ -56,17 +56,21 @@ st.markdown(f"""
 if "role" not in st.session_state: st.session_state["role"] = None
 
 if not st.session_state["role"]:
-    st.markdown("<h1 class='main-title'>🏛️ DÉPARTEMENT D'ÉLECTROTECHNIQUE - UDL</h1>", unsafe_allow_html=True)
-    pw = st.text_input("Entrez votre code d'accès :", type="password")
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("🔓 Connexion Enseignant"):
-            if pw == "enseignant2026": st.session_state["role"] = "ENSEIGNANT"; st.rerun()
-            else: st.error("Code incorrect")
-    with c2:
-        if st.button("🔐 Connexion Administration"):
-            if pw == "doctorat2026": st.session_state["role"] = "ADMIN"; st.rerun()
-            else: st.error("Code incorrect")
+    st.markdown("<h1 class='main-title'>🏛️ DÉPARTEMENT D'ÉLECTROTECHNIQUE - UDL SBA</h1>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align:center;'>Accès aux Emplois du Temps S2-2026</h3>", unsafe_allow_html=True)
+    
+    col_login, _ = st.columns([2, 1])
+    with col_login:
+        pw = st.text_input("Veuillez entrer le code d'accès :", type="password")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🔓 Connexion Enseignant"):
+                if pw == "enseignant2026": st.session_state["role"] = "ENSEIGNANT"; st.rerun()
+                else: st.error("Code Enseignant incorrect")
+        with c2:
+            if st.button("🔐 Connexion Administration"):
+                if pw == "doctorat2026": st.session_state["role"] = "ADMIN"; st.rerun()
+                else: st.error("Code Admin incorrect")
     st.stop()
 
 # --- CHARGEMENT DU FICHIER ---
@@ -76,6 +80,7 @@ df = None
 with st.sidebar:
     st.header(f"👤 {st.session_state['role']}")
     if st.session_state["role"] == "ADMIN":
+        st.subheader("⚙️ Administration")
         uploaded_file = st.file_uploader("Mettre à jour l'Excel (ADMIN)", type=['xlsx'])
         if uploaded_file: df = pd.read_excel(uploaded_file)
         elif os.path.exists(NOM_FICHIER_FIXE): df = pd.read_excel(NOM_FICHIER_FIXE)
@@ -87,19 +92,29 @@ with st.sidebar:
     
     poste_superieur = False
     if mode_view == "Enseignant":
-        st.subheader("👤 Statut")
+        st.subheader("👤 Statut Enseignant")
         poste_sup_choice = st.radio("Poste Supérieur (Décharge 50%) ?", ["Non", "Oui"])
         poste_superieur = (poste_sup_choice == "Oui")
 
     if st.button("🚪 Se déconnecter"):
         st.session_state["role"] = None; st.rerun()
 
-# --- AFFICHAGE ---
+# --- AFFICHAGE DU CONTENU ---
 if df is not None:
     st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str} | 🕒 {heure_str}</div>", unsafe_allow_html=True)
     st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
     
-    # Nettoyage
+    # --- MESSAGE DE BIENVENUE ---
+    if st.session_state["role"] == "ENSEIGNANT":
+        st.markdown(f"""
+            <div class='welcome-box'>
+                <b>👋 Bienvenue, Cher Collègue !</b><br>
+                Vous êtes connecté à la plateforme officielle des emplois du temps du <b>Semestre 2 (2026)</b>.<br>
+                <i>Instruction : Sélectionnez votre nom à gauche pour visualiser vos statistiques de charge et imprimer votre fiche.</i>
+            </div>
+        """, unsafe_allow_html=True)
+
+    # Nettoyage des données
     df.columns = [str(c).strip() for c in df.columns]
     for col in ['Enseignements', 'Enseignants', 'Lieu', 'Promotion', 'Horaire', 'Jours']:
         if col in df.columns: df[col] = df[col].fillna("Non défini").astype(str).str.strip()
@@ -113,7 +128,7 @@ if df is not None:
             selection = st.sidebar.selectbox("Choisir Enseignant :", options)
             df_filtered = df[df["Enseignants"] == selection].copy()
 
-            # --- CALCULS DE CHARGE ---
+            # --- CALCULS DE CHARGE ET TYPES ---
             def get_type(t):
                 t = t.upper()
                 if "COURS" in t: return "COURS"
@@ -129,13 +144,14 @@ if df is not None:
             charge_reg = (3.0 if poste_superieur else 6.0)
             h_sup = max(0.0, charge_reelle - charge_reg)
 
-            # Affichage Stats
-            st.markdown(f"### 📊 Bilan de charge : {selection}")
+            # Affichage des Statistiques de charge
+            st.markdown(f"### 📊 Bilan de charge : M. {selection}")
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"<div class='metric-card'><b>Charge Réelle</b><br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
             c2.markdown(f"<div class='metric-card'><b>Charge Réglementaire</b><br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
             c3.markdown(f"<div class='metric-card'><b>Heures Sup</b><br><h2>{h_sup} h</h2></div>", unsafe_allow_html=True)
             
+            # Affichage du nombre de Cours/TD/TP
             s1, s2, s3 = st.columns(3)
             s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {len(df_stats[df_stats['Type'] == 'COURS'])} COURS</div>", unsafe_allow_html=True)
             s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {len(df_stats[df_stats['Type'] == 'TD'])} TD</div>", unsafe_allow_html=True)
@@ -155,8 +171,27 @@ if df is not None:
             grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_p).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
-        st.markdown(f"<div class='print-footer'>Généré le {date_str} - UDL SBA</div>", unsafe_allow_html=True)
+        elif mode_view == "🏢 Planning Salles":
+            def get_r(l):
+                m = re.search(r'([A-Z0-9]+)', l, re.I)
+                return m.group(1).upper() if m else l
+            df['L_R'] = df['Lieu'].apply(get_r)
+            lieux = sorted([l for l in df['L_R'].unique() if l not in ["Non défini", ""]])
+            sel = st.sidebar.selectbox("Choisir Salle/Amphi :", lieux)
+            df_filtered = df[df["L_R"] == sel].copy()
+            def fmt_l(rows):
+                return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><small>{r['Promotion']}</small>" for _, r in rows.iterrows()])
+            grid = df_filtered.groupby(['Horaire', 'Jours']).apply(fmt_l).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
+            st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+
+        elif mode_view == "🚩 Vérificateur":
+            dup = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
+            err = df[df['Enseignants'] != "Non défini"][dup]
+            if err.empty: st.success("✅ Aucun conflit d'horaire.")
+            else: st.warning("🚩 Chevauchements détectés :"); st.dataframe(err)
+
+        st.markdown(f"<div class='print-footer'>Document généré le {date_str} à {heure_str} - UDL SBA</div>", unsafe_allow_html=True)
         components.html("<button onclick='window.parent.print()' style='width:100%; padding:12px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold; margin-top:20px;'>🖨️ IMPRIMER CE PLANNING</button>", height=70)
 
     except Exception as e:
-        st.error(f"Erreur : {e}")
+        st.error(f"Erreur d'affichage : {e}")
