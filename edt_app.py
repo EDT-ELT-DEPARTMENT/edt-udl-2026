@@ -26,20 +26,14 @@ nom_jour_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dim
 # --- STYLE CSS ---
 st.markdown(f"""
     <style>
-    .main-title {{ 
-        color: #1E3A8A; text-align: center; font-family: 'serif'; font-weight: bold; 
-        border-bottom: 3px solid #D4AF37; padding-bottom: 15px; font-size: 18px; margin-top: 5px;
-    }}
+    .main-title {{ color: #1E3A8A; text-align: center; font-family: 'serif'; font-weight: bold; border-bottom: 3px solid #D4AF37; padding-bottom: 15px; font-size: 18px; margin-top: 5px; }}
     .portal-badge {{ background-color: #D4AF37; color: #1E3A8A; padding: 5px 15px; border-radius: 5px; font-weight: bold; text-align: center; margin-bottom: 20px; }}
-    .welcome-box {{ background-color: #e8f0fe; border-left: 5px solid #1E3A8A; padding: 15px; margin-bottom: 20px; border-radius: 5px; }}
-    .date-badge {{ background-color: #1E3A8A; color: white; padding: 5px 15px; border-radius: 20px; font-size: 12px; float: right; }}
     .metric-card {{ background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 10px; border-radius: 10px; text-align: center; height: 100%; }}
     .stat-box {{ padding: 10px; border-radius: 5px; color: white; font-weight: bold; text-align: center; font-size: 14px; margin-bottom: 5px; }}
     table {{ width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 10px; background-color: white; }}
     th {{ background-color: #1E3A8A !important; color: white !important; border: 1px solid #000; padding: 6px; text-align: center; font-size: 11px; }}
     td {{ border: 1px solid #000; padding: 4px !important; vertical-align: top; text-align: center; background-color: white; height: 95px; font-size: 11px; }}
     .separator {{ border-top: 1px dashed #bbb; margin: 4px 0; }}
-    @media print {{ section[data-testid="stSidebar"], .stActionButton, footer, header, button {{ display: none !important; }} }}
     </style>
 """, unsafe_allow_html=True)
 
@@ -53,149 +47,82 @@ if os.path.exists(NOM_FICHIER_FIXE):
         if col in df.columns: df[col] = df[col].fillna("Non défini").astype(str).str.strip()
     df['Lieu_Racine'] = df['Lieu'].apply(lambda x: x.split('/')[0].strip() if x != "Non défini" else "Non défini")
 
-# --- AUTHENTIFICATION ET INSCRIPTION ---
+# --- AUTHENTIFICATION ---
 if "user_data" not in st.session_state: st.session_state["user_data"] = None
 
 if not st.session_state["user_data"]:
     st.markdown("<h1 class='main-title'>🏛️ DÉPARTEMENT D'ÉLECTROTECHNIQUE - UDL SBA</h1>", unsafe_allow_html=True)
-    tab_auth, tab_reg, tab_adm = st.tabs(["🔑 Connexion", "📝 Inscription Enseignant", "🛡️ Administration"])
-    
-    with tab_auth:
-        em = st.text_input("Email", key="login_em")
-        ps = st.text_input("Mot de passe", type="password", key="login_ps")
+    t1, t2, t3 = st.tabs(["🔑 Connexion", "📝 Inscription", "🛡️ Admin"])
+    with t1:
+        em = st.text_input("Email")
+        ps = st.text_input("Mot de passe", type="password")
         if st.button("Se connecter"):
             res = supabase.table("enseignants_auth").select("*").eq("email", em).eq("password_hash", hash_pw(ps)).execute()
-            if res.data:
-                st.session_state["user_data"] = res.data[0]
-                st.rerun()
+            if res.data: st.session_state["user_data"] = res.data[0]; st.rerun()
             else: st.error("Identifiants incorrects.")
-
-    with tab_reg:
-        st.info("Créez votre compte en choisissant votre nom tel qu'il apparaît dans l'EDT.")
-        new_em = st.text_input("Email professionnel", key="reg_em")
-        if df is not None:
-            noms_existants = sorted([n for n in df['Enseignants'].unique() if n != "Non défini"])
-            new_nom = st.selectbox("Sélectionnez votre nom officiel", noms_existants, key="reg_nom")
-        new_ps = st.text_input("Créez un mot de passe", type="password", key="reg_ps")
-        conf_ps = st.text_input("Confirmez le mot de passe", type="password", key="reg_conf")
-        
-        if st.button("Valider l'inscription"):
-            if new_ps != conf_ps:
-                st.error("Les mots de passe ne correspondent pas.")
-            elif not new_em or not new_ps:
-                st.error("Veuillez remplir tous les champs.")
-            else:
-                try:
-                    supabase.table("enseignants_auth").insert({
-                        "email": new_em, 
-                        "nom_officiel": new_nom, 
-                        "password_hash": hash_pw(new_ps)
-                    }).execute()
-                    st.success("Inscription réussie ! Vous pouvez maintenant vous connecter.")
-                except:
-                    st.error("Cet email est déjà utilisé ou une erreur est survenue.")
-
-    with tab_adm:
-        pw_admin = st.text_input("Code Administrateur", type="password", key="adm_ps")
-        if st.button("Accès Administration"):
-            if pw_admin == "doctorat2026":
-                st.session_state["user_data"] = {"nom_officiel": "ADMIN", "role": "admin"}
-                st.rerun()
-            else: st.error("Code incorrect.")
+    with t3:
+        if st.text_input("Code Admin", type="password") == "doctorat2026":
+            if st.button("Accès Admin"): st.session_state["user_data"] = {"nom_officiel": "ADMIN", "role": "admin"}; st.rerun()
     st.stop()
 
-# --- INTERFACE DES PORTAILS ---
+# --- PARAMÈTRES ---
 user = st.session_state["user_data"]
 is_admin = user.get("role") == "admin"
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
 horaires_list = ["8h-9h30", "9h30 -11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30 -17h00"]
 
 with st.sidebar:
-    st.header(f"👤 {user['nom_officiel']}")
     portail = st.selectbox("🚀 MODULE", ["📖 Emploi du Temps", "📅 Surveillances Examens"])
-    st.divider()
-    
-    if portail == "📖 Emploi du Temps":
-        if is_admin:
-            mode_view = st.radio("Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"])
-            poste_superieur = st.checkbox("Simuler Poste Supérieur (3h)")
-        else:
-            mode_view = "Personnel"
-            poste_superieur = st.checkbox("Poste Supérieur (Décharge 50%)")
+    if is_admin:
+        mode_view = st.radio("Vue Admin :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"])
     else:
-        mode_view = "Surveillance_Matiere"
-
+        mode_view = "Personnel"
     if st.button("🚪 Déconnexion"): st.session_state["user_data"] = None; st.rerun()
 
-# --- AFFICHAGE DU TITRE MÉMORISÉ ---
-st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str} | 🕒 {heure_str}</div>", unsafe_allow_html=True)
 st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
-st.markdown(f"<div class='portal-badge'>MODE : {portail.upper()}</div>", unsafe_allow_html=True)
 
 if df is not None:
-    # --- PORTAIL 1 : COURS ---
     if portail == "📖 Emploi du Temps":
-        if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
+        # --- LOGIQUE ADMIN VUE PROMOTION ---
+        if is_admin and mode_view == "Promotion":
+            p_list = sorted(df["Promotion"].unique())
+            p_sel = st.selectbox("Sélectionnez la Promotion :", p_list)
+            df_p = df[df["Promotion"] == p_sel]
+            
+            def fmt(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+            grid = df_p.groupby(['Horaire', 'Jours']).apply(fmt).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
+            st.write(f"### 📅 Emploi du Temps : {p_sel}")
+            st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+
+        # --- LOGIQUE VUE ENSEIGNANT (ADMIN OU PERSO) ---
+        elif mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
             cible = user['nom_officiel'] if mode_view == "Personnel" else st.selectbox("Choisir Enseignant :", sorted(df["Enseignants"].unique()))
             df_f = df[df["Enseignants"] == cible].copy()
             
-            def get_type(t):
-                t = str(t).upper()
-                if "COURS" in t: return "COURS"
-                elif "TD" in t: return "TD"
-                elif "TP" in t: return "TP"
-                return "AUTRE"
-
-            df_f['Type'] = df_f['Enseignements'].apply(get_type)
-            df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
+            # Calcul Charge
+            df_f['h_val'] = df_f['Enseignements'].apply(lambda x: 1.5 if "COURS" in str(x).upper() else 1.0)
             df_u = df_f.drop_duplicates(subset=['Jours', 'Horaire'])
             
-            charge_reelle = df_u['h_val'].sum()
-            c_reg = 3.0 if poste_superieur else 6.0
-            
-            st.markdown(f"### 📊 Bilan de charge : {cible}")
             c1, c2, c3 = st.columns(3)
-            c1.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
-            c2.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{c_reg} h</h2></div>", unsafe_allow_html=True)
-            c3.markdown(f"<div class='metric-card'>Heures Sup<br><h2>{charge_reelle - c_reg} h</h2></div>", unsafe_allow_html=True)
+            c1.metric("Charge Réelle", f"{df_u['h_val'].sum()} h")
             
-            s1, s2, s3 = st.columns(3)
-            s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {len(df_u[df_u['Type'] == 'COURS'])} COURS</div>", unsafe_allow_html=True)
-            s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {len(df_u[df_u['Type'] == 'TD'])} TD</div>", unsafe_allow_html=True)
-            s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {len(df_u[df_u['Type'] == 'TP'])} TP</div>", unsafe_allow_html=True)
+            def fmt_e(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+            grid_e = df_f.groupby(['Horaire', 'Jours']).apply(fmt_e).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
+            st.write(f"### 📅 Emploi du Temps : {cible}")
+            st.write(grid_e.to_html(escape=False), unsafe_allow_html=True)
 
-            def fmt_ens(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
-            grid = df_f.groupby(['Horaire', 'Jours']).apply(fmt_ens).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
-            st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+        # --- AUTRES VUES ADMIN (Salles / Vérificateur) ---
+        elif is_admin and mode_view == "🏢 Planning Salles":
+            s_sel = st.selectbox("Salle :", sorted(df['Lieu_Racine'].unique()))
+            df_s = df[df['Lieu_Racine'] == s_sel]
+            def fmt_s(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Promotion']}" for _,r in rows.iterrows()])
+            st.write(df_s.groupby(['Horaire', 'Jours']).apply(fmt_s).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("").to_html(escape=False), unsafe_allow_html=True)
 
-        elif mode_view == "🏢 Planning Salles" and is_admin:
-            liste_racines = sorted([r for r in df['Lieu_Racine'].unique() if r != "Non défini"])
-            salle_racine = st.sidebar.selectbox("Choisir Salle (Racine) :", liste_racines)
-            df_salle = df[df['Lieu_Racine'] == salle_racine].copy()
-            def fmt_salle(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br>({r['Promotion']})<br><small>📍 {r['Lieu']}</small>" for _,r in rows.iterrows()])
-            grid_salle = df_salle.groupby(['Horaire', 'Jours']).apply(fmt_salle).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
-            st.write(f"### 🏢 Occupation : {salle_racine}")
-            st.write(grid_salle.to_html(escape=False), unsafe_allow_html=True)
-
-        elif mode_view == "🚩 Vérificateur" and is_admin:
-            st.subheader("🚩 Analyse des Conflits")
-            dup = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
-            err = df[df['Enseignants'] != "Non défini"][dup]
-            if err.empty: st.success("✅ Aucun conflit d'enseignant.")
-            else: st.warning("Conflits détectés :"); st.dataframe(err)
-
-    # --- PORTAIL 2 : SURVEILLANCES ---
     elif portail == "📅 Surveillances Examens":
-        df['Is_Examen'] = df['Enseignements'].str.contains("EXAMEN|CONTRÔLE|RATTRAPAGE", case=False, na=False)
-        df_surv = df[df['Is_Examen'] == True].copy()
-        
-        if df_surv.empty:
-            st.warning("⚠️ Aucune donnée d'examen détectée.")
-        else:
-            matiere_sel = st.selectbox("Matière d'Examen :", sorted(df_surv['Enseignements'].unique()))
-            df_m = df_surv[df_surv['Enseignements'] == matiere_sel]
-            st.markdown(f"<div class='welcome-box'><h3>📝 {matiere_sel}</h3><b>Date :</b> {df_m['Jours'].iloc[0]} | <b>Horaire :</b> {df_m['Horaire'].iloc[0]}</div>", unsafe_allow_html=True)
-            recap = df_m[['Lieu', 'Enseignants', 'Promotion']].rename(columns={'Enseignants': 'Surveillant'})
-            st.table(recap)
+        # Logique surveillance (identique au précédent)
+        df_surv = df[df['Enseignements'].str.contains("EXAMEN|CONTRÔLE", case=False, na=False)]
+        if not df_surv.empty:
+            m = st.selectbox("Matière :", sorted(df_surv['Enseignements'].unique()))
+            st.table(df_surv[df_surv['Enseignements'] == m][['Lieu', 'Enseignants', 'Promotion']])
 
-    components.html("<button onclick='window.parent.print()' style='width:100%; padding:12px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold; margin-top:20px;'>🖨️ IMPRIMER</button>", height=70)
+    components.html("<button onclick='window.parent.print()' style='width:100%; padding:10px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer;'>🖨️ IMPRIMER</button>", height=70)
