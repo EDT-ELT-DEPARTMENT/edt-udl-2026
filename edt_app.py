@@ -110,7 +110,7 @@ if df is not None:
             <div class='welcome-box'>
                 <b>👋 Bienvenue, Cher Collègue !</b><br>
                 Vous êtes connecté à la plateforme officielle des emplois du temps du <b>Semestre 2 (2026)</b>.<br>
-                <i>Instruction : Sélectionnez votre nom à gauche pour visualiser vos statistiques de charge et imprimer votre fiche.</i>
+                <i>Note importante : Sélectionnez votre nom à gauche pour visualiser vos statistiques de charge et imprimer votre fiche.</i>
             </div>
         """, unsafe_allow_html=True)
 
@@ -195,3 +195,4 @@ if df is not None:
 
     except Exception as e:
         st.error(f"Erreur d'affichage : {e}")
+
