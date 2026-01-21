@@ -188,111 +188,75 @@ if df is not None:
         st.table(pd.DataFrame(data_s))
 
  # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
-    elif portail == "🤖 Générateur Automatique":
-        if not is_admin:
-            st.error("Accès réservé à l'administration.")
-        else:
-            st.header("⚙️ Générateur de Surveillances par Promotion")
-            st.info("Répartition par binômes avec gestion des décharges et vacataires")
+elif portail == "🤖 Générateur Automatique":
+    st.header("🤖 GÉNÉRATEUR AUTOMATIQUE")
+    st.caption("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-            NOM_SURV_SRC = "surveillances_2026.xlsx"
+    file_path = "surveillances_2026.xlsx"
+    
+    if not os.path.exists(file_path):
+        st.error(f"Fichier '{file_path}' introuvable.")
+    else:
+        try:
+            df_src = pd.read_excel(file_path, dtype=str)
+            df_src.columns = [str(c).strip() for c in df_src.columns] 
+            liste_profs = sorted([p for p in df_src["Surveillant(s)"].unique() if str(p) != 'nan'])
 
-            if not os.path.exists(NOM_SURV_SRC):
-                st.error(f"❌ Le fichier '{NOM_SURV_SRC}' est introuvable.")
-            else:
-                df_src = pd.read_excel(NOM_SURV_SRC)
-                df_src.columns = [str(c).strip() for c in df_src.columns]
-                for c in df_src.columns:
-                    df_src[c] = df_src[c].fillna("").astype(str).str.strip()
-
-                # Extraction des enseignants
-                col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
-                liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
-                promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
-
-                # --- CONFIGURATION DES GROUPES ---
-                st.subheader("📋 Configuration des Groupes")
-                col_cfg1, col_cfg2 = st.columns(2)
-                with col_cfg1:
-                    profs_decharge = st.multiselect("👤 Enseignants avec décharge (50%) :", liste_profs_surv)
-                with col_cfg2:
-                    vacataires = st.multiselect("🎓 Vacataires (Quota réduit) :", liste_profs_surv)
+            # --- Interface Quotas ---
+            with st.expander("⚖️ Réglage des Quotas & Vigilance", expanded=True):
+                col_a, col_b = st.columns([2, 1])
+                with col_a:
+                    profs_limites = st.multiselect("👤 Limiter ces enseignants :", liste_profs)
+                with col_b:
+                    max_theo = st.number_input("Base Max", min_value=1, value=10)
                 
-                coef_decharge = st.slider("Coefficient de charge pour décharge/vacataire", 0.1, 0.9, 0.5)
+                pct = st.slider("Pourcentage autorisé (%)", 0, 100, 50, step=10)
+                seuil_actuel = int(max_theo * (pct / 100))
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    promo_cible = st.multiselect("🎓 Promotions à générer :", promo_dispo)
-                with col2:
-                    dates_exam = st.multiselect("📅 Sélectionner les dates :", sorted(df_src['Date'].unique()))
+            # --- Logique de Détection des Conflits ---
+            def detecter_conflits(df):
+                # Groupe par Prof, Jour et Horaire pour voir s'il y a des doublons
+                doublons = df[df.duplicated(subset=['Surveillant(s)', 'Jour', 'Heure'], keep=False)]
+                return doublons
 
-                if st.button("🚀 GÉNÉRER LA RÉPARTITION ÉQUITABLE"):
-                    if not promo_cible:
-                        st.warning("Veuillez choisir au moins une promotion.")
-                    else:
-                        stats_charge = {p: 0 for p in liste_profs_surv}
-                        global_tracking = []
-                        all_promos_df = []
+            if st.button("🚀 LANCER L'ANALYSE ET DÉTECTER LES CONFLITS"):
+                # Disposition imposée
+                df_temp = df_src.copy().rename(columns={
+                    "Matière": "Enseignements", "N°": "Code",
+                    "Chargé de matière": "Enseignants", "Heure": "Horaire",
+                    "Jour": "Jours", "Salle": "Lieu"
+                })
+                
+                st.session_state.df_genere = df_temp
+                st.session_state.conflits = detecter_conflits(df_src)
+                st.session_state.stats_charge = df_src["Surveillant(s)"].value_counts().to_dict()
+                st.success("Analyse terminée.")
 
-                        # Algorithme de sélection par binôme avec pondération
-                        for promo in promo_cible:
-                            st.markdown(f"#### 📋 Tableau : {promo}")
-                            df_p = df_src[df_src['Promotion'] == promo].copy()
-                            if dates_exam:
-                                df_p = df_p[df_p['Date'].isin(dates_exam)]
+            # --- Affichage des Alertes de Conflits ---
+            if 'conflits' in st.session_state and not st.session_state.conflits.empty:
+                st.warning(f"⚠️ {len(st.session_state.conflits)} Conflits de présence détectés !")
+                with st.expander("🔍 Voir les erreurs de programmation"):
+                    st.dataframe(st.session_state.conflits[['Surveillant(s)', 'Jour', 'Heure', 'Matière', 'Salle']])
 
-                            final_rows = []
-                            for _, row in df_p.iterrows():
-                                binome = []
-                                
-                                # On cherche 2 surveillants
-                                for _ in range(2):
-                                    # Calcul de la charge pondérée pour l'équité
-                                    # Charge réelle / coefficient si l'enseignant est privilégié
-                                    prio = sorted(liste_profs_surv, key=lambda p: (
-                                        stats_charge[p] / (coef_decharge if (p in profs_decharge or p in vacataires) else 1.0)
-                                    ))
+            # --- Affichage Final par Enseignant ---
+            if 'df_genere' in st.session_state:
+                st.divider()
+                prof_select = st.selectbox("🔍 Consulter le planning de :", liste_profs)
+                
+                # Métriques de charge
+                nb_seances = st.session_state.stats_charge.get(prof_select, 0)
+                c1, c2 = st.columns(2)
+                c1.metric("Charge de travail", f"{nb_seances} séances")
+                
+                if prof_select in profs_limites:
+                    alerte = "🚨 SURCHARGE" if nb_seances > seuil_actuel else "✅ OK"
+                    c2.metric("Statut Quota", alerte)
 
-                                    for p in prio:
-                                        # Pas deux fois dans le même binôme ET pas déjà occupé à cette heure
-                                        if p not in binome:
-                                            occupe = any(x for x in global_tracking if x['D'] == row['Date'] and x['H'] == row['Heure'] and x['N'] == p)
-                                            if not occupe:
-                                                binome.append(p)
-                                                stats_charge[p] += 1
-                                                global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
-                                                break
-                                
-                                row_data = {
-                                    "Date": row['Date'], "Heure": row['Heure'],
-                                    "Matière": row['Matière'], "Salle": row['Salle'],
-                                    "Binôme": " & ".join(binome)
-                                }
-                                final_rows.append(row_data)
-                                row_data["Promotion"] = promo
-                                all_promos_df.append(row_data)
+                # Tableau avec disposition : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+                df_prof_final = st.session_state.df_genere[st.session_state.df_genere["Surveillant(s)"] == prof_select]
+                cols_disposition = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
+                
+                st.table(df_prof_final[cols_disposition])
 
-                            st.table(pd.DataFrame(final_rows))
-
-                        # --- ANALYSE NUMÉRIQUE ---
-                        st.divider()
-                        st.subheader("🔍 Analyse numérique des charges")
-                        
-                        prof_analyse = st.selectbox("Sélectionner un enseignant :", liste_profs_surv)
-                        quota = stats_charge.get(prof_analyse, 0)
-                        
-                        c_met1, c_met2, c_met3 = st.columns(3)
-                        with c_met1:
-                            st.metric(label=f"Quota {prof_analyse}", value=f"{quota} séances")
-                        with c_met2:
-                            st.metric(label="Type", value="Décharge/Vacataire" if (prof_analyse in profs_decharge or prof_analyse in vacataires) else "Normal")
-                        with c_met3:
-                            moyenne = sum(stats_charge.values()) / len(liste_profs_surv)
-                            st.metric(label="Moyenne globale", value=f"{moyenne:.1f}")
-
-                        if all_promos_df:
-                            df_export = pd.DataFrame(all_promos_df)
-                            buffer = io.BytesIO()
-                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                                df_export.to_excel(writer, index=False)
-                            st.download_button("📥 TÉLÉCHARGER LE PLANNING FINAL", buffer.getvalue(), "Planning_Surv_Equitable.xlsx", use_container_width=True)
+        except Exception as e:
+            st.error(f"Erreur : {e}")
