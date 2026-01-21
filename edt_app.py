@@ -192,6 +192,26 @@ elif portail == "🤖 Générateur Automatique":
     st.header("⚙️ Générateur de Surveillances par Promotion")
     st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
+    # 1. PRÉPARATION DES DONNÉES DE BASE
+    # On extrait la liste unique des enseignants pour les surveillances
+    all_profs = set()
+    for x in df["Enseignants"].unique():
+        for name in str(x).split('/'):
+            if name.strip() and name.strip() != "Non défini":
+                all_profs.add(name.strip())
+    liste_profs_surv = sorted(list(all_profs))
+
+    # Initialisation des états de session si inexistants
+    if 'df_genere' not in st.session_state: st.session_state.df_genere = None
+    if 'stats_charge' not in st.session_state: st.session_state.stats_charge = {}
+
+    # 2. FILTRES DE SÉLECTION
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        promo_cible = st.multiselect("🎓 Sélectionner les Promotions :", sorted(df["Promotion"].unique()))
+    with col_f2:
+        dates_exam = st.multiselect("📅 Sélectionner les Dates d'Examen :", sorted(df["Jours"].unique()))
+
     # --- CONFIGURATION DES QUOTAS ET EXCEPTIONS ---
     with st.expander("⚖️ Réglage des Exceptions (Postes Supérieurs / Vacataires)", expanded=True):
         col_exc1, col_exc2 = st.columns(2)
@@ -200,78 +220,77 @@ elif portail == "🤖 Générateur Automatique":
         with col_exc2:
             max_theorique = st.number_input("Nombre Max de surveillances (100%)", min_value=1, value=10)
         
-        # Le curseur pilote directement le calcul
         pourcentage = st.slider("Pourcentage du quota autorisé (%)", 0, 100, 50, step=10)
         quota_limite = int(max_theorique * (pourcentage / 100))
         
-        st.markdown(f"""
-        > 💡 **Règle de calcul :** > Chaque enseignant sélectionné ne pourra pas dépasser **{quota_limite}** séances.  
-        > Les séances excédentaires seront automatiquement redistribuées aux autres enseignants.
-        """)
+        st.markdown(f"> 💡 **Règle :** Les enseignants sélectionnés ne dépasseront pas **{quota_limite}** séances.")
 
-    # --- GÉNÉRATION ---
+    # --- LOGIQUE DE GÉNÉRATION ---
     if st.button("🚀 LANCER LA GÉNÉRATION DES FLUX"):
         if not promo_cible:
-            st.error("Veuillez sélectionner des promotions.")
+            st.error("Veuillez sélectionner au moins une promotion.")
         else:
+            # Préparation des besoins (Besoins = Cours/TP/TD transformés en créneaux d'examens)
+            df_besoins = df[df['Promotion'].isin(promo_cible)].copy()
+            if dates_exam:
+                df_besoins = df_besoins[df_besoins['Jours'].isin(dates_exam)]
+            
             stats = {p: 0 for p in liste_profs_surv}
             global_tracking = []
             results = []
 
-            # Extraction des besoins
-            df_besoins = df_src[df_src['Promotion'].isin(promo_cible)].copy()
-            if dates_exam:
-                df_besoins = df_besoins[df_besoins['Date'].isin(dates_exam)]
-
             for _, row in df_besoins.iterrows():
                 binome = []
-                
-                # 1. Trier tous les enseignants par charge actuelle pour l'équité
+                # Trier par charge pour l'équité
                 profs_tries = sorted(liste_profs_surv, key=lambda p: stats[p])
 
                 for p in profs_tries:
                     if len(binome) < 2:
-                        # VERIFICATION DU QUOTA (LA RELATION QUE VOUS AVEZ DEMANDÉE)
+                        # VERIFICATION QUOTA
                         if p in profs_exception and stats[p] >= quota_limite:
-                            continue # On passe au suivant, l'exception a atteint son max
+                            continue 
                         
-                        # Vérification anti-conflit (pas 2 salles en même temps)
-                        deja_occupe = any(x for x in global_tracking if x['D']==row['Date'] and x['H']==row['Heure'] and x['N']==p)
+                        # Anti-conflit (pas 2 fois à la même heure le même jour)
+                        deja_occupe = any(x for x in global_tracking if x['D']==row['Jours'] and x['H']==row['Horaire'] and x['N']==p)
                         
                         if not deja_occupe:
                             binome.append(p)
                             stats[p] += 1
-                            global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+                            global_tracking.append({'D': row['Jours'], 'H': row['Horaire'], 'N': p})
 
                 results.append({
-                    "Promotion": row['Promotion'], "Date": row['Date'], "Heure": row['Heure'],
-                    "Matière": row['Matière'], "Salle": row['Salle'],
-                    "Binôme": " & ".join(binome) if len(binome) == 2 else "⚠️ MANQUE EFFECTIF"
+                    "Promotion": row['Promotion'], 
+                    "Date": row['Jours'], 
+                    "Heure": row['Horaire'],
+                    "Matière": row['Enseignements'], 
+                    "Salle": row['Lieu'],
+                    "Binôme": " & ".join(binome) if len(binome) >= 1 else "⚠️ MANQUE EFFECTIF"
                 })
 
             st.session_state.stats_charge = stats
             st.session_state.df_genere = pd.DataFrame(results)
+            st.success("Génération terminée !")
             st.rerun()
 
-    # --- AFFICHAGE NUMÉRIQUE ET TABLEAU INDIVIDUEL ---
-    if st.session_state.df_genere is not None:
+    # --- AFFICHAGE DES RÉSULTATS ---
+    if st.session_state.df_genere is not None and not st.session_state.df_genere.empty:
         st.divider()
-        st.subheader("📊 Analyse des charges après redistribution")
+        st.subheader("📊 Analyse des charges et Plannings")
         
-        prof_sel = st.selectbox("Vérifier l'impact du curseur sur :", sorted(liste_profs_surv))
-        charge_reelle = st.session_state.stats_charge[prof_sel]
+        prof_sel = st.selectbox("Vérifier l'impact pour :", liste_profs_surv)
+        charge_reelle = st.session_state.stats_charge.get(prof_sel, 0)
         
         c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("Surveillances attribuées", f"{charge_reelle} séances")
-        with c2:
-            statut = "Limité (Poste Sup/Vac)" if prof_sel in profs_exception else "Normal"
-            st.metric("Statut Enseignant", statut)
-        with c3:
-            limite_label = quota_limite if prof_sel in profs_exception else "∞"
-            st.metric("Limite autorisée", limite_label)
+        with c1: st.metric("Surveillances", f"{charge_reelle} séances")
+        with c2: st.metric("Statut", "Limité" if prof_sel in profs_exception else "Normal")
+        with c3: st.metric("Limite", quota_limite if prof_sel in profs_exception else "Sans limite")
 
-        # Tableau individuel spécifique
-        st.write(f"**📅 Planning personnel de {prof_sel} :**")
-        df_perso = st.session_state.df_genere[st.session_state.df_genere['Binôme'].str.contains(prof_sel, na=False)]
-        st.table(df_perso[["Date", "Heure", "Matière", "Salle", "Promotion"]])
+        # Affichage du planning filtré pour l'enseignant choisi
+        st.write(f"**📅 Planning de surveillance pour {prof_sel} :**")
+        df_res = st.session_state.df_genere
+        df_perso = df_res[df_res['Binôme'].str.contains(prof_sel, na=False, case=False)]
+        
+        if not df_perso.empty:
+            st.table(df_perso[["Date", "Heure", "Matière", "Salle", "Promotion"]])
+        else:
+            st.info("Aucune surveillance attribuée à cet enseignant avec les réglages actuels.")
