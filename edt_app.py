@@ -297,4 +297,83 @@ if df is not None:
                                 df_export.to_excel(writer, index=False)
                             st.download_button("📥 TÉLÉCHARGER LE PLANNING FINAL", buffer.getvalue(), "Planning_Surv_Equitable.xlsx", use_container_width=True)
 
+# ================= PORTAIL 2 : SURVEILLANCES EXAMENS =================
+    elif portail == "📅 Surveillances Examens":
+        NOM_SURV = "surveillances_2026.xlsx"
+        
+        if os.path.exists(NOM_SURV):
+            df_surv = pd.read_excel(NOM_SURV)
+            df_surv.columns = [str(c).strip() for c in df_surv.columns]
+            
+            # Nettoyage et conversion des dates pour le tri
+            df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
+            for c in df_surv.columns:
+                df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
+
+            # Liste des enseignants présents dans le fichier
+            col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_surv.columns else 'Enseignants'
+            # Si les surveillants sont stockés en binômes "Nom A & Nom B", on les sépare pour la liste
+            all_profs = []
+            for entry in df_surv[col_prof].unique():
+                for p in entry.split('&'):
+                    p_clean = p.strip()
+                    if p_clean and p_clean not in ["nan", "Non défini"]:
+                        all_profs.append(p_clean)
+            liste_profs = sorted(list(set(all_profs)))
+
+            # Sélection de l'enseignant
+            u_nom = user['nom_officiel']
+            idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
+            prof_sel = st.selectbox("🔍 Sélectionner un enseignant pour voir ses statistiques :", liste_profs, index=idx_p)
+
+            # Filtrage des données pour l'enseignant sélectionné
+            # On cherche le nom dans la colonne (gère les binômes)
+            df_u = df_surv[df_surv[col_prof].str.contains(prof_sel, case=False, na=False)].sort_values(by='Date_Tri')
+
+            # --- AFFICHAGE NUMÉRIQUE (STATISTIQUES) ---
+            st.markdown(f"### 📊 Bilan numérique : {prof_sel}")
+            
+            nb_total = len(df_u)
+            
+            # Calcul de la répartition par semaine (optionnel mais utile)
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.metric(label="Total Surveillances", value=f"{nb_total} séances")
+            with c2:
+                # Exemple : Compte les matinées (08h30 ou 09h00)
+                matin = len(df_u[df_u['Heure'].str.contains("08h|09h|10h", case=False)])
+                st.metric(label="Séances Matin", value=matin)
+            with c3:
+                apres_midi = nb_total - matin
+                st.metric(label="Séances Après-midi", value=apres_midi)
+
+            st.divider()
+
+            # --- DÉTAILS DES MISSIONS ---
+            tab_perso, tab_global = st.tabs(["📋 Ma Feuille de Route", "🌐 Planning Complet"])
+            
+            with tab_perso:
+                if not df_u.empty:
+                    for _, r in df_u.iterrows():
+                        st.markdown(f"""
+                            <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; border-left: 5px solid #1E3A8A; margin-bottom: 10px;">
+                                <span style="font-size: 18px; font-weight: bold; color: #1E3A8A;">📅 {r['Jour']} {r['Date']}</span>
+                                <span style="float: right; background: #1E3A8A; color: white; padding: 2px 10px; border-radius: 20px;">🕒 {r['Heure']}</span>
+                                <br><b style="font-size: 16px;">📖 {r['Matière']}</b>
+                                <br><small>📍 Salle : <b>{r['Salle']}</b> | 🎓 Promotion : <b>{r['Promotion']}</b></small>
+                                <br><small>👥 Partenaire(s) : {r[col_prof]}</small>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Bouton d'export individuel
+                    out = io.BytesIO()
+                    df_u.drop(columns=['Date_Tri']).to_excel(out, index=False)
+                    st.download_button(f"📥 Télécharger mon planning ({prof_sel})", out.getvalue(), f"Surv_{prof_sel}.xlsx", use_container_width=True)
+                else:
+                    st.info("Aucune surveillance affectée pour le moment.")
+
+            with tab_global:
+                st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
+        else:
+            st.error("Le fichier 'surveillances_2026.xlsx' est manquant.")
 
