@@ -192,70 +192,76 @@ elif portail == "🤖 Générateur Automatique":
     st.header("🤖 GÉNÉRATEUR AUTOMATIQUE")
     st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-    # --- 1. CHARGEMENT DU FICHIER SOURCE ---
-    # Fichier : surveillances_2026.xlsx
+    # --- 1. CHARGEMENT ET NETTOYAGE RIGOUREUX ---
     try:
-        df_src = pd.read_excel("surveillances_2026.xlsx")
-        # Nettoyage de la liste des surveillants
-        liste_profs = sorted([str(p).strip() for p in df_src["Surveillant(s)"].unique() if str(p).lower() != 'nan'])
+        # On charge le fichier
+        df_raw = pd.read_excel("surveillances_2026.xlsx")
+        
+        # Nettoyage des noms de colonnes (enlève les espaces avant/après)
+        df_raw.columns = [str(c).strip() for c in df_raw.columns]
+        
+        # Création de la liste des surveillants (en ignorant les noms vides)
+        liste_profs = sorted([str(p).strip() for p in df_raw["Surveillant(s)"].unique() if str(p).lower() != 'nan' and str(p).strip() != ""])
+        
     except Exception as e:
-        st.error(f"Erreur lors de l'accès à 'surveillances_2026.xlsx' : {e}")
+        st.error(f"❌ Erreur de lecture : {e}")
+        st.write("Vérifiez que le fichier 'surveillances_2026.xlsx' est bien présent.")
         st.stop()
 
     # --- 2. CONFIGURATION DES QUOTAS ---
-    with st.expander("⚖️ Réglage des Quotas par Enseignant", expanded=True):
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            profs_selectionnes = st.multiselect("👤 Sélectionner les enseignants à limiter :", liste_profs)
-        with col2:
-            max_theorique = st.number_input("Séances Max (Théorique)", min_value=1, value=10)
+    with st.expander("⚖️ Réglage des Quotas (Curseur)", expanded=True):
+        col_c1, col_c2 = st.columns([2, 1])
+        with col_c1:
+            profs_limites = st.multiselect("👤 Enseignants à surveiller :", liste_profs)
+        with col_c2:
+            base_max = st.number_input("Maximum théorique", min_value=1, value=10)
         
-        pourcentage = st.slider("Pourcentage du quota autorisé (%)", 0, 100, 50, step=10)
-        seuil_critique = int(max_theorique * (pourcentage / 100))
-        st.markdown(f"**Seuil calculé : {seuil_critique} séances.**")
+        pourcentage = st.slider("Pourcentage autorisé (%)", 0, 100, 50, step=10)
+        seuil = int(base_max * (pourcentage / 100))
+        st.caption(f"Limite fixée à : {seuil} séances pour les profs sélectionnés.")
 
-    # --- 3. TRAITEMENT ---
-    if st.button("🚀 LANCER L'ANALYSE"):
-        # Calcul des charges
-        stats = df_src["Surveillant(s)"].value_counts().to_dict()
-        st.session_state.stats_charge = stats
-        st.session_state.df_genere = df_src.copy()
-        st.success("Analyse effectuée avec succès.")
+    # --- 3. BOUTON D'ACTION ---
+    if st.button("🚀 ACTUALISER LES DONNÉES"):
+        st.session_state.df_surv = df_raw.copy()
+        st.session_state.charge_dict = df_raw["Surveillant(s)"].value_counts().to_dict()
+        st.success("✅ Données synchronisées !")
 
-    # --- 4. AFFICHAGE (DISPOSITION IMPOSÉE) ---
-    if 'df_genere' in st.session_state:
+    # --- 4. AFFICHAGE DES RÉSULTATS (DISPOSITION IMPOSÉE) ---
+    if 'df_surv' in st.session_state:
         st.divider()
-        prof_view = st.selectbox("🔍 Planning de l'enseignant :", liste_profs)
+        choix_prof = st.selectbox("🔍 Choisir un enseignant pour voir son planning :", liste_profs)
         
-        # Statistiques rapides
-        charge = st.session_state.stats_charge.get(prof_view, 0)
-        c1, c2 = st.columns(2)
-        c1.metric("Charge réelle", f"{charge} séances")
+        # Calcul de la charge
+        n_seances = st.session_state.charge_dict.get(choix_prof, 0)
         
-        if prof_view in profs_selectionnes:
-            statut = "🔴 DÉPASSÉ" if charge > seuil_critique else "🟢 OK"
-            c2.metric("Statut Quota", statut)
+        # Indicateurs
+        m1, m2 = st.columns(2)
+        m1.metric("Nombre de surveillances", f"{n_seances}")
+        if choix_prof in profs_limites:
+            couleur = "inverse" if n_seances > seuil else "normal"
+            m2.metric("Alerte Quota", "DÉPASSÉ" if n_seances > seuil else "OK", delta=seuil-n_seances)
 
-        # Filtrage et réorganisation des colonnes selon la disposition demandée
-        # Disposition : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
-        df_perso = st.session_state.df_genere[st.session_state.df_genere["Surveillant(s)"] == prof_view].copy()
+        # Filtrage et Renommage pour respecter la disposition demandée :
+        # Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+        df_final = st.session_state.df_surv[st.session_state.df_surv["Surveillant(s)"] == choix_prof].copy()
         
-        # Mapping pour respecter la disposition demandée
-        df_display = df_perso.rename(columns={
+        # Mapping des colonnes de votre fichier vers la disposition demandée
+        df_final = df_final.rename(columns={
             "Matière": "Enseignements",
             "N°": "Code",
             "Chargé de matière": "Enseignants",
             "Heure": "Horaire",
             "Jour": "Jours",
-            "Salle": "Lieu"
+            "Salle": "Lieu",
+            "Promotion": "Promotion"
         })
 
-        # Affichage du tableau final
-        st.subheader(f"📅 Planning de {prof_view}")
-        st.dataframe(df_display[[
-            "Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"
-        ]], use_container_width=True)
+        # Sélection des colonnes dans l'ordre EXACT demandé
+        colonnes_ordonnees = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
+        
+        st.subheader(f"📋 Emploi du temps de surveillance : {choix_prof}")
+        st.table(df_final[colonnes_ordonnees])
 
-        # Exportation
-        csv = df_display.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Télécharger ce planning (CSV)", csv, f"Planning_{prof_view}.csv", "text/csv")
+        # Téléchargement
+        csv = df_final[colonnes_ordonnees].to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Télécharger (CSV)", csv, f"EDT_{choix_prof}.csv", "text/csv")
