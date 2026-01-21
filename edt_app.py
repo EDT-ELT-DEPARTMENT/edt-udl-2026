@@ -238,7 +238,7 @@ if df is not None:
             st.error("Accès réservé à l'administration.")
         else:
             st.header("⚙️ Générateur de Surveillances par Promotion")
-            st.info("Répartition par binômes (Session bloquée : tous les enseignants sont libres)")
+            st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
             NOM_SURV_SRC = "surveillances_2026.xlsx"
 
@@ -250,29 +250,27 @@ if df is not None:
                 for c in df_src.columns:
                     df_src[c] = df_src[c].fillna("").astype(str).str.strip()
 
-                # Extraction des enseignants du fichier de surveillance
+                # Extraction de la liste des surveillants disponibles
                 col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
                 liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
                 promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
 
+                # --- INTERFACE DE SÉLECTION ---
                 col1, col2 = st.columns(2)
                 with col1:
                     promo_cible = st.multiselect("🎓 Promotions à générer :", promo_dispo)
                 with col2:
                     dates_exam = st.multiselect("📅 Sélectionner les dates :", sorted(df_src['Date'].unique()))
 
-                if st.button("🚀 GÉNÉRER LES TABLEAUX PAR BINÔMES"):
+                # --- BOUTON DE GÉNÉRATION ---
+                if st.button("🚀 GÉNÉRER LES BINÔMES ET CALCULER LES CHARGES"):
                     if not promo_cible:
                         st.warning("Veuillez choisir au moins une promotion.")
                     else:
-                        import itertools
-                        # Créateur de binômes infini pour piocher dedans circulairement
-                        # On mélange la liste pour ne pas avoir toujours les mêmes paires
-                        import random
+                        import itertools, random
                         profs_shuffled = liste_profs_surv.copy()
                         random.shuffle(profs_shuffled)
                         
-                        # Création d'un cycle de binômes (2 par 2)
                         def get_binomes(liste):
                             it = itertools.cycle(liste)
                             while True:
@@ -282,60 +280,55 @@ if df is not None:
                         stats_charge = {p: 0 for p in liste_profs_surv}
                         all_promos_df = []
 
+                        # Génération des tableaux
                         for promo in promo_cible:
-                            st.markdown(f"#### 📋 Tableau de Surveillance : {promo}")
+                            st.markdown(f"#### 📋 Tableau : {promo}")
                             df_p = df_src[df_src['Promotion'] == promo].copy()
                             if dates_exam:
                                 df_p = df_p[df_p['Date'].isin(dates_exam)]
 
-                            if df_p.empty:
-                                st.write(f"∅ Aucune séance trouvée pour {promo}")
-                                continue
-
                             final_rows = []
                             for _, row in df_p.iterrows():
-                                # On récupère le prochain binôme disponible
                                 paire = next(binome_gen)
-                                
-                                # Mise à jour des stats pour le bilan final
                                 for p in paire: stats_charge[p] += 1
                                 
                                 row_data = {
-                                    "Date": row['Date'],
-                                    "Heure": row['Heure'],
-                                    "Matière": row['Matière'],
-                                    "Salle": row['Salle'],
-                                    "Binôme Surveillants": f"{paire[0]} & {paire[1]}"
+                                    "Date": row['Date'], "Heure": row['Heure'],
+                                    "Matière": row['Matière'], "Salle": row['Salle'],
+                                    "Binôme": f"{paire[0]} & {paire[1]}"
                                 }
                                 final_rows.append(row_data)
-                                
-                                export_row = row_data.copy()
-                                export_row["Promotion"] = promo
-                                all_promos_df.append(export_row)
+                                row_data["Promotion"] = promo
+                                all_promos_df.append(row_data)
 
                             st.table(pd.DataFrame(final_rows))
 
-                        # --- BILAN FINAL ---
+                        # --- SECTION AFFICHAGE NUMÉRIQUE PAR ENSEIGNANT ---
                         st.divider()
-                        st.subheader("📊 Récapitulatif des présences")
-                        df_bilan = pd.DataFrame([
-                            {"Enseignant": k, "Nombre de surveillances": v} 
-                            for k, v in stats_charge.items() if v > 0
-                        ]).sort_values(by="Nombre de surveillances", ascending=False)
+                        st.subheader("🔍 Analyse numérique des charges")
                         
-                        st.dataframe(df_bilan, use_container_width=True, hide_index=True)
+                        # Sélecteur pour l'analyse individuelle
+                        prof_analyse = st.selectbox("Sélectionner un enseignant pour vérifier son quota :", liste_profs_surv)
+                        
+                        # Affichage sous forme de grosse carte numérique (Metric)
+                        quota = stats_charge.get(prof_analyse, 0)
+                        
+                        c_met1, c_met2 = st.columns(2)
+                        with c_met1:
+                            st.metric(label=f"Nombre de surveillances pour {prof_analyse}", value=f"{quota} séances")
+                        with c_met2:
+                            moyenne = sum(stats_charge.values()) / len(liste_profs_surv)
+                            st.metric(label="Moyenne du département", value=f"{moyenne:.2f}")
+
+                        # Petit tableau récapitulatif rapide de tous les profs
+                        with st.expander("📊 Voir le classement complet des charges"):
+                            df_bilan = pd.DataFrame([{"Enseignant": k, "Nombre": v} for k, v in stats_charge.items() if v > 0])
+                            st.dataframe(df_bilan.sort_values(by="Nombre", ascending=False), use_container_width=True, hide_index=True)
 
                         # --- EXPORT ---
                         if all_promos_df:
                             df_export = pd.DataFrame(all_promos_df)
                             buffer = io.BytesIO()
                             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                                df_export.to_excel(writer, index=False, sheet_name='Surveillances_S2')
-                            
-                            st.download_button(
-                                label="📥 TÉLÉCHARGER LE PLANNING FINAL (.XLSX)",
-                                data=buffer.getvalue(),
-                                file_name="Planning_Binomes_Semaines_Bloquees.xlsx",
-                                mime="application/vnd.ms-excel",
-                                use_container_width=True
-                            )
+                                df_export.to_excel(writer, index=False)
+                            st.download_button("📥 TÉLÉCHARGER LE PLANNING FINAL", buffer.getvalue(), "Planning_S2_ELT.xlsx", use_container_width=True)
