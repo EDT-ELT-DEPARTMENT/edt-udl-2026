@@ -55,7 +55,9 @@ def normalize(s):
 if os.path.exists(NOM_FICHIER_FIXE):
     df = pd.read_excel(NOM_FICHIER_FIXE)
     df.columns = [str(c).strip() for c in df.columns]
-    for col in ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']:
+    # Ordre imposé : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+    cols_attendues = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
+    for col in cols_attendues:
         if col in df.columns: 
             df[col] = df[col].fillna("Non défini").astype(str).str.strip()
         else:
@@ -122,10 +124,7 @@ if df is not None:
             df_f['Type'] = df_f['Code'].apply(lambda x: "COURS" if "COURS" in str(x).upper() else ("TD" if "TD" in str(x).upper() else "TP"))
             df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
             df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
-            charge_reelle = df_u['h_val'].sum()
-            charge_reglementaire = 3.0 if poste_sup else 6.0
-            heures_sup = charge_reelle - charge_reglementaire
-
+            
             st.markdown(f"### 📊 Bilan : {cible}")
             st.markdown(f"""<div class="stat-container">
                 <div class="stat-box bg-cours">📘 {len(df_u[df_u['Type'] == 'COURS'])} COURS</div>
@@ -134,10 +133,13 @@ if df is not None:
             </div>""", unsafe_allow_html=True)
 
             c1, c2, c3 = st.columns(3)
+            charge_reelle = df_u['h_val'].sum()
+            charge_reg = 3.0 if poste_sup else 6.0
             c1.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
-            c2.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reglementaire} h</h2></div>", unsafe_allow_html=True)
-            color_sup = "#e74c3c" if heures_sup > 0 else "#27ae60"
-            c3.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup<br><h2 style='color:{color_sup};'>{heures_sup} h</h2></div>", unsafe_allow_html=True)
+            c2.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
+            h_sup = charge_reelle - charge_reg
+            color_sup = "#e74c3c" if h_sup > 0 else "#27ae60"
+            c3.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup<br><h2 style='color:{color_sup};'>{h_sup} h</h2></div>", unsafe_allow_html=True)
 
             def fmt_e(rows):
                 items = [f"<b>{get_nature(r['Code'])} : {r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _, r in rows.iterrows()]
@@ -160,18 +162,35 @@ if df is not None:
             grid_p.index = horaires_list; grid_p.columns = jours_list
             st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
 
+        elif is_admin and mode_view == "🏢 Planning Salles":
+            s_sel = st.selectbox("Choisir Salle :", sorted(df["Lieu"].unique()))
+            df_s = df[df["Lieu"] == s_sel]
+            def fmt_s(rows):
+                items = [f"<b>{r['Promotion']}</b><br>{r['Enseignements']}<br><i>{r['Enseignants']}</i>" for _, r in rows.iterrows()]
+                return "<div class='separator'></div>".join(items)
+            grid_s = df_s.groupby(['h_norm', 'j_norm']).apply(fmt_s, include_groups=False).unstack('j_norm')
+            grid_s = grid_s.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
+            grid_s.index = horaires_list; grid_s.columns = jours_list
+            st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
+
         elif is_admin and mode_view == "🚩 Vérificateur":
             st.subheader("🚩 Analyse des conflits")
             errs = []
+            # Salles
             s_c = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu']).filter(lambda x: len(x) > 1)
             for _, r in s_c.drop_duplicates(['Jours', 'Horaire', 'Lieu']).iterrows():
                 errs.append(f"❌ **SALLE** : {r['Lieu']} occupée en double le {r['Jours']} à {r['Horaire']}")
+            # Enseignants
             p_c = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants']).filter(lambda x: len(x) > 1)
             for _, r in p_c.drop_duplicates(['Jours', 'Horaire', 'Enseignants']).iterrows():
                 errs.append(f"⚠️ **CONFLIT** : {r['Enseignants']} a deux cours le {r['Jours']} à {r['Horaire']}")
+            
             if errs:
-                for e in errs: st.error(e) if "❌" in e else st.warning(e)
-            else: st.success("✅ Aucun conflit détecté.")
+                for e in errs:
+                    if "❌" in e: st.error(e)
+                    else: st.warning(e)
+            else:
+                st.success("✅ Aucun conflit détecté.")
 
     elif portail == "📅 Surveillances Examens":
         NOM_SURV = "surveillances_2026.xlsx"
@@ -180,6 +199,7 @@ if df is not None:
             df_surv.columns = [str(c).strip() for c in df_surv.columns]
             df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
             for c in df_surv.columns: df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
+            
             col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_surv.columns else 'Enseignants'
             all_profs = []
             for entry in df_surv[col_prof].unique():
@@ -187,6 +207,7 @@ if df is not None:
                     p_clean = p.strip()
                     if p_clean and p_clean not in ["nan", "Non défini"]: all_profs.append(p_clean)
             liste_profs = sorted(list(set(all_profs)))
+            
             u_nom = user['nom_officiel']
             idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
             prof_sel = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs, index=idx_p)
@@ -194,27 +215,29 @@ if df is not None:
             
             st.markdown(f"### 📊 Bilan numérique : {prof_sel}")
             c1, c2, c3 = st.columns(3)
+            nb_matin = len(df_u[df_u['Heure'].str.contains("08h|09h|10h", case=False)])
             with c1: st.metric("Total Surveillances", f"{len(df_u)} séances")
-            with c2: st.metric("Séances Matin", len(df_u[df_u['Heure'].str.contains("08h|09h|10h", case=False)]))
-            with c3: st.metric("Séances Après-midi", len(df_u) - len(df_u[df_u['Heure'].str.contains("08h|09h|10h", case=False)]))
+            with c2: st.metric("Séances Matin", nb_matin)
+            with c3: st.metric("Séances Après-midi", len(df_u) - nb_matin)
             
             st.divider()
-            tab_perso, tab_global = st.tabs(["📋 Ma Feuille de Route", "🌐 Planning Complet"])
-            with tab_perso:
+            tab_p, tab_g = st.tabs(["📋 Ma Feuille de Route", "🌐 Planning Complet"])
+            with tab_p:
                 if not df_u.empty:
                     for _, r in df_u.iterrows():
                         st.markdown(f"""<div style="background:#f0f2f6;padding:15px;border-radius:10px;border-left:5px solid #1E3A8A;margin-bottom:10px;">
                             <span style="font-weight:bold;color:#1E3A8A;">📅 {r['Jour']} {r['Date']}</span> | 🕒 {r['Heure']}<br>
-                            <b>📖 {r['Matière']}</b><br><small>📍 {r['Salle']} | 👥 {r[col_prof]}</small></div>""", unsafe_allow_html=True)
+                            <b>📖 {r['Matière']}</b><br><small>📍 {r['Salle']} | 🎓 {r['Promotion']} | 👥 {r[col_prof]}</small></div>""", unsafe_allow_html=True)
                     out = io.BytesIO()
                     df_u.drop(columns=['Date_Tri']).to_excel(out, index=False)
-                    st.download_button(f"📥 Télécharger mon planning", out.getvalue(), f"Surv_{prof_sel}.xlsx", use_container_width=True)
-                else: st.info("Aucune surveillance.")
-            with tab_global: st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
-        else: st.error("Fichier surveillances manquant.")
+                    st.download_button("📥 Télécharger mon planning", out.getvalue(), f"Surv_{prof_sel}.xlsx", use_container_width=True)
+                else: st.info("Aucune surveillance affectée.")
+            with tab_g: st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
+        else: st.error("Fichier 'surveillances_2026.xlsx' manquant.")
 
     elif portail == "🤖 Générateur Automatique":
         if not is_admin: st.error("Accès réservé.")
         else:
             st.header("⚙️ Générateur Automatique")
-            st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+            st.info("Outil de répartition intelligente des charges horaires.")
+            # Espace prêt pour l'intégration de votre futur algorithme
