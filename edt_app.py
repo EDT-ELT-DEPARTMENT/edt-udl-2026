@@ -147,7 +147,7 @@ if df is not None:
             if err.empty: st.success("✅ Aucun conflit détecté.")
             else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err)
 
- # ================= PORTAIL 2 : SURVEILLANCES EXAMENS =================
+ # ================= PORTAIL 2 : SURVEILLANCES =================
     elif portail == "📅 Surveillances Examens":
         NOM_SURV = "surveillances_2026.xlsx"
         horaires_examens = ["08h30 – 10h30", "11h00 – 13h00", "13h30 – 15h30"]
@@ -155,50 +155,82 @@ if df is not None:
         if os.path.exists(NOM_SURV):
             df_surv = pd.read_excel(NOM_SURV)
             df_surv.columns = [str(c).strip() for c in df_surv.columns]
+            
+            # Conversion sécurisée pour le tri chronologique
             df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
             
-            # Nettoyage
-            for c in ['Surveillant(s)', 'Jour', 'Heure', 'Matière', 'Salle', 'Promotion']:
-                if c in df_surv.columns: 
+            # Nettoyage des textes
+            cols_txt = ['Surveillant(s)', 'Jour', 'Heure', 'Matière', 'Chargé de matière', 'Salle', 'Promotion']
+            for c in cols_txt:
+                if c in df_surv.columns:
                     df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
 
-            liste_profs = sorted(df_surv['Surveillant(s)'].unique()) if not df_surv.empty else []
+            liste_profs = sorted(df_surv['Surveillant(s)'].unique())
             u_nom = user['nom_officiel']
             idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
-            
             prof_sel = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs, index=idx_p)
             
+            # Filtrage et Tri
             df_u = df_surv[df_surv['Surveillant(s)'] == prof_sel].sort_values(by='Date_Tri')
-            st.metric("Total surveillances", f"{len(df_u)} séance(s)")
             
-            tab1, tab2 = st.tabs(["👤 Mon Planning", "🌍 Liste Globale"])
+            st.metric("Nombre de séances", f"{len(df_u)} séance(s)")
+            
+            tab1, tab2 = st.tabs(["👤 Planning Individuel", "🌍 Vue Globale"])
             
             with tab1:
                 if not df_u.empty:
+                    # --- RÉSUMÉ CHRONOLOGIQUE ---
+                    st.markdown("#### 📝 Résumé chronologique des missions")
                     for _, r in df_u.iterrows():
-                        dt_disp = r['Date_Tri'].strftime('%d/%m/%Y') if pd.notnull(r['Date_Tri']) else r['Date']
+                        # Formatage sécurisé de la date (évite l'erreur split)
+                        try:
+                            dt_display = pd.to_datetime(r['Date'], dayfirst=True).strftime('%d/%m/%Y')
+                        except:
+                            dt_display = str(r['Date'])
+                        
                         st.markdown(f"""
-                            <div style="background-color: #f8f9fa; padding: 10px; border-left: 5px solid #1E3A8A; margin-bottom: 5px; border: 1px solid #ddd; border-radius: 5px;">
-                                <small>📅 {r['Jour']} {dt_disp} | 🕒 {r['Heure']}</small><br>
-                                <b>{r['Matière']}</b><br>
-                                <small>📍 Salle: {r['Salle']} | 🎓 {r['Promotion']}</small>
+                            <div style="background-color: #f8f9fa; padding: 12px; border-left: 5px solid #D4AF37; margin-bottom: 8px; border-radius: 5px; border: 1px solid #e0e0e0;">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: #1E3A8A; font-weight: bold;">📅 {r['Jour']} {dt_display}</span>
+                                    <span style="background-color: #1E3A8A; color: white; padding: 2px 10px; border-radius: 15px; font-size: 11px;">🕒 {r['Heure']}</span>
+                                </div>
+                                <div style="margin-top: 5px;">
+                                    <b style="font-size: 13px; color: #333;">{r['Matière']}</b><br>
+                                    <span style="font-size: 12px;">
+                                        👤 Resp: <b>{r['Chargé de matière']}</b> | 📍 Salle: <b>{r['Salle']}</b> | 🎓 Promo: <b>{r['Promotion']}</b>
+                                    </span>
+                                </div>
                             </div>
                         """, unsafe_allow_html=True)
                     
+                    st.markdown("<br>#### 🗓️ Vue Calendrier", unsafe_allow_html=True)
+                    
+                    # --- GRILLE VISUELLE ---
+                    grid_s = pd.DataFrame("", index=horaires_examens, columns=jours_list)
+                    for _, r in df_u.iterrows():
+                        dt_grid = pd.to_datetime(r['Date'], dayfirst=True).strftime('%d/%m') if r['Date'] else ""
+                        txt = f"<div style='font-size:11px; line-height:1.1;'><b>{r['Matière']}</b><br><span style='color:#d35400;'>📅 {dt_grid}</span><br>📍 {r['Salle']}<br><small>{r['Promotion']}</small></div>"
+                        j, h = str(r['Jour']).strip().capitalize(), str(r['Heure']).strip()
+                        if j in grid_s.columns and h in grid_s.index:
+                            grid_s.at[h, j] += (f"<hr style='margin:3px 0;'>" if grid_s.at[h, j] != "" else "") + txt
+                    
+                    st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
+                    
+                    # --- BOUTONS ---
                     st.divider()
-                    ex1, ex2 = st.columns(2)
-                    with ex1: components.html('<button onclick="window.parent.print()" style="width:100%; padding:10px; background:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🖨️ IMPRIMER / PDF</button>', height=60)
-                    with ex2:
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        components.html('<button onclick="window.parent.print()" style="width:100%; padding:10px; background:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🖨️ IMPRIMER / PDF</button>', height=60)
+                    with c2:
+                        import io
                         out = io.BytesIO()
                         df_u.drop(columns=['Date_Tri']).to_excel(out, index=False)
-                        st.download_button("📥 EXCEL (.XLSX)", out.getvalue(), f"Surv_{prof_sel}.xlsx", use_container_width=True)
+                        st.download_button("📥 TÉLÉCHARGER (.XLSX)", out.getvalue(), f"Surv_{prof_sel}.xlsx", use_container_width=True)
                 else:
-                    st.info("Aucune surveillance trouvée pour cet enseignant.")
+                    st.warning("Aucune donnée trouvée.")
 
             with tab2:
                 st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
-        else:
-            st.warning("⚠️ Le fichier 'surveillances_2026.xlsx' est requis pour ce portail.")
 
     # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
     elif portail == "🤖 Générateur Automatique":
@@ -286,3 +318,4 @@ if df is not None:
                         st.error(f"Erreur lors de la génération : {e}")
 else:
     st.error("Le fichier 'dataEDT-ELT-S2-2026.xlsx' est introuvable au démarrage.")
+
