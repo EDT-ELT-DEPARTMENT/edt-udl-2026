@@ -207,3 +207,4 @@ if df is not None:
                 # ... (Reste de votre logique de génération préservé)
             else:
                 st.error("Fichier source introuvable.")
+
