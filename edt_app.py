@@ -238,84 +238,95 @@ if df is not None:
             st.error("Accès réservé à l'administration.")
         else:
             st.header("⚙️ Générateur de Surveillances par Promotion")
-            st.info("Configuration de la Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+            st.info("Répartition basée exclusivement sur la liste des enseignants du fichier 'surveillances_2026.xlsx'")
 
-            # 1. FILTRES DE GÉNÉRATION
-            col_a, col_b = st.columns(2)
-            with col_a:
-                promo_dispo = sorted(df['Promotion'].unique()) if 'Promotion' in df.columns else []
-                promo_cible = st.multiselect("🎓 Choisir les Promotions :", promo_dispo)
-            with col_b:
-                # Dates personnalisables
-                dates_exam = st.multiselect("📅 Dates de la session :", 
-                                           ["Dimanche 25/01", "Lundi 26/01", "Mardi 27/01", "Mercredi 28/01", "Jeudi 29/01"],
-                                           default=["Dimanche 25/01"])
+            NOM_SURV_SRC = "surveillances_2026.xlsx"
 
-            # 2. GESTION DES ENSEIGNANTS
-            liste_profs_edt = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "None", "Non défini"]])
-            profs_alleger = st.multiselect("👤 Enseignants avec décharge (Poste Sup) :", liste_profs_edt)
-            coef = st.slider("Intensité de charge pour les décharges (%)", 10, 100, 50) / 100
+            if not os.path.exists(NOM_SURV_SRC):
+                st.error(f"❌ Le fichier '{NOM_SURV_SRC}' est introuvable.")
+            else:
+                df_src = pd.read_excel(NOM_SURV_SRC)
+                df_src.columns = [str(c).strip() for c in df_src.columns]
+                
+                # Nettoyage
+                for c in df_src.columns:
+                    df_src[c] = df_src[c].fillna("").astype(str).str.strip()
 
-            if st.button("🚀 LANCER LA RÉPARTITION"):
-                NOM_SURV_SRC = "surveillances_2026.xlsx"
-                if not os.path.exists(NOM_SURV_SRC):
-                    st.error("❌ Fichier source 'surveillances_2026.xlsx' introuvable. Veuillez l'uploader.")
-                elif not promo_cible:
-                    st.warning("⚠️ Veuillez sélectionner au moins une promotion.")
-                else:
-                    try:
-                        df_src = pd.read_excel(NOM_SURV_SRC)
-                        stats_charge = {e: 0 for e in liste_profs_edt}
-                        global_tracking = [] # Pour éviter les doubles surveillances au même moment
-                        
+                # Extraction des profs et promos depuis le fichier de surveillance uniquement
+                col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
+                liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
+                promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    promo_cible = st.multiselect("🎓 Sélectionner les Promotions :", promo_dispo)
+                with col2:
+                    dates_exam = st.multiselect("📅 Dates à traiter :", sorted(df_src['Date'].unique()))
+
+                profs_alleger = st.multiselect("👤 Enseignants avec décharge :", liste_profs_surv)
+                coef = st.slider("Intensité de charge pour les décharges (%)", 10, 100, 50) / 100
+
+                if st.button("🚀 GÉNÉRER ET PRÉPARER L'EXPORTATION"):
+                    if not promo_cible:
+                        st.warning("Veuillez choisir au moins une promotion.")
+                    else:
+                        stats_charge = {p: 0 for p in liste_profs_surv}
+                        global_tracking = []
+                        all_promos_df = [] # Pour l'export final
+
                         for promo in promo_cible:
-                            st.markdown(f"### 📋 Tableau d'Examen : **{promo}**")
-                            df_p = df_src[df_src['Promotion'].astype(str).str.contains(promo)].copy()
-                            
+                            st.markdown(f"#### 📋 Planning : {promo}")
+                            df_p = df_src[(df_src['Promotion'] == promo)].copy()
+                            if dates_exam:
+                                df_p = df_p[df_p['Date'].isin(dates_exam)]
+
                             if df_p.empty:
-                                st.write(f"∅ Aucune donnée trouvée pour {promo}")
+                                st.write(f"∅ Aucune donnée pour {promo}")
                                 continue
 
-                            final_rows_promo = []
+                            final_rows = []
                             for _, row in df_p.iterrows():
-                                salle = str(row['Salle']).upper()
-                                # Règle : Amphi = 3 surveillants, Salle = 2
-                                nb_besoin = 3 if any(a in salle for a in ["A", "AMPHI"]) else 2
+                                salle = row['Salle'].upper()
+                                nb_besoin = 3 if any(a in salle for a in ["AMPHI", "A", "B"]) else 2
                                 
-                                surv_attribues = []
-                                # Tri des profs par charge pondérée pour l'équité
-                                for _ in range(nb_besoin):
-                                    prio = sorted(liste_profs_edt, key=lambda e: (stats_charge[e] / (coef if e in profs_alleger else 1.0)))
-                                    
-                                    for p in prio:
-                                        # Vérifier si le prof n'est pas déjà occupé sur cette Date/Heure
-                                        conflit = any(x for x in global_tracking if x['Date']==row['Date'] and x['Heure']==row['Heure'] and x['Nom']==p)
-                                        if not conflit:
-                                            surv_attribues.append(p)
+                                attribues = []
+                                prio = sorted(liste_profs_surv, key=lambda p: (stats_charge[p] / (coef if p in profs_alleger else 1.0)))
+                                
+                                for p in prio:
+                                    if len(attribues) < nb_besoin:
+                                        est_occupe = any(x for x in global_tracking if x['D'] == row['Date'] and x['H'] == row['Heure'] and x['N'] == p)
+                                        if not est_occupe:
+                                            attribues.append(p)
                                             stats_charge[p] += 1
-                                            global_tracking.append({'Date': row['Date'], 'Heure': row['Heure'], 'Nom': p})
-                                            break
+                                            global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
                                 
-                                final_rows_promo.append({
+                                row_data = {
+                                    "Promotion": promo,
                                     "Date": row['Date'],
                                     "Heure": row['Heure'],
                                     "Matière": row['Matière'],
                                     "Salle": row['Salle'],
-                                    "Surveillants": " / ".join(surv_attribues)
-                                })
+                                    "Surveillants": " / ".join(attribues)
+                                }
+                                final_rows.append(row_data)
+                                all_promos_df.append(row_data)
+
+                            st.table(pd.DataFrame(final_rows).drop(columns=['Promotion']))
+
+                        st.success("✅ Répartition terminée.")
+
+                        # --- ZONE DE TÉLÉCHARGEMENT ---
+                        if all_promos_df:
+                            df_export = pd.DataFrame(all_promos_df)
+                            buffer = io.BytesIO()
+                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                                df_export.to_excel(writer, index=False, sheet_name='Surveillances_Generées')
                             
-                            # Affichage du tableau final pour la promo
-                            st.table(pd.DataFrame(final_rows_promo))
-                        
-                        st.success("✅ Répartition équitable terminée avec succès.")
-                        
-                        # Affichage du bilan de charge
-                        with st.expander("📊 Voir le bilan des charges par enseignant"):
-                            bilan_df = pd.DataFrame([{"Enseignant": k, "Nombre": v} for k, v in stats_charge.items()])
-                            st.bar_chart(bilan_df.set_index("Enseignant"))
-
-                    except Exception as e:
-                        st.error(f"Erreur lors de la génération : {e}")
-else:
-    st.error("Le fichier 'dataEDT-ELT-S2-2026.xlsx' est introuvable au démarrage.")
-
+                            st.divider()
+                            st.download_button(
+                                label="📥 TÉLÉCHARGER LE FICHIER EXCEL COMPLET",
+                                data=buffer.getvalue(),
+                                file_name=f"Planning_Surveillances_{date_str.replace('/','-')}.xlsx",
+                                mime="application/vnd.ms-excel",
+                                use_container_width=True
+                            )
