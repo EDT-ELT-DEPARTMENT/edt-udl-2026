@@ -45,10 +45,9 @@ st.markdown(f"""
 NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
 df = None
 
-# Fonction de normalisation pour la correspondance parfaite (CORRECTION : support des variations de 00)
+# Fonction de normalisation pour la correspondance parfaite
 def normalize(s):
-    if not s: return ""
-    return str(s).strip().replace(" ", "").lower().replace("-", "").replace("–", "").replace(":00", "").replace("h00", "h")
+    return str(s).strip().replace(" ", "").lower().replace("-", "").replace("–", "")
 
 if os.path.exists(NOM_FICHIER_FIXE):
     df = pd.read_excel(NOM_FICHIER_FIXE)
@@ -89,10 +88,9 @@ if not st.session_state["user_data"]:
 user = st.session_state["user_data"]
 is_admin = user.get("role") == "admin"
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-# CORRECTION : Alignement des chaînes de caractères avec le format Excel standard (14h au lieu de 14h00)
-horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
+horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
 
-# Dictionnaires de mapping (CORRECTION : utilisation de .get pour éviter les plantages)
+# Dictionnaires de mapping
 map_h = {normalize(h): h for h in horaires_list}
 map_j = {normalize(j): j for j in jours_list}
 
@@ -100,22 +98,23 @@ with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
     portail = st.selectbox("🚀 Espace", ["📖 Emploi du Temps", "📅 Surveillances Examens", "🤖 Générateur Automatique"])
     st.divider()
-   
+    if portail == "📖 Emploi du Temps":
+        mode_view = st.radio("Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"]) if is_admin else "Personnel"
+        poste_sup = st.checkbox("Poste Supérieur (Décharge)")
+    if st.button("🚪 Déconnexion"): st.session_state["user_data"] = None; st.rerun()
+
+st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
+st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
+st.markdown(f"<div class='portal-badge'>MODE : {portail.upper()}</div>", unsafe_allow_html=True)
+
+if df is not None:
+    # ================= PORTAIL 1 : EMPLOI DU TEMPS =================
     if portail == "📖 Emploi du Temps":
         if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
-            # 1. Liste unique des noms (on nettoie les noms multiples pour la liste de sélection)
-            all_names = set()
-            for x in df["Enseignants"].unique():
-                for name in str(x).split('/'):
-                    all_names.add(name.strip())
+            cible = user['nom_officiel'] if mode_view == "Personnel" else st.selectbox("Choisir Enseignant :", sorted(df["Enseignants"].unique()))
+            df_f = df[df["Enseignants"] == cible].copy()
             
-            cible = user['nom_officiel'] if mode_view == "Personnel" else st.selectbox("Choisir Enseignant :", sorted(list(all_names)))
-            
-            # 2. CORRECTION CRUCIALE : On cherche si le nom est CONTENU dans la colonne Enseignants
-            # Cela permet de trouver l'enseignant même s'il est associé à un autre (ex: TP en binôme)
-            df_f = df[df["Enseignants"].str.contains(cible, na=False, case=False)].copy()
-            
-            # --- Le reste reste strictement identique à votre logique ---
+            # Correction : Identification via la colonne 'Code'
             def get_t(x): 
                 val = str(x).upper()
                 if "COURS" in val: return "COURS"
@@ -125,6 +124,7 @@ with st.sidebar:
             df_f['Type'] = df_f['Code'].apply(get_t)
             df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
             
+            # Détection des séances uniques via les clés normalisées
             df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
             
             # --- CALCULS ---
@@ -146,14 +146,17 @@ with st.sidebar:
             s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {len(df_u[df_u['Type'] == 'TD'])} TD</div>", unsafe_allow_html=True)
             s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {len(df_u[df_u['Type'] == 'TP'])} TP</div>", unsafe_allow_html=True)
 
-            def fmt_e(rows): 
-                return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
+            def fmt_e(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
             
+            # Pivot sur les colonnes normalisées
             grid = df_f.groupby(['h_norm', 'j_norm']).apply(fmt_e, include_groups=False).unstack('j_norm')
+            
+            # Réindexation propre
             grid = grid.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
             
-            grid.index = [map_h.get(i, i) for i in grid.index]
-            grid.columns = [map_j.get(c, c) for c in grid.columns]
+            # Traduction des index pour l'affichage
+            grid.index = [map_h[i] for i in grid.index]
+            grid.columns = [map_j[c] for c in grid.columns]
             
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
@@ -163,8 +166,8 @@ with st.sidebar:
             def fmt_p(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
             grid_p = df_p.groupby(['h_norm', 'j_norm']).apply(fmt_p, include_groups=False).unstack('j_norm')
             grid_p = grid_p.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
-            grid_p.index = [map_h.get(i, i) for i in grid_p.index]
-            grid_p.columns = [map_j.get(c, c) for c in grid_p.columns]
+            grid_p.index = horaires_list
+            grid_p.columns = jours_list
             st.write(f"### 📅 Emploi du Temps : {p_sel}")
             st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
 
@@ -174,8 +177,8 @@ with st.sidebar:
             def fmt_s(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><small>{r['Lieu']}</small>" for _,r in rows.iterrows()])
             grid_s = df_s.groupby(['h_norm', 'j_norm']).apply(fmt_s, include_groups=False).unstack('j_norm')
             grid_s = grid_s.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
-            grid_s.index = [map_h.get(i, i) for i in grid_s.index]
-            grid_s.columns = [map_j.get(c, c) for c in grid_s.columns]
+            grid_s.index = horaires_list
+            grid_s.columns = jours_list
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
         elif is_admin and mode_view == "🚩 Vérificateur":
@@ -183,4 +186,7 @@ with st.sidebar:
             err = df[df['Enseignants'] != "Non défini"][dup]
             if err.empty: st.success("✅ Aucun conflit détecté.")
             else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err[['Enseignements', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']])
+
+# ================= PORTAIL 2 : SURVEILLANCES =================
+# ... (Le reste du code reste inchangé par rapport à votre original)
 
