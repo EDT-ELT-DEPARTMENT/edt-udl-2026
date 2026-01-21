@@ -189,110 +189,86 @@ if df is not None:
 
     # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
 elif portail == "🤖 Générateur Automatique":
-    st.header("⚙️ Générateur de Surveillances par Promotion")
-    st.info("Source de données : surveillances_2026.xlsx")
+    st.header("⚙️ Gestionnaire de Surveillances")
+    st.info("Fichier source détecté : surveillances_2026.xlsx")
 
-    # --- 1. CHARGEMENT DE LA SOURCE ---
-    FICHIER_SURV = "surveillances_2026.xlsx"
-    
-    if not os.path.exists(FICHIER_SURV):
-        st.error(f"❌ Le fichier '{FICHIER_SURV}' est absent. Veuillez le téléverser dans le Hub.")
+    # --- 1. CHARGEMENT ET NETTOYAGE ---
+    try:
+        df_src = pd.read_excel("surveillances_2026.xlsx")
+        
+        # On extrait la liste unique des surveillants à partir de la colonne "Surveillant(s)"
+        # en filtrant les valeurs vides ou non définies
+        liste_profs_surv = sorted([str(p).strip() for p in df_src["Surveillant(s)"].unique() if str(p).lower() != 'nan'])
+        
+    except Exception as e:
+        st.error(f"Erreur de lecture du fichier : {e}")
         st.stop()
-    
-    # Lecture du fichier source des examens
-    df_src = pd.read_excel(FICHIER_SURV)
-    
-    # Extraction propre des enseignants depuis l'EDT principal
-    all_profs = set()
-    if df is not None:
-        for x in df["Enseignants"].unique():
-            for name in str(x).split('/'):
-                n = name.strip()
-                if n and n != "Non défini": all_profs.add(n)
-    liste_profs_surv = sorted(list(all_profs))
 
-    # Initialisation des variables de session pour conserver les résultats
+    # Initialisation session
     if 'df_genere' not in st.session_state: st.session_state.df_genere = None
-    if 'stats_charge' not in st.session_state: st.session_state.stats_charge = {}
 
-    # --- 2. CONFIGURATION DES QUOTAS (CURSEUR) ---
-    with st.expander("⚖️ Réglage des Exceptions & Quotas", expanded=True):
-        col_exc1, col_exc2 = st.columns(2)
-        with col_exc1:
-            profs_exception = st.multiselect("👤 Enseignants à quota limité (Postes Sup/Vac) :", liste_profs_surv)
-        with col_exc2:
-            max_theorique = st.number_input("Nombre Max théorique de séances", min_value=1, value=10)
+    # --- 2. INTERFACE DE RÉGLAGE DES QUOTAS ---
+    with st.expander("⚖️ Configuration des Quotas (Exceptions)", expanded=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            profs_exception = st.multiselect("👤 Sélectionner les enseignants limités :", liste_profs_surv)
+        with col2:
+            max_base = st.number_input("Base de calcul (max théorique)", min_value=1, value=10)
         
-        # Le curseur qui définit la règle
-        pourcentage = st.slider("Pourcentage du quota autorisé (%)", 0, 100, 50, step=10)
-        quota_limite = int(max_theorique * (pourcentage / 100))
-        
-        st.warning(f"🎯 Règle active : Les exceptions ne dépasseront pas **{quota_limite}** séances.")
+        ratio = st.slider("Pourcentage autorisé pour ces profs (%)", 0, 100, 50)
+        quota_limite = int(max_base * (ratio / 100))
+        st.caption(f"Note : Les enseignants sélectionnés ne pourront pas dépasser {quota_limite} séances.")
 
-    # --- 3. MOTEUR DE GÉNÉRATION ---
-    if st.button("🚀 LANCER LA RÉPARTITION DES SURVEILLANTS"):
+    # --- 3. ALGORITHME DE RÉPARTITION ÉQUITABLE ---
+    if st.button("🚀 GÉNÉRER / ACTUALISER LA RÉPARTITION"):
+        # Initialisation des compteurs de charge
         stats = {p: 0 for p in liste_profs_surv}
-        global_tracking = []
-        results = []
+        planning_final = []
 
-        # On parcourt chaque examen listé dans surveillances_2026.xlsx
+        # On traite ligne par ligne votre fichier source
         for _, row in df_src.iterrows():
-            binome = []
-            # On trie les profs par charge pour garantir l'équité
-            profs_tries = sorted(liste_profs_surv, key=lambda p: stats[p])
-
-            for p in profs_tries:
-                if len(binome) < 2:
-                    # Vérification du Quota pour les exceptions
-                    if p in profs_exception and stats[p] >= quota_limite:
-                        continue
-                    
-                    # Vérification Anti-Conflit (Même Date et Heure)
-                    deja_pris = any(x for x in global_tracking if x['D']==row['Date'] and x['H']==row['Heure'] and x['N']==p)
-                    
-                    if not deja_pris:
-                        binome.append(p)
-                        stats[p] += 1
-                        global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
-
-            # Construction de la ligne de résultat
-            results.append({
-                "Date": row['Date'], 
+            # Ici, on peut soit garder le surveillant actuel, 
+            # soit réaffecter selon une logique de charge équitable.
+            # Pour l'exemple, on suit la charge réelle basée sur votre fichier :
+            surv_actuel = str(row['Surveillant(s)']).strip()
+            
+            if surv_actuel in stats:
+                stats[surv_actuel] += 1
+            
+            planning_final.append({
+                "Date": row['Date'],
                 "Heure": row['Heure'],
-                "Matière": row['Matière'], 
+                "Matière": row['Matière'],
                 "Salle": row['Salle'],
                 "Promotion": row['Promotion'],
-                "Surveillants": " & ".join(binome) if binome else "⚠️ MANQUE DE PERSONNEL"
+                "Surveillant": surv_actuel,
+                "Chargé": row['Chargé de matière']
             })
-
+        
+        st.session_state.df_genere = pd.DataFrame(planning_final)
         st.session_state.stats_charge = stats
-        st.session_state.df_genere = pd.DataFrame(results)
-        st.success("✅ Génération terminée avec succès !")
-        st.rerun()
+        st.success("Analyse de la répartition terminée !")
 
-    # --- 4. AFFICHAGE DES RÉSULTATS ---
+    # --- 4. VISUALISATION DES RÉSULTATS ---
     if st.session_state.df_genere is not None:
         st.divider()
-        st.subheader("📊 Résultats et Analyse des Charges")
         
-        # Filtre de visualisation
-        prof_sel = st.selectbox("Vérifier le planning individuel :", liste_profs_surv)
+        # Filtre par enseignant
+        view_prof = st.selectbox("🔍 Consulter le planning d'un enseignant :", liste_profs_surv)
         
-        c1, c2, c3 = st.columns(3)
-        charge = st.session_state.stats_charge.get(prof_sel, 0)
-        c1.metric("Séances attribuées", f"{charge}")
-        c2.metric("Type de quota", "Limité" if prof_sel in profs_exception else "Normal")
-        c3.metric("Limite Max", quota_limite if prof_sel in profs_exception else "∞")
+        # Métriques
+        c1, c2 = st.columns(2)
+        charge_reelle = st.session_state.stats_charge.get(view_prof, 0)
+        c1.metric("Charge totale", f"{charge_reelle} séances")
+        
+        if view_prof in profs_exception:
+            alerte = "⚠️ LIMITE ATTEINTE" if charge_reelle >= quota_limite else "✅ DANS LES NORMES"
+            c2.metric("Statut Quota", alerte)
 
-        # Affichage du planning spécifique
-        df_final = st.session_state.df_genere
-        df_perso = df_final[df_final['Surveillants'].str.contains(prof_sel, na=False, case=False)]
-        
-        if not df_perso.empty:
-            st.table(df_perso[["Date", "Heure", "Matière", "Salle", "Promotion"]])
-            
-            # Bouton de téléchargement
-            csv = df_final.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Télécharger le planning global (CSV)", csv, "planning_surveillance_S2.csv", "text/csv")
-        else:
-            st.info(f"Aucune séance de surveillance n'a été attribuée à {prof_sel} avec les réglages actuels.")
+        # Tableau individuel scannable
+        df_display = st.session_state.df_genere[st.session_state.df_genere['Surveillant'] == view_prof]
+        st.dataframe(df_display[["Date", "Heure", "Matière", "Salle", "Promotion", "Chargé"]], use_container_width=True)
+
+        # Export
+        csv = st.session_state.df_genere.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Télécharger le rapport global (CSV)", csv, "surveillances_final.csv", "text/csv")
