@@ -187,78 +187,122 @@ if df is not None:
         data_s = {"Date": ["15/06", "17/06"], "Heure": ["09h00", "13h00"], "Module": ["Electrot.", "IA"], "Lieu": ["Amphi A", "S06"]}
         st.table(pd.DataFrame(data_s))
 
-    # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE =================
-elif portail == "🤖 Générateur Automatique":
-    st.markdown("### ⚙️ Administration & Gestion du Système")
-    
-    if not is_admin:
-        st.error("🚫 Accès restreint. Veuillez vous connecter avec le compte Administrateur (Code : doctorat2026).")
-    else:
-        st.success("✅ Mode Administrateur Activé")
-        
-        # --- TABULATION INTERNE ---
-        tab_up, tab_export, tab_tools = st.tabs(["📤 Mise à jour", "📥 Exportation", "🛠️ Outils & Conflits"])
-        
-        with tab_up:
-            st.markdown("#### 📄 Remplacer le fichier de base")
-            st.info(f"Fichier actuel : `{NOM_FICHIER_FIXE}`")
-            up_file = st.file_uploader("Choisir le nouveau fichier Excel", type=["xlsx"])
-            
-            if up_file:
-                if st.button("🔄 Appliquer les modifications"):
-                    with open(NOM_FICHIER_FIXE, "wb") as f:
-                        f.write(up_file.getbuffer())
-                    st.cache_data.clear()
-                    st.success("Le fichier a été remplacé avec succès ! Redémarrage...")
-                    st.rerun()
-        
-        with tab_export:
-            st.markdown("#### 📥 Téléchargements")
-            col_ex1, col_ex2 = st.columns(2)
-            
-            with col_ex1:
-                # Préparation du fichier Excel pour téléchargement
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df.to_excel(writer, index=False, sheet_name='EDT_S2_2026')
-                
-                st.download_button(
-                    label="📊 Télécharger l'EDT Global (Excel)",
-                    data=output.getvalue(),
-                    file_name=f"EDT_SBA_Export_{date_str.replace('/','-')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            
-            with col_ex2:
-                st.write("Générer un rapport de charge (Bilan par enseignant)")
-                if st.button("📑 Générer Rapport de Charge"):
-                    # Logique simple de résumé
-                    bilan_global = df.groupby('Enseignants')['Enseignements'].count().reset_index()
-                    st.dataframe(bilan_global)
+    # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+    elif portail == "🤖 Générateur Automatique":
+        if not is_admin:
+            st.error("Accès réservé à l'administration.")
+        else:
+            st.header("⚙️ Générateur de Surveillances par Promotion")
+            st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-        with tab_tools:
-            st.markdown("#### 🚩 Vérification des Conflits")
-            if st.button("🔍 Lancer l'analyse des doublons"):
-                # Vérification des doublons de Salles au même moment
-                dup_salles = df[df.duplicated(subset=['h_norm', 'j_norm', 'Lieu_Racine'], keep=False)]
-                dup_salles = dup_salles[dup_salles['Lieu_Racine'] != "Non défini"]
-                
-                # Vérification des doublons d'Enseignants au même moment
-                dup_profs = df[df.duplicated(subset=['h_norm', 'j_norm', 'Enseignants'], keep=False)]
-                dup_profs = dup_profs[dup_profs['Enseignants'] != "Non défini"]
-                
-                if not dup_salles.empty:
-                    st.warning("⚠️ Conflits de Salles détectés :")
-                    st.dataframe(dup_salles[['Enseignants', 'Lieu', 'Horaire', 'Jours', 'Promotion']])
-                
-                if not dup_profs.empty:
-                    st.warning("⚠️ Conflits d'Enseignants détectés (2 cours en même temps) :")
-                    st.dataframe(dup_profs[['Enseignants', 'Enseignements', 'Horaire', 'Jours']])
-                
-                if dup_salles.empty and dup_profs.empty:
-                    st.success("✅ Aucun conflit majeur détecté dans l'emploi du temps actuel.")
+            NOM_SURV_SRC = "surveillances_2026.xlsx"
 
-            st.divider()
+            if not os.path.exists(NOM_SURV_SRC):
+                st.error(f"❌ Le fichier '{NOM_SURV_SRC}' est introuvable.")
+            else:
+                df_src = pd.read_excel(NOM_SURV_SRC)
+                df_src.columns = [str(c).strip() for c in df_src.columns]
+                
+                for c in df_src.columns:
+                    df_src[c] = df_src[c].fillna("").astype(str).str.strip()
+
+                # Extraction des enseignants du fichier source
+                col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
+                liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
+                promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    promo_cible = st.multiselect("🎓 Sélectionner les Promotions :", promo_dispo)
+                with col2:
+                    dates_exam = st.multiselect("📅 Dates à traiter :", sorted(df_src['Date'].unique()))
+
+                profs_alleger = st.multiselect("👤 Enseignants avec décharge :", liste_profs_surv)
+                coef = st.slider("Intensité de charge pour les décharges (%)", 10, 100, 50) / 100
+
+                if st.button("🚀 GÉNÉRER ET CALCULER LES CHARGES"):
+                    if not promo_cible:
+                        st.warning("Veuillez choisir au moins une promotion.")
+                    else:
+                        stats_charge = {p: 0 for p in liste_profs_surv}
+                        global_tracking = []
+                        all_promos_df = []
+
+                        for promo in promo_cible:
+                            st.markdown(f"#### 📋 Planning : {promo}")
+                            df_p = df_src[(df_src['Promotion'] == promo)].copy()
+                            if dates_exam:
+                                df_p = df_p[df_p['Date'].isin(dates_exam)]
+
+                            if df_p.empty:
+                                st.write(f"∅ Aucune donnée pour {promo}")
+                                continue
+
+                            final_rows = []
+                            for _, row in df_p.iterrows():
+                                salle = row['Salle'].upper()
+                                nb_besoin = 3 if any(a in salle for a in ["AMPHI", "A", "B"]) else 2
+                                
+                                attribues = []
+                                # Tri par charge actuelle pour l'équité
+                                prio = sorted(liste_profs_surv, key=lambda p: (stats_charge[p] / (coef if p in profs_alleger else 1.0)))
+                                
+                                for p in prio:
+                                    if len(attribues) < nb_besoin:
+                                        # Vérification de disponibilité (pas deux salles en même temps)
+                                        est_occupe = any(x for x in global_tracking if x['D'] == row['Date'] and x['H'] == row['Heure'] and x['N'] == p)
+                                        if not est_occupe:
+                                            attribues.append(p)
+                                            stats_charge[p] += 1
+                                            global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+                                
+                                row_data = {
+                                    "Date": row['Date'],
+                                    "Heure": row['Heure'],
+                                    "Matière": row['Matière'],
+                                    "Salle": row['Salle'],
+                                    "Surveillants": " / ".join(attribues),
+                                    "Effectif": len(attribues)
+                                }
+                                final_rows.append(row_data)
+                                # Pour l'export global
+                                export_row = row_data.copy()
+                                export_row["Promotion"] = promo
+                                all_promos_df.append(export_row)
+
+                            st.table(pd.DataFrame(final_rows))
+
+                        # --- RÉSUMÉ DES CHARGES PAR ENSEIGNANT ---
+                        st.divider()
+                        st.subheader("📊 Bilan du nombre de surveillances par enseignant")
+                        
+                        # Création d'un tableau récapitulatif
+                        df_bilan = pd.DataFrame([
+                            {"Enseignant": k, "Nombre de Surveillances": v, "Statut": "Décharge" if k in profs_alleger else "Normal"} 
+                            for k, v in stats_charge.items() if v > 0
+                        ]).sort_values(by="Nombre de Surveillances", ascending=False)
+                        
+                        col_stat1, col_stat2 = st.columns([1, 2])
+                        with col_stat1:
+                            st.dataframe(df_bilan, use_container_width=True, hide_index=True)
+                        with col_stat2:
+                            st.bar_chart(df_bilan.set_index("Enseignant")["Nombre de Surveillances"])
+
+                        # --- EXPORTATION ---
+                        if all_promos_df:
+                            df_export = pd.DataFrame(all_promos_df)
+                            buffer = io.BytesIO()
+                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                                df_export.to_excel(writer, index=False, sheet_name='Planning_S2_2026')
+                            
+                            st.download_button(
+                                label="📥 TÉLÉCHARGER LE PLANNING GLOBAL (.XLSX)",
+                                data=buffer.getvalue(),
+                                file_name=f"Surveillances_Complet_S2_2026.xlsx",
+                                mime="application/vnd.ms-excel",
+                                use_container_width=True
+                            )
             if st.button("🗑️ Vider le cache système"):
                 st.cache_data.clear()
                 st.success("Mémoire cache vidée.")
+
