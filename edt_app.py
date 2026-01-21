@@ -268,17 +268,94 @@ if df is not None:
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est manquant.")
 
-    elif portail == "🤖 Générateur Automatique":
-        if not is_admin:
-            st.error("Accès réservé à l'administration.")
+    # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+elif portail == "🤖 Générateur Automatique":
+    st.header("⚙️ Générateur de Surveillances par Promotion")
+    st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+
+    # --- CONFIGURATION DES QUOTAS ET EXCEPTIONS ---
+    with st.expander("⚖️ Réglage des Exceptions (Postes Supérieurs / Vacataires)", expanded=True):
+        col_exc1, col_exc2 = st.columns(2)
+        with col_exc1:
+            profs_exception = st.multiselect("👤 Enseignants à quota limité :", liste_profs_surv)
+        with col_exc2:
+            max_theorique = st.number_input("Nombre Max de surveillances (100%)", min_value=1, value=10)
+        
+        # Le curseur pilote directement le calcul
+        pourcentage = st.slider("Pourcentage du quota autorisé (%)", 0, 100, 50, step=10)
+        quota_limite = int(max_theorique * (pourcentage / 100))
+        
+        st.markdown(f"""
+        > 💡 **Règle de calcul :** > Chaque enseignant sélectionné ne pourra pas dépasser **{quota_limite}** séances.  
+        > Les séances excédentaires seront automatiquement redistribuées aux autres enseignants.
+        """)
+
+    # --- GÉNÉRATION ---
+    if st.button("🚀 LANCER LA GÉNÉRATION DES FLUX"):
+        if not promo_cible:
+            st.error("Veuillez sélectionner des promotions.")
         else:
-            st.header("⚙️ Générateur de Surveillances par Promotion")
-            NOM_SURV_SRC = "surveillances_2026.xlsx"
-            if os.path.exists(NOM_SURV_SRC):
-                df_src = pd.read_excel(NOM_SURV_SRC)
-                st.info("Fichier source chargé. Prêt pour la génération.")
-                # ... (Reste de votre logique de génération préservé)
-            else:
-                st.error("Fichier source introuvable.")
+            stats = {p: 0 for p in liste_profs_surv}
+            global_tracking = []
+            results = []
+
+            # Extraction des besoins
+            df_besoins = df_src[df_src['Promotion'].isin(promo_cible)].copy()
+            if dates_exam:
+                df_besoins = df_besoins[df_besoins['Date'].isin(dates_exam)]
+
+            for _, row in df_besoins.iterrows():
+                binome = []
+                
+                # 1. Trier tous les enseignants par charge actuelle pour l'équité
+                profs_tries = sorted(liste_profs_surv, key=lambda p: stats[p])
+
+                for p in profs_tries:
+                    if len(binome) < 2:
+                        # VERIFICATION DU QUOTA (LA RELATION QUE VOUS AVEZ DEMANDÉE)
+                        if p in profs_exception and stats[p] >= quota_limite:
+                            continue # On passe au suivant, l'exception a atteint son max
+                        
+                        # Vérification anti-conflit (pas 2 salles en même temps)
+                        deja_occupe = any(x for x in global_tracking if x['D']==row['Date'] and x['H']==row['Heure'] and x['N']==p)
+                        
+                        if not deja_occupe:
+                            binome.append(p)
+                            stats[p] += 1
+                            global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+
+                results.append({
+                    "Promotion": row['Promotion'], "Date": row['Date'], "Heure": row['Heure'],
+                    "Matière": row['Matière'], "Salle": row['Salle'],
+                    "Binôme": " & ".join(binome) if len(binome) == 2 else "⚠️ MANQUE EFFECTIF"
+                })
+
+            st.session_state.stats_charge = stats
+            st.session_state.df_genere = pd.DataFrame(results)
+            st.rerun()
+
+    # --- AFFICHAGE NUMÉRIQUE ET TABLEAU INDIVIDUEL ---
+    if st.session_state.df_genere is not None:
+        st.divider()
+        st.subheader("📊 Analyse des charges après redistribution")
+        
+        prof_sel = st.selectbox("Vérifier l'impact du curseur sur :", sorted(liste_profs_surv))
+        charge_reelle = st.session_state.stats_charge[prof_sel]
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Surveillances attribuées", f"{charge_reelle} séances")
+        with c2:
+            statut = "Limité (Poste Sup/Vac)" if prof_sel in profs_exception else "Normal"
+            st.metric("Statut Enseignant", statut)
+        with c3:
+            limite_label = quota_limite if prof_sel in profs_exception else "∞"
+            st.metric("Limite autorisée", limite_label)
+
+        # Tableau individuel spécifique
+        st.write(f"**📅 Planning personnel de {prof_sel} :**")
+        df_perso = st.session_state.df_genere[st.session_state.df_genere['Binôme'].str.contains(prof_sel, na=False)]
+        st.table(df_perso[["Date", "Heure", "Matière", "Salle", "Promotion"]])
+
 
 
