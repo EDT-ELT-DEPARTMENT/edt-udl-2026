@@ -45,9 +45,10 @@ st.markdown(f"""
 NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
 df = None
 
-# Fonction de normalisation pour la correspondance parfaite
+# Fonction de normalisation pour la correspondance parfaite (CORRECTION : support des variations de 00)
 def normalize(s):
-    return str(s).strip().replace(" ", "").lower().replace("-", "").replace("–", "")
+    if not s: return ""
+    return str(s).strip().replace(" ", "").lower().replace("-", "").replace("–", "").replace(":00", "").replace("h00", "h")
 
 if os.path.exists(NOM_FICHIER_FIXE):
     df = pd.read_excel(NOM_FICHIER_FIXE)
@@ -88,9 +89,10 @@ if not st.session_state["user_data"]:
 user = st.session_state["user_data"]
 is_admin = user.get("role") == "admin"
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
+# CORRECTION : Alignement des chaînes de caractères avec le format Excel standard (14h au lieu de 14h00)
+horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
 
-# Dictionnaires de mapping
+# Dictionnaires de mapping (CORRECTION : utilisation de .get pour éviter les plantages)
 map_h = {normalize(h): h for h in horaires_list}
 map_j = {normalize(j): j for j in jours_list}
 
@@ -154,9 +156,9 @@ if df is not None:
             # Réindexation propre
             grid = grid.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
             
-            # Traduction des index pour l'affichage
-            grid.index = [map_h[i] for i in grid.index]
-            grid.columns = [map_j[c] for c in grid.columns]
+            # Traduction des index pour l'affichage (Utilisation de .get pour la sécurité)
+            grid.index = [map_h.get(i, i) for i in grid.index]
+            grid.columns = [map_j.get(c, c) for c in grid.columns]
             
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
@@ -166,8 +168,8 @@ if df is not None:
             def fmt_p(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
             grid_p = df_p.groupby(['h_norm', 'j_norm']).apply(fmt_p, include_groups=False).unstack('j_norm')
             grid_p = grid_p.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
-            grid_p.index = horaires_list
-            grid_p.columns = jours_list
+            grid_p.index = [map_h.get(i, i) for i in grid_p.index]
+            grid_p.columns = [map_j.get(c, c) for c in grid_p.columns]
             st.write(f"### 📅 Emploi du Temps : {p_sel}")
             st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
 
@@ -177,8 +179,8 @@ if df is not None:
             def fmt_s(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><small>{r['Lieu']}</small>" for _,r in rows.iterrows()])
             grid_s = df_s.groupby(['h_norm', 'j_norm']).apply(fmt_s, include_groups=False).unstack('j_norm')
             grid_s = grid_s.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
-            grid_s.index = horaires_list
-            grid_s.columns = jours_list
+            grid_s.index = [map_h.get(i, i) for i in grid_s.index]
+            grid_s.columns = [map_j.get(c, c) for c in grid_s.columns]
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
         elif is_admin and mode_view == "🚩 Vérificateur":
@@ -186,7 +188,3 @@ if df is not None:
             err = df[df['Enseignants'] != "Non défini"][dup]
             if err.empty: st.success("✅ Aucun conflit détecté.")
             else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err[['Enseignements', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']])
-
-# ================= PORTAIL 2 : SURVEILLANCES =================
-# ... (Le reste du code reste inchangé par rapport à votre original)
-
