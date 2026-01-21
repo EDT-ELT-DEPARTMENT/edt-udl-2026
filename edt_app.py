@@ -187,15 +187,78 @@ if df is not None:
         data_s = {"Date": ["15/06", "17/06"], "Heure": ["09h00", "13h00"], "Module": ["Electrot.", "IA"], "Lieu": ["Amphi A", "S06"]}
         st.table(pd.DataFrame(data_s))
 
-    elif portail == "🤖 Générateur Automatique":
-        if is_admin:
-            st.subheader("⚙️ Gestion du système")
-            up = st.file_uploader("Mettre à jour l'EDT (Excel)", type="xlsx")
-            if up and st.button("🚀 Remplacer le fichier"):
-                with open(NOM_FICHIER_FIXE, "wb") as f: f.write(up.getbuffer())
-                st.success("Fichier mis à jour !"); st.rerun()
-        else:
-            st.error("Accès Admin requis.")
+    # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE =================
+elif portail == "🤖 Générateur Automatique":
+    st.markdown("### ⚙️ Administration & Gestion du Système")
+    
+    if not is_admin:
+        st.error("🚫 Accès restreint. Veuillez vous connecter avec le compte Administrateur (Code : doctorat2026).")
+    else:
+        st.success("✅ Mode Administrateur Activé")
+        
+        # --- TABULATION INTERNE ---
+        tab_up, tab_export, tab_tools = st.tabs(["📤 Mise à jour", "📥 Exportation", "🛠️ Outils & Conflits"])
+        
+        with tab_up:
+            st.markdown("#### 📄 Remplacer le fichier de base")
+            st.info(f"Fichier actuel : `{NOM_FICHIER_FIXE}`")
+            up_file = st.file_uploader("Choisir le nouveau fichier Excel", type=["xlsx"])
+            
+            if up_file:
+                if st.button("🔄 Appliquer les modifications"):
+                    with open(NOM_FICHIER_FIXE, "wb") as f:
+                        f.write(up_file.getbuffer())
+                    st.cache_data.clear()
+                    st.success("Le fichier a été remplacé avec succès ! Redémarrage...")
+                    st.rerun()
+        
+        with tab_export:
+            st.markdown("#### 📥 Téléchargements")
+            col_ex1, col_ex2 = st.columns(2)
+            
+            with col_ex1:
+                # Préparation du fichier Excel pour téléchargement
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, index=False, sheet_name='EDT_S2_2026')
+                
+                st.download_button(
+                    label="📊 Télécharger l'EDT Global (Excel)",
+                    data=output.getvalue(),
+                    file_name=f"EDT_SBA_Export_{date_str.replace('/','-')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            
+            with col_ex2:
+                st.write("Générer un rapport de charge (Bilan par enseignant)")
+                if st.button("📑 Générer Rapport de Charge"):
+                    # Logique simple de résumé
+                    bilan_global = df.groupby('Enseignants')['Enseignements'].count().reset_index()
+                    st.dataframe(bilan_global)
 
-st.markdown("---")
-st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px;'>© 2026 Département d'Électrotechnique - SBA | Plateforme de gestion des EDTs-S2-2026</div>", unsafe_allow_html=True)
+        with tab_tools:
+            st.markdown("#### 🚩 Vérification des Conflits")
+            if st.button("🔍 Lancer l'analyse des doublons"):
+                # Vérification des doublons de Salles au même moment
+                dup_salles = df[df.duplicated(subset=['h_norm', 'j_norm', 'Lieu_Racine'], keep=False)]
+                dup_salles = dup_salles[dup_salles['Lieu_Racine'] != "Non défini"]
+                
+                # Vérification des doublons d'Enseignants au même moment
+                dup_profs = df[df.duplicated(subset=['h_norm', 'j_norm', 'Enseignants'], keep=False)]
+                dup_profs = dup_profs[dup_profs['Enseignants'] != "Non défini"]
+                
+                if not dup_salles.empty:
+                    st.warning("⚠️ Conflits de Salles détectés :")
+                    st.dataframe(dup_salles[['Enseignants', 'Lieu', 'Horaire', 'Jours', 'Promotion']])
+                
+                if not dup_profs.empty:
+                    st.warning("⚠️ Conflits d'Enseignants détectés (2 cours en même temps) :")
+                    st.dataframe(dup_profs[['Enseignants', 'Enseignements', 'Horaire', 'Jours']])
+                
+                if dup_salles.empty and dup_profs.empty:
+                    st.success("✅ Aucun conflit majeur détecté dans l'emploi du temps actuel.")
+
+            st.divider()
+            if st.button("🗑️ Vider le cache système"):
+                st.cache_data.clear()
+                st.success("Mémoire cache vidée.")
