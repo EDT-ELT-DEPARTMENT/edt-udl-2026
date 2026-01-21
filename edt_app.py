@@ -188,3 +188,76 @@ if df is not None:
             err = df[df['Enseignants'] != "Non défini"][dup]
             if err.empty: st.success("✅ Aucun conflit détecté.")
             else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err[['Enseignements', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']])
+                # ================= PORTAIL 2 : SURVEILLANCES EXAMENS =================
+    elif portail == "📅 Surveillances Examens":
+        st.subheader("📋 Planning des Surveillances - S2 2026")
+        
+        # Simulation ou chargement d'un fichier de surveillance si existant
+        # Pour l'instant, nous affichons les informations liées à l'utilisateur
+        st.info(f"Session d'examens : Juin 2026. Enseignant : {user['nom_officiel']}")
+        
+        # Création d'un espace pour afficher un tableau de surveillance
+        # (Cette partie peut être liée à une table Supabase 'surveillances')
+        tabs_surv = st.tabs(["Mes Surveillances", "Planning Global", "Remplacements"])
+        
+        with tabs_surv[0]:
+            st.markdown("### 🕒 Votre calendrier")
+            # Exemple de structure de données pour les surveillances
+            data_surv = {
+                "Date": ["15/06/2026", "17/06/2026"],
+                "Horaire": ["09:00 - 10:30", "13:30 - 15:00"],
+                "Module": ["Électrotechnique", "Intelligence Artificielle"],
+                "Lieu": ["Amphi A", "Salle S06"]
+            }
+            st.table(pd.DataFrame(data_surv))
+            
+        with tabs_surv[1]:
+            st.write("Le planning complet sera affiché ici après validation par le département.")
+
+# ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE =================
+    elif portail == "🤖 Générateur Automatique":
+        st.subheader("⚙️ Outil d'Administration - Générateur d'EDT")
+        
+        if not is_admin:
+            st.warning("⚠️ Accès réservé aux administrateurs du département.")
+        else:
+            col_gen1, col_gen2 = st.columns(2)
+            
+            with col_gen1:
+                st.markdown("### 📤 Mise à jour des données")
+                uploaded_file = st.file_uploader("Charger le nouveau fichier Excel (EDT)", type=["xlsx"])
+                if uploaded_file is not None:
+                    if st.button("🚀 Remplacer le fichier actuel"):
+                        with open(NOM_FICHIER_FIXE, "wb") as f:
+                            f.write(uploaded_file.getbuffer())
+                        st.success("Fichier mis à jour avec succès ! Redémarrage en cours...")
+                        st.rerun()
+
+            with col_gen2:
+                st.markdown("### 📥 Exportation")
+                st.write("Générer une version imprimable de tous les EDTs (PDF/Excel)")
+                if st.button("📦 Préparer l'exportation globale"):
+                    # Logique d'exportation
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        df.to_excel(writer, index=False, sheet_name='EDT_Complet')
+                    st.download_button(
+                        label="⬇️ Télécharger l'EDT Complet",
+                        data=output.getvalue(),
+                        file_name=f"EDT_S2_2026_Export_{date_str.replace('/','-')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+
+            st.divider()
+            st.markdown("### 🛠️ Paramètres du Système")
+            st.checkbox("Autoriser les enseignants à modifier leurs voeux", value=False)
+            st.checkbox("Afficher les conflits en temps réel sur l'accueil", value=True)
+            
+            if st.button("🗑️ Vider le cache du navigateur"):
+                st.cache_data.clear()
+                st.success("Cache vidé.")
+
+# --- PIED DE PAGE ---
+st.markdown("---")
+st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px;'>© 2026 Département d'Électrotechnique - SBA | Dernière mise à jour : {date_str}</div>", unsafe_allow_html=True)
+
