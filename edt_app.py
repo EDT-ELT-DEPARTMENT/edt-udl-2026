@@ -192,71 +192,71 @@ elif portail == "🤖 Générateur Automatique":
     st.header("🤖 GÉNÉRATEUR AUTOMATIQUE")
     st.caption("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
+    # 1. Vérification du fichier
     file_path = "surveillances_2026.xlsx"
     
     if not os.path.exists(file_path):
-        st.error(f"Fichier '{file_path}' introuvable.")
+        st.error(f"Fichier '{file_path}' introuvable. Vérifiez le nom du fichier Excel.")
     else:
-        try:
-            df_src = pd.read_excel(file_path, dtype=str)
-            df_src.columns = [str(c).strip() for c in df_src.columns] 
-            liste_profs = sorted([p for p in df_src["Surveillant(s)"].unique() if str(p) != 'nan'])
+        # Lecture
+        df_src = pd.read_excel(file_path, dtype=str)
+        # Nettoyage automatique des noms de colonnes
+        df_src.columns = [str(c).strip() for c in df_src.columns] 
+        
+        # Liste des enseignants (Nettoyée)
+        liste_profs = sorted([p for p in df_src["Surveillant(s)"].unique() if str(p).lower() != 'nan'])
 
-            # --- Interface Quotas ---
-            with st.expander("⚖️ Réglage des Quotas & Vigilance", expanded=True):
-                col_a, col_b = st.columns([2, 1])
-                with col_a:
-                    profs_limites = st.multiselect("👤 Limiter ces enseignants :", liste_profs)
-                with col_b:
-                    max_theo = st.number_input("Base Max", min_value=1, value=10)
-                
-                pct = st.slider("Pourcentage autorisé (%)", 0, 100, 50, step=10)
-                seuil_actuel = int(max_theo * (pct / 100))
+        # 2. Curseur et Quotas
+        with st.expander("⚖️ Réglage des Quotas (Curseur)", expanded=True):
+            profs_choisis = st.multiselect("Enseignants à quota réduit :", liste_profs)
+            max_input = st.number_input("Maximum théorique", value=10)
+            pourcentage = st.slider("Pourcentage autorisé (%)", 0, 100, 50)
+            seuil = int(max_input * (pourcentage / 100))
+            st.write(f"Limite : {seuil} séances.")
 
-            # --- Logique de Détection des Conflits ---
-            def detecter_conflits(df):
-                # Groupe par Prof, Jour et Horaire pour voir s'il y a des doublons
-                doublons = df[df.duplicated(subset=['Surveillant(s)', 'Jour', 'Heure'], keep=False)]
-                return doublons
+        # 3. Bouton Unique de Calcul
+        if st.button("🚀 ANALYSER LE PLANNING"):
+            # A. Recherche des Conflits (Même jour, même heure, même prof)
+            conflits = df_src[df_src.duplicated(subset=['Surveillant(s)', 'Jour', 'Heure'], keep=False)]
+            st.session_state['conflits_data'] = conflits
+            
+            # B. Calcul des charges
+            st.session_state['stats_charge'] = df_src["Surveillant(s)"].value_counts().to_dict()
+            
+            # C. Préparation de la disposition imposée
+            # Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+            df_final = df_src.copy().rename(columns={
+                "Matière": "Enseignements", 
+                "N°": "Code",
+                "Chargé de matière": "Enseignants", 
+                "Heure": "Horaire",
+                "Jour": "Jours", 
+                "Salle": "Lieu"
+            })
+            st.session_state['df_organise'] = df_final
+            st.success("Analyse terminée avec succès.")
 
-            if st.button("🚀 LANCER L'ANALYSE ET DÉTECTER LES CONFLITS"):
-                # Disposition imposée
-                df_temp = df_src.copy().rename(columns={
-                    "Matière": "Enseignements", "N°": "Code",
-                    "Chargé de matière": "Enseignants", "Heure": "Horaire",
-                    "Jour": "Jours", "Salle": "Lieu"
-                })
-                
-                st.session_state.df_genere = df_temp
-                st.session_state.conflits = detecter_conflits(df_src)
-                st.session_state.stats_charge = df_src["Surveillant(s)"].value_counts().to_dict()
-                st.success("Analyse terminée.")
+        # 4. Affichage des Résultats
+        if 'df_organise' in st.session_state:
+            # Alerte Conflits
+            if not st.session_state['conflits_data'].empty:
+                st.error("⚠️ CONFLITS DÉTECTÉS (Double affectation à la même heure)")
+                st.dataframe(st.session_state['conflits_data'])
 
-            # --- Affichage des Alertes de Conflits ---
-            if 'conflits' in st.session_state and not st.session_state.conflits.empty:
-                st.warning(f"⚠️ {len(st.session_state.conflits)} Conflits de présence détectés !")
-                with st.expander("🔍 Voir les erreurs de programmation"):
-                    st.dataframe(st.session_state.conflits[['Surveillant(s)', 'Jour', 'Heure', 'Matière', 'Salle']])
+            st.divider()
+            
+            # Sélection Enseignant
+            prof_view = st.selectbox("Consulter le planning de :", liste_profs)
+            
+            # Métriques
+            charge = st.session_state['stats_charge'].get(prof_view, 0)
+            st.metric(f"Charge de {prof_view}", f"{charge} séances")
+            
+            if prof_view in profs_choisis and charge > seuil:
+                st.warning(f"🚨 DÉPASSEMENT DU QUOTA ({charge} > {seuil})")
 
-            # --- Affichage Final par Enseignant ---
-            if 'df_genere' in st.session_state:
-                st.divider()
-                prof_select = st.selectbox("🔍 Consulter le planning de :", liste_profs)
-                
-                # Métriques de charge
-                nb_seances = st.session_state.stats_charge.get(prof_select, 0)
-                c1, c2 = st.columns(2)
-                c1.metric("Charge de travail", f"{nb_seances} séances")
-                
-                if prof_select in profs_limites:
-                    alerte = "🚨 SURCHARGE" if nb_seances > seuil_actuel else "✅ OK"
-                    c2.metric("Statut Quota", alerte)
-
-                # Tableau avec disposition : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
-                df_prof_final = st.session_state.df_genere[st.session_state.df_genere["Surveillant(s)"] == prof_select]
-                cols_disposition = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
-                
-                st.table(df_prof_final[cols_disposition])
-
-        except Exception as e:
-            st.error(f"Erreur : {e}")
+            # Affichage du tableau avec l'ordre EXACT des colonnes
+            df_prof = st.session_state['df_organise'][st.session_state['df_organise']["Surveillant(s)"] == prof_view]
+            colonnes_dispo = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
+            
+            st.table(df_prof[colonnes_dispo])
