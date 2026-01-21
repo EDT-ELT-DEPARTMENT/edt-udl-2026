@@ -189,74 +189,88 @@ if df is not None:
 
  # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
 elif portail == "🤖 Générateur Automatique":
-    st.header("🤖 GÉNÉRATEUR AUTOMATIQUE")
-    st.caption("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-
-    # 1. Vérification du fichier
-    file_path = "surveillances_2026.xlsx"
-    
-    if not os.path.exists(file_path):
-        st.error(f"Fichier '{file_path}' introuvable. Vérifiez le nom du fichier Excel.")
+    if not is_admin:
+        st.error("Accès réservé à l'administration.")
     else:
-        # Lecture
-        df_src = pd.read_excel(file_path, dtype=str)
-        # Nettoyage automatique des noms de colonnes
-        df_src.columns = [str(c).strip() for c in df_src.columns] 
-        
-        # Liste des enseignants (Nettoyée)
-        liste_profs = sorted([p for p in df_src["Surveillant(s)"].unique() if str(p).lower() != 'nan'])
+        st.header("🤖 GÉNÉRATEUR AUTOMATIQUE")
+        st.caption("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-        # 2. Curseur et Quotas
-        with st.expander("⚖️ Réglage des Quotas (Curseur)", expanded=True):
-            profs_choisis = st.multiselect("Enseignants à quota réduit :", liste_profs)
-            max_input = st.number_input("Maximum théorique", value=10)
-            pourcentage = st.slider("Pourcentage autorisé (%)", 0, 100, 50)
-            seuil = int(max_input * (pourcentage / 100))
-            st.write(f"Limite : {seuil} séances.")
+        NOM_SURV_SRC = "surveillances_2026.xlsx"
 
-        # 3. Bouton Unique de Calcul
-        if st.button("🚀 ANALYSER LE PLANNING"):
-            # A. Recherche des Conflits (Même jour, même heure, même prof)
-            conflits = df_src[df_src.duplicated(subset=['Surveillant(s)', 'Jour', 'Heure'], keep=False)]
-            st.session_state['conflits_data'] = conflits
+        if not os.path.exists(NOM_SURV_SRC):
+            st.error(f"❌ Le fichier '{NOM_SURV_SRC}' est introuvable.")
+        else:
+            # --- CHARGEMENT ET NETTOYAGE ---
+            df_src = pd.read_excel(NOM_SURV_SRC)
+            df_src.columns = [str(c).strip() for c in df_src.columns]
             
-            # B. Calcul des charges
-            st.session_state['stats_charge'] = df_src["Surveillant(s)"].value_counts().to_dict()
-            
-            # C. Préparation de la disposition imposée
-            # Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
-            df_final = df_src.copy().rename(columns={
-                "Matière": "Enseignements", 
-                "N°": "Code",
-                "Chargé de matière": "Enseignants", 
-                "Heure": "Horaire",
-                "Jour": "Jours", 
-                "Salle": "Lieu"
-            })
-            st.session_state['df_organise'] = df_final
-            st.success("Analyse terminée avec succès.")
+            # Nettoyage des données pour éviter les erreurs de type
+            for c in df_src.columns:
+                df_src[c] = df_src[c].fillna("").astype(str).str.strip()
 
-        # 4. Affichage des Résultats
-        if 'df_organise' in st.session_state:
-            # Alerte Conflits
-            if not st.session_state['conflits_data'].empty:
-                st.error("⚠️ CONFLITS DÉTECTÉS (Double affectation à la même heure)")
-                st.dataframe(st.session_state['conflits_data'])
+            # Extraction des listes pour les filtres
+            col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
+            liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "nan"]])
+            promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
 
-            st.divider()
+            # --- CONFIGURATION DES QUOTAS (VOTRE DISPOSITIF) ---
+            st.subheader("⚖️ Configuration & Quotas")
+            col_cfg1, col_cfg2 = st.columns(2)
+            with col_cfg1:
+                profs_limites = st.multiselect("👤 Enseignants à quota réduit (Décharge/Vacataire) :", liste_profs_surv)
+            with col_cfg2:
+                max_theo = st.number_input("Maximum théorique de séances", min_value=1, value=10)
             
-            # Sélection Enseignant
-            prof_view = st.selectbox("Consulter le planning de :", liste_profs)
-            
-            # Métriques
-            charge = st.session_state['stats_charge'].get(prof_view, 0)
-            st.metric(f"Charge de {prof_view}", f"{charge} séances")
-            
-            if prof_view in profs_choisis and charge > seuil:
-                st.warning(f"🚨 DÉPASSEMENT DU QUOTA ({charge} > {seuil})")
+            pct = st.slider("Pourcentage du quota autorisé (%)", 0, 100, 50)
+            seuil_vigilance = int(max_theo * (pct / 100))
 
-            # Affichage du tableau avec l'ordre EXACT des colonnes
-            df_prof = st.session_state['df_organise'][st.session_state['df_organise']["Surveillant(s)"] == prof_view]
-            colonnes_dispo = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
-            
-            st.table(df_prof[colonnes_dispo])
+            # --- BOUTON D'ANALYSE ---
+            if st.button("🚀 ANALYSER LES CHARGES ET LES CONFLITS"):
+                # 1. Détection des conflits (Même prof, même jour, même heure)
+                conflits = df_src[df_src.duplicated(subset=[col_prof, 'Jour', 'Heure'], keep=False)]
+                st.session_state.conflits_list = conflits
+                
+                # 2. Calcul des charges
+                st.session_state.charges = df_src[col_prof].value_counts().to_dict()
+                
+                # 3. Préparation de la disposition imposée
+                # Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+                df_dispo = df_src.copy().rename(columns={
+                    "Matière": "Enseignements",
+                    "N°": "Code",
+                    "Chargé de matière": "Enseignants",
+                    "Heure": "Horaire",
+                    "Jour": "Jours",
+                    "Salle": "Lieu"
+                })
+                st.session_state.df_ready = df_dispo
+                st.success("Analyse terminée.")
+
+            # --- AFFICHAGE DES RÉSULTATS ---
+            if 'df_ready' in st.session_state:
+                # Affichage des alertes conflits
+                if not st.session_state.conflits_list.empty:
+                    st.error(f"⚠️ {len(st.session_state.conflits_list)} Conflits détectés (Doublons d'horaire)")
+                    with st.expander("Voir les conflits"):
+                        st.dataframe(st.session_state.conflits_list)
+
+                st.divider()
+                
+                # Vue par enseignant
+                prof_sel = st.selectbox("🔍 Consulter le planning de :", liste_profs_surv)
+                
+                c_1, c_2 = st.columns(2)
+                charge_reelle = st.session_state.charges.get(prof_sel, 0)
+                c_1.metric("Séances programmées", f"{charge_reelle}")
+                
+                if prof_sel in profs_limites:
+                    status = "🔴 SURCHARGE" if charge_reelle > seuil_vigilance else "🟢 OK"
+                    c_2.metric("Statut Quota", status, delta=seuil_vigilance - charge_reelle)
+
+                # Affichage du tableau selon la disposition : 
+                # Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+                df_final = st.session_state.df_ready[st.session_state.df_ready[col_prof] == prof_sel]
+                cols_finales = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
+                
+                st.subheader(f"📅 Emploi du temps : {prof_sel}")
+                st.table(df_final[cols_finales])
