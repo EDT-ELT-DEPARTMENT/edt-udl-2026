@@ -193,12 +193,12 @@ import os
 import io
 
 # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
-        elif portail == "🤖 Générateur Automatique":
+    elif portail == "🤖 Générateur Automatique":
         if not is_admin:
             st.error("Accès réservé à l'administration.")
         else:
             st.header("⚙️ Générateur de Surveillances par Promotion")
-            st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+            st.info("Répartition par binômes avec gestion des décharges et vacataires")
 
             NOM_SURV_SRC = "surveillances_2026.xlsx"
 
@@ -239,7 +239,7 @@ import io
                         global_tracking = []
                         all_promos_df = []
 
-                        # Algorithme de sélection par binôme
+                        # Algorithme de sélection par binôme avec pondération
                         for promo in promo_cible:
                             st.markdown(f"#### 📋 Tableau : {promo}")
                             df_p = df_src[df_src['Promotion'] == promo].copy()
@@ -249,11 +249,17 @@ import io
                             final_rows = []
                             for _, row in df_p.iterrows():
                                 binome = []
+                                
+                                # On cherche 2 surveillants
                                 for _ in range(2):
+                                    # Calcul de la charge pondérée pour l'équité
+                                    # Charge réelle / coefficient si l'enseignant est privilégié
                                     prio = sorted(liste_profs_surv, key=lambda p: (
                                         stats_charge[p] / (coef_decharge if (p in profs_decharge or p in vacataires) else 1.0)
                                     ))
+
                                     for p in prio:
+                                        # Pas deux fois dans le même binôme ET pas déjà occupé à cette heure
                                         if p not in binome:
                                             occupe = any(x for x in global_tracking if x['D'] == row['Date'] and x['H'] == row['Heure'] and x['N'] == p)
                                             if not occupe:
@@ -262,31 +268,37 @@ import io
                                                 global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
                                                 break
                                 
-                                # Disposition imposée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
                                 row_data = {
-                                    "Enseignements": row.get('Matière', ''),
-                                    "Code": row.get('N°', ''),
-                                    "Enseignants": row.get('Chargé de matière', ''),
-                                    "Horaire": row.get('Heure', ''),
-                                    "Jours": row.get('Jour', ''),
-                                    "Lieu": row.get('Salle', ''),
-                                    "Promotion": promo,
+                                    "Date": row['Date'], "Heure": row['Heure'],
+                                    "Matière": row['Matière'], "Salle": row['Salle'],
                                     "Binôme": " & ".join(binome)
                                 }
                                 final_rows.append(row_data)
+                                row_data["Promotion"] = promo
                                 all_promos_df.append(row_data)
 
-                            # Affichage du tableau
                             st.table(pd.DataFrame(final_rows))
 
-                        # Stockage des résultats pour l'analyse
-                        st.session_state['last_stats'] = stats_charge
-                        st.session_state['last_df'] = all_promos_df
+                        # --- ANALYSE NUMÉRIQUE ---
+                        st.divider()
+                        st.subheader("🔍 Analyse numérique des charges")
+                        
+                        prof_analyse = st.selectbox("Sélectionner un enseignant :", liste_profs_surv)
+                        quota = stats_charge.get(prof_analyse, 0)
+                        
+                        c_met1, c_met2, c_met3 = st.columns(3)
+                        with c_met1:
+                            st.metric(label=f"Quota {prof_analyse}", value=f"{quota} séances")
+                        with c_met2:
+                            st.metric(label="Type", value="Décharge/Vacataire" if (prof_analyse in profs_decharge or prof_analyse in vacataires) else "Normal")
+                        with c_met3:
+                            moyenne = sum(stats_charge.values()) / len(liste_profs_surv)
+                            st.metric(label="Moyenne globale", value=f"{moyenne:.1f}")
 
-                # --- ANALYSE NUMÉRIQUE ---
-                if 'last_stats' in st.session_state:
-                    st.divider()
-                    st.subheader("🔍 Analyse numérique des charges")
-                    prof_an = st.selectbox("Sélectionner un enseignant :", liste_profs_surv)
-                    q = st.session_state['last_stats'].get(prof_an, 0)
-                    st.metric(label=f"Charge de {prof_an}", value=f"{q} séances")
+                        if all_promos_df:
+                            df_export = pd.DataFrame(all_promos_df)
+                            buffer = io.BytesIO()
+                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                                df_export.to_excel(writer, index=False)
+                            st.download_button("📥 TÉLÉCHARGER LE PLANNING FINAL", buffer.getvalue(), "Planning_Surv_Equitable.xlsx", use_container_width=True)
+
