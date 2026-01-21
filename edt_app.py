@@ -187,84 +187,75 @@ if df is not None:
         data_s = {"Date": ["15/06", "17/06"], "Heure": ["09h00", "13h00"], "Module": ["Electrot.", "IA"], "Lieu": ["Amphi A", "S06"]}
         st.table(pd.DataFrame(data_s))
 
-    # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+   # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
 elif portail == "🤖 Générateur Automatique":
-    st.header("⚙️ Moteur de Répartition des Surveillances")
-    st.info("Fichier source : surveillances_2026.xlsx")
+    st.header("🤖 GÉNÉRATEUR AUTOMATIQUE")
+    st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-    # --- 1. CHARGEMENT SÉCURISÉ ---
+    # --- 1. CHARGEMENT DU FICHIER SOURCE ---
+    # Fichier : surveillances_2026.xlsx
     try:
-        # Lecture du fichier avec les noms de colonnes fournis
         df_src = pd.read_excel("surveillances_2026.xlsx")
-        
-        # Extraction de la liste des surveillants (colonne "Surveillant(s)")
-        # Nettoyage des noms pour éviter les doublons dus aux espaces
+        # Nettoyage de la liste des surveillants
         liste_profs = sorted([str(p).strip() for p in df_src["Surveillant(s)"].unique() if str(p).lower() != 'nan'])
     except Exception as e:
-        st.error(f"⚠️ Erreur de lecture du fichier : {e}")
+        st.error(f"Erreur lors de l'accès à 'surveillances_2026.xlsx' : {e}")
         st.stop()
 
-    # --- 2. RÉGLAGE DES QUOTAS ---
-    with st.expander("⚖️ Configuration des Charges de Travail", expanded=True):
+    # --- 2. CONFIGURATION DES QUOTAS ---
+    with st.expander("⚖️ Réglage des Quotas par Enseignant", expanded=True):
         col1, col2 = st.columns([2, 1])
         with col1:
-            profs_limites = st.multiselect("👤 Enseignants à quota réduit (Ex: Postes Sup) :", liste_profs)
+            profs_selectionnes = st.multiselect("👤 Sélectionner les enseignants à limiter :", liste_profs)
         with col2:
-            base_max = st.number_input("Maximum standard théorique", min_value=1, value=10)
+            max_theorique = st.number_input("Séances Max (Théorique)", min_value=1, value=10)
         
         pourcentage = st.slider("Pourcentage du quota autorisé (%)", 0, 100, 50, step=10)
-        charge_max_autorisee = int(base_max * (pourcentage / 100))
-        
-        st.write(f"📌 **Règle :** Les enseignants sélectionnés ne dépasseront pas **{charge_max_autorisee}** séances.")
+        seuil_critique = int(max_theorique * (pourcentage / 100))
+        st.markdown(f"**Seuil calculé : {seuil_critique} séances.**")
 
-    # --- 3. LOGIQUE DE GÉNÉRATION / VÉRIFICATION ---
-    if st.button("🚀 ANALYSER ET VALIDER LA RÉPARTITION"):
-        # Calcul des statistiques de charge actuelle
+    # --- 3. TRAITEMENT ---
+    if st.button("🚀 LANCER L'ANALYSE"):
+        # Calcul des charges
         stats = df_src["Surveillant(s)"].value_counts().to_dict()
-        
-        # Stockage en session pour l'affichage
         st.session_state.stats_charge = stats
         st.session_state.df_genere = df_src.copy()
-        st.success("Analyse terminée !")
+        st.success("Analyse effectuée avec succès.")
 
-    # --- 4. AFFICHAGE DES RÉSULTATS ---
+    # --- 4. AFFICHAGE (DISPOSITION IMPOSÉE) ---
     if 'df_genere' in st.session_state:
         st.divider()
+        prof_view = st.selectbox("🔍 Planning de l'enseignant :", liste_profs)
         
-        # --- Visualisation par Enseignant ---
-        prof_sel = st.selectbox("🔍 Consulter le planning de :", liste_profs)
+        # Statistiques rapides
+        charge = st.session_state.stats_charge.get(prof_view, 0)
+        c1, c2 = st.columns(2)
+        c1.metric("Charge réelle", f"{charge} séances")
         
-        # Calcul des indicateurs pour le prof sélectionné
-        charge_actuelle = st.session_state.stats_charge.get(prof_sel, 0)
-        est_limite = prof_sel in profs_limites
-        
-        # Affichage des métriques
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Séances programmées", f"{charge_actuelle}")
-        
-        if est_limite:
-            diff = charge_max_autorisee - charge_actuelle
-            m2.metric("Statut Quota", "Limité", delta=f"{diff} restant")
-            m3.metric("Limite Max", charge_max_autorisee)
-        else:
-            m2.metric("Statut Quota", "Normal")
-            m3.metric("Limite Max", "∞")
+        if prof_view in profs_selectionnes:
+            statut = "🔴 DÉPASSÉ" if charge > seuil_critique else "🟢 OK"
+            c2.metric("Statut Quota", statut)
 
-        # Affichage du tableau filtré (Respectant votre disposition demandée)
-        df_perso = st.session_state.df_genere[st.session_state.df_genere["Surveillant(s)"] == prof_sel]
+        # Filtrage et réorganisation des colonnes selon la disposition demandée
+        # Disposition : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+        df_perso = st.session_state.df_genere[st.session_state.df_genere["Surveillant(s)"] == prof_view].copy()
         
-        # Réorganisation selon votre disposition : Enseignements, Code (Matière), Enseignants (Chargé), Horaire, Jours, Lieu, Promotion
-        # Note : On mappe vos colonnes réelles vers votre disposition souhaitée
+        # Mapping pour respecter la disposition demandée
         df_display = df_perso.rename(columns={
             "Matière": "Enseignements",
+            "N°": "Code",
             "Chargé de matière": "Enseignants",
             "Heure": "Horaire",
             "Jour": "Jours",
             "Salle": "Lieu"
         })
-        
-        st.dataframe(df_display[["Enseignements", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]], use_container_width=True)
 
-        # Bouton d'exportation
-        csv = st.session_state.df_genere.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Télécharger le planning global corrigé", csv, "EDT_Surveillances_S2_2026.csv", "text/csv")
+        # Affichage du tableau final
+        st.subheader(f"📅 Planning de {prof_view}")
+        st.dataframe(df_display[[
+            "Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"
+        ]], use_container_width=True)
+
+        # Exportation
+        csv = df_display.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Télécharger ce planning (CSV)", csv, f"Planning_{prof_view}.csv", "text/csv")
