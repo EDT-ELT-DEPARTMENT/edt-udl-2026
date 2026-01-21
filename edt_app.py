@@ -187,88 +187,64 @@ if df is not None:
         data_s = {"Date": ["15/06", "17/06"], "Heure": ["09h00", "13h00"], "Module": ["Electrot.", "IA"], "Lieu": ["Amphi A", "S06"]}
         st.table(pd.DataFrame(data_s))
 
-   import streamlit as st
-import pandas as pd
-import os
-
-# Titre Obligatoire
-TITRE = "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
-
-# ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
-if portail == "🤖 Générateur Automatique":
+  # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+elif portail == "🤖 Générateur Automatique":
     st.header("🤖 GÉNÉRATEUR AUTOMATIQUE")
-    st.caption(TITRE)
+    st.caption("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-    # 1. Vérification de l'existence du fichier
+    # 1. Chargement des données
     file_path = "surveillances_2026.xlsx"
     
     if not os.path.exists(file_path):
-        st.error(f"❌ Le fichier '{file_path}' est introuvable dans le dossier racine.")
-        st.info("Assurez-vous d'avoir bien téléversé le fichier avec exactement ce nom.")
+        st.error(f"Fichier '{file_path}' introuvable.")
     else:
-        try:
-            # Chargement en forçant tout en format texte (string) pour éviter les bugs
-            df_src = pd.read_excel(file_path, dtype=str)
+        # Lecture forcée en format texte pour éviter les erreurs de type
+        df_src = pd.read_excel(file_path, dtype=str)
+        df_src.columns = [str(c).strip() for c in df_src.columns] # Nettoyage colonnes
+
+        # Extraction de la liste des profs
+        liste_profs = sorted([p for p in df_src["Surveillant(s)"].unique() if str(p) != 'nan'])
+
+        # 2. Configuration des Quotas
+        with st.expander("⚖️ Réglage des Quotas", expanded=True):
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                profs_limites = st.multiselect("👤 Sélectionner les enseignants :", liste_profs)
+            with col2:
+                max_theo = st.number_input("Maximum théorique", min_value=1, value=10)
             
-            # Nettoyage des noms de colonnes (suppression espaces invisibles)
-            df_src.columns = [str(c).strip() for c in df_src.columns]
+            pct = st.slider("Pourcentage autorisé (%)", 0, 100, 50, step=10)
+            seuil = int(max_theo * (pct / 100))
 
-            # 2. Vérification des colonnes nécessaires
-            cols_attendues = ["N°", "Jour", "Date", "Matière", "Chargé de matière", "Surveillant(s)", "Heure", "Salle", "Promotion"]
-            manquantes = [c for c in cols_attendues if c not in df_src.columns]
+        # 3. Traitement
+        if st.button("🚀 GÉNÉRER LE PLANNING"):
+            # Application de la disposition imposée : 
+            # Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+            df_final = df_src.copy()
+            df_final = df_final.rename(columns={
+                "Matière": "Enseignements",
+                "N°": "Code",
+                "Chargé de matière": "Enseignants",
+                "Heure": "Horaire",
+                "Jour": "Jours",
+                "Salle": "Lieu"
+            })
             
-            if manquantes:
-                st.error(f"❌ Colonnes manquantes dans l'Excel : {manquantes}")
-                st.stop()
+            st.session_state.resultat_gen = df_final
+            st.session_state.stats_gen = df_src["Surveillant(s)"].value_counts().to_dict()
+            st.success("Analyse terminée.")
 
-            # Liste unique des surveillants
-            liste_profs = sorted([p for p in df_src["Surveillant(s)"].unique() if str(p) != 'nan'])
+        # 4. Affichage des résultats
+        if 'resultat_gen' in st.session_state:
+            st.divider()
+            prof_choisi = st.selectbox("🔍 Consulter un enseignant :", liste_profs)
+            
+            charge = st.session_state.stats_gen.get(prof_choisi, 0)
+            st.metric(f"Charge pour {prof_choisi}", f"{charge} séances")
 
-            # 3. Interface Quotas
-            with st.expander("⚖️ Réglage des Quotas", expanded=True):
-                col1, col2 = st.columns([2, 1])
-                with col1:
-                    profs_limites = st.multiselect("👤 Sélectionner les enseignants :", liste_profs)
-                with col2:
-                    max_theo = st.number_input("Maximum théorique", min_value=1, value=10)
-                
-                pct = st.slider("Pourcentage autorisé (%)", 0, 100, 50, step=10)
-                seuil = int(max_theo * (pct / 100))
-                st.warning(f"Seuil de surveillance : {seuil} séances.")
-
-            # 4. Traitement & Disposition Imposée
-            if st.button("🚀 GÉNÉRER LE PLANNING"):
-                # Disposition : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
-                df_clean = df_src.copy()
-                df_clean = df_clean.rename(columns={
-                    "Matière": "Enseignements",
-                    "N°": "Code",
-                    "Chargé de matière": "Enseignants",
-                    "Heure": "Horaire",
-                    "Jour": "Jours",
-                    "Salle": "Lieu"
-                })
-                
-                # On ne garde que les colonnes demandées dans l'ordre
-                ordre_final = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion", "Surveillant(s)"]
-                st.session_state.resultat = df_clean[ordre_final]
-                st.session_state.stats = df_src["Surveillant(s)"].value_counts().to_dict()
-                st.success("Données traitées !")
-
-            # 5. Affichage final
-            if 'resultat' in st.session_state:
-                st.divider()
-                prof_choisi = st.selectbox("🔍 Voir le planning de :", liste_profs)
-                
-                # Charge du prof
-                charge_actuelle = st.session_state.stats.get(prof_choisi, 0)
-                st.metric(f"Charge pour {prof_choisi}", f"{charge_actuelle} séances")
-                
-                # Filtrage
-                df_prof = st.session_state.resultat[st.session_state.resultat["Surveillant(s)"] == prof_choisi]
-                
-                # Affichage de la disposition imposée (sans la colonne technique Surveillant(s))
-                st.table(df_prof[["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]])
-
-        except Exception as e:
-            st.error(f"💥 Erreur système : {e}")
+            # Filtrage
+            df_prof = st.session_state.resultat_gen[st.session_state.resultat_gen["Surveillant(s)"] == prof_choisi]
+            
+            # Disposition finale demandée
+            colonnes = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
+            st.table(df_prof[colonnes])
