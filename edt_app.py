@@ -238,7 +238,7 @@ if df is not None:
             st.error("Accès réservé à l'administration.")
         else:
             st.header("⚙️ Générateur de Surveillances par Promotion")
-            st.info("Répartition basée exclusivement sur la liste des enseignants du fichier 'surveillances_2026.xlsx'")
+            st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
             NOM_SURV_SRC = "surveillances_2026.xlsx"
 
@@ -248,11 +248,10 @@ if df is not None:
                 df_src = pd.read_excel(NOM_SURV_SRC)
                 df_src.columns = [str(c).strip() for c in df_src.columns]
                 
-                # Nettoyage
                 for c in df_src.columns:
                     df_src[c] = df_src[c].fillna("").astype(str).str.strip()
 
-                # Extraction des profs et promos depuis le fichier de surveillance uniquement
+                # Extraction des enseignants du fichier source
                 col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
                 liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
                 promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
@@ -266,13 +265,13 @@ if df is not None:
                 profs_alleger = st.multiselect("👤 Enseignants avec décharge :", liste_profs_surv)
                 coef = st.slider("Intensité de charge pour les décharges (%)", 10, 100, 50) / 100
 
-                if st.button("🚀 GÉNÉRER ET PRÉPARER L'EXPORTATION"):
+                if st.button("🚀 GÉNÉRER ET CALCULER LES CHARGES"):
                     if not promo_cible:
                         st.warning("Veuillez choisir au moins une promotion.")
                     else:
                         stats_charge = {p: 0 for p in liste_profs_surv}
                         global_tracking = []
-                        all_promos_df = [] # Pour l'export final
+                        all_promos_df = []
 
                         for promo in promo_cible:
                             st.markdown(f"#### 📋 Planning : {promo}")
@@ -290,10 +289,12 @@ if df is not None:
                                 nb_besoin = 3 if any(a in salle for a in ["AMPHI", "A", "B"]) else 2
                                 
                                 attribues = []
+                                # Tri par charge actuelle pour l'équité
                                 prio = sorted(liste_profs_surv, key=lambda p: (stats_charge[p] / (coef if p in profs_alleger else 1.0)))
                                 
                                 for p in prio:
                                     if len(attribues) < nb_besoin:
+                                        # Vérification de disponibilité (pas deux salles en même temps)
                                         est_occupe = any(x for x in global_tracking if x['D'] == row['Date'] and x['H'] == row['Heure'] and x['N'] == p)
                                         if not est_occupe:
                                             attribues.append(p)
@@ -301,32 +302,48 @@ if df is not None:
                                             global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
                                 
                                 row_data = {
-                                    "Promotion": promo,
                                     "Date": row['Date'],
                                     "Heure": row['Heure'],
                                     "Matière": row['Matière'],
                                     "Salle": row['Salle'],
-                                    "Surveillants": " / ".join(attribues)
+                                    "Surveillants": " / ".join(attribues),
+                                    "Effectif": len(attribues)
                                 }
                                 final_rows.append(row_data)
-                                all_promos_df.append(row_data)
+                                # Pour l'export global
+                                export_row = row_data.copy()
+                                export_row["Promotion"] = promo
+                                all_promos_df.append(export_row)
 
-                            st.table(pd.DataFrame(final_rows).drop(columns=['Promotion']))
+                            st.table(pd.DataFrame(final_rows))
 
-                        st.success("✅ Répartition terminée.")
+                        # --- RÉSUMÉ DES CHARGES PAR ENSEIGNANT ---
+                        st.divider()
+                        st.subheader("📊 Bilan du nombre de surveillances par enseignant")
+                        
+                        # Création d'un tableau récapitulatif
+                        df_bilan = pd.DataFrame([
+                            {"Enseignant": k, "Nombre de Surveillances": v, "Statut": "Décharge" if k in profs_alleger else "Normal"} 
+                            for k, v in stats_charge.items() if v > 0
+                        ]).sort_values(by="Nombre de Surveillances", ascending=False)
+                        
+                        col_stat1, col_stat2 = st.columns([1, 2])
+                        with col_stat1:
+                            st.dataframe(df_bilan, use_container_width=True, hide_index=True)
+                        with col_stat2:
+                            st.bar_chart(df_bilan.set_index("Enseignant")["Nombre de Surveillances"])
 
-                        # --- ZONE DE TÉLÉCHARGEMENT ---
+                        # --- EXPORTATION ---
                         if all_promos_df:
                             df_export = pd.DataFrame(all_promos_df)
                             buffer = io.BytesIO()
                             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                                df_export.to_excel(writer, index=False, sheet_name='Surveillances_Generées')
+                                df_export.to_excel(writer, index=False, sheet_name='Planning_S2_2026')
                             
-                            st.divider()
                             st.download_button(
-                                label="📥 TÉLÉCHARGER LE FICHIER EXCEL COMPLET",
+                                label="📥 TÉLÉCHARGER LE PLANNING GLOBAL (.XLSX)",
                                 data=buffer.getvalue(),
-                                file_name=f"Planning_Surveillances_{date_str.replace('/','-')}.xlsx",
+                                file_name=f"Surveillances_Complet_S2_2026.xlsx",
                                 mime="application/vnd.ms-excel",
                                 use_container_width=True
                             )
