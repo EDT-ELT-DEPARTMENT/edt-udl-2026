@@ -33,7 +33,18 @@ st.markdown(f"""
     .portal-badge {{ background-color: #D4AF37; color: #1E3A8A; padding: 5px 15px; border-radius: 5px; font-weight: bold; text-align: center; margin-bottom: 20px; }}
     .date-badge {{ background-color: #1E3A8A; color: white; padding: 5px 15px; border-radius: 20px; font-size: 12px; float: right; }}
     .metric-card {{ background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 10px; border-radius: 10px; text-align: center; height: 100%; }}
-    .stat-box {{ padding: 10px; border-radius: 5px; color: white; font-weight: bold; text-align: center; font-size: 14px; margin-bottom: 5px; }}
+    
+    /* STYLE DES BOITES DE STATISTIQUES */
+    .stat-container {{ display: flex; justify-content: space-around; margin: 20px 0; gap: 10px; }}
+    .stat-box {{ 
+        flex: 1; padding: 15px; border-radius: 12px; color: white; 
+        font-weight: bold; text-align: center; font-size: 16px; 
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+    }}
+    .bg-cours {{ background: linear-gradient(135deg, #1E3A8A, #3B82F6); }}
+    .bg-td {{ background: linear-gradient(135deg, #15803d, #22c55e); }}
+    .bg-tp {{ background: linear-gradient(135deg, #b45309, #f59e0b); }}
+    
     table {{ width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 10px; background-color: white; }}
     th {{ background-color: #1E3A8A !important; color: white !important; border: 1px solid #000; padding: 6px; text-align: center; font-size: 11px; }}
     td {{ border: 1px solid #000; padding: 4px !important; vertical-align: top; text-align: center; background-color: white; height: 95px; font-size: 11px; }}
@@ -107,12 +118,11 @@ st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Dépa
 st.markdown(f"<div class='portal-badge'>MODE : {portail.upper()}</div>", unsafe_allow_html=True)
 
 if df is not None:
-    # ================= PORTAIL 1 : EMPLOI DU TEMPS =================
     if portail == "📖 Emploi du Temps":
         if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
             cible = user['nom_officiel'] if mode_view == "Personnel" else st.selectbox("Choisir Enseignant :", sorted(df["Enseignants"].unique()))
             
-            # FILTRE FLEXIBLE (Règle le problème Miloua)
+            # FILTRE FLEXIBLE
             df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
             
             def get_t(x): 
@@ -129,8 +139,21 @@ if df is not None:
             charge_reglementaire = 3.0 if poste_sup else 6.0
             heures_sup = charge_reelle - charge_reglementaire
             
+            # --- INTERFACE DES COMPTEURS ---
+            nb_cours = len(df_u[df_u['Type'] == 'COURS'])
+            nb_td = len(df_u[df_u['Type'] == 'TD'])
+            nb_tp = len(df_u[df_u['Type'] == 'TP'])
+
             st.markdown(f"### 📊 Bilan : {cible}")
-            if df_f.empty: st.warning(f"Aucune donnée pour {cible}")
+            
+            # Affichage des boites colorées
+            st.markdown(f"""
+                <div class="stat-container">
+                    <div class="stat-box bg-cours">📘 {nb_cours} COURS</div>
+                    <div class="stat-box bg-td">📗 {nb_td} TD</div>
+                    <div class="stat-box bg-tp">📙 {nb_tp} TP</div>
+                </div>
+            """, unsafe_allow_html=True)
 
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
@@ -146,6 +169,8 @@ if df is not None:
                 grid.index = [map_h.get(i, i) for i in grid.index]
                 grid.columns = [map_j.get(c, c) for c in grid.columns]
                 st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+            else:
+                st.warning(f"Aucune donnée trouvée pour {cible}")
 
         elif is_admin and mode_view == "Promotion":
             p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
@@ -156,14 +181,12 @@ if df is not None:
             grid_p.index = horaires_list; grid_p.columns = jours_list
             st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
 
-    # ================= PORTAIL 2 : SURVEILLANCES =================
     elif portail == "📅 Surveillances Examens":
         st.subheader(f"📋 Surveillances - {user['nom_officiel']}")
         st.info("Session normale S2 - Juin 2026")
         data_s = {"Date": ["15/06", "17/06"], "Heure": ["09h00", "13h00"], "Module": ["Electrot.", "IA"], "Lieu": ["Amphi A", "S06"]}
         st.table(pd.DataFrame(data_s))
 
-    # ================= PORTAIL 3 : GENERATEUR =================
     elif portail == "🤖 Générateur Automatique":
         if is_admin:
             st.subheader("⚙️ Gestion du système")
@@ -175,4 +198,4 @@ if df is not None:
             st.error("Accès Admin requis.")
 
 st.markdown("---")
-st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px;'>© 2026 Département d'Électrotechnique - SBA</div>", unsafe_allow_html=True)
+st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px;'>© 2026 Département d'Électrotechnique - SBA | Plateforme de gestion des EDTs-S2-2026</div>", unsafe_allow_html=True)
