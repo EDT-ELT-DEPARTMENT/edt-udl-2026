@@ -212,101 +212,91 @@ if df is not None:
             st.warning("🔔 Rappel : Présence obligatoire 15 min avant le début.")
             st.button("🖨️ Imprimer mon planning")
 
-# ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE =================
-    elif portail == "🤖 Générateur Automatique":
-        st.markdown("### ⚙️ Administration & Gestion du Fichier")
+# ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+elif portail == "🤖 Générateur Automatique":
+    st.header("⚙️ Générateur de Surveillances par Promotion")
+    st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+
+    # --- CONFIGURATION DES QUOTAS ET EXCEPTIONS ---
+    with st.expander("⚖️ Réglage des Exceptions (Postes Supérieurs / Vacataires)", expanded=True):
+        col_exc1, col_exc2 = st.columns(2)
+        with col_exc1:
+            profs_exception = st.multiselect("👤 Enseignants à quota limité :", liste_profs_surv)
+        with col_exc2:
+            max_theorique = st.number_input("Nombre Max de surveillances (100%)", min_value=1, value=10)
         
-        if not is_admin:
-            st.error("🚫 Accès restreint. Veuillez vous connecter avec le compte Administrateur.")
+        # Le curseur pilote directement le calcul
+        pourcentage = st.slider("Pourcentage du quota autorisé (%)", 0, 100, 50, step=10)
+        quota_limite = int(max_theorique * (pourcentage / 100))
+        
+        st.markdown(f"""
+        > 💡 **Règle de calcul :** > Chaque enseignant sélectionné ne pourra pas dépasser **{quota_limite}** séances.  
+        > Les séances excédentaires seront automatiquement redistribuées aux autres enseignants.
+        """)
+
+    # --- GÉNÉRATION ---
+    if st.button("🚀 LANCER LA GÉNÉRATION DES FLUX"):
+        if not promo_cible:
+            st.error("Veuillez sélectionner des promotions.")
         else:
-            st.success("✅ Accès Admin validé.")
-            
-            # --- ZONE DE TÉLÉVERSEMENT ---
-            st.markdown("#### 📤 Mettre à jour l'EDT global")
-            up_file = st.file_uploader("Choisir le fichier Excel (dataEDT-ELT-S2-2026.xlsx)", type=["xlsx"])
-            
-            if up_file:
-                if st.button("🔄 Remplacer et Redémarrer la plateforme"):
-                    with open(NOM_FICHIER_FIXE, "wb") as f:
-                        f.write(up_file.getbuffer())
-                    st.cache_data.clear()
-                    st.success("Fichier mis à jour ! La plateforme va redémarrer...")
-                    st.rerun()
-            
-            st.divider()
-            
-            # --- ZONE D'EXPORT ---
-            st.markdown("#### 📥 Exportation des données")
-            col_ex1, col_ex2 = st.columns(2)
-            
-            with col_ex1:
-                # Export Excel simple
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df.to_excel(writer, index=False)
+            stats = {p: 0 for p in liste_profs_surv}
+            global_tracking = []
+            results = []
+
+            # Extraction des besoins
+            df_besoins = df_src[df_src['Promotion'].isin(promo_cible)].copy()
+            if dates_exam:
+                df_besoins = df_besoins[df_besoins['Date'].isin(dates_exam)]
+
+            for _, row in df_besoins.iterrows():
+                binome = []
                 
-                st.download_button(
-                    label="📊 Télécharger l'EDT complet (Excel)",
-                    data=output.getvalue(),
-                    file_name="EDT_SBA_2026_Global.xlsx",
-                    mime="application/vnd.ms-excel"
-                )
-            
-            with col_ex2:
-                if st.button("🚩 Vérifier tous les conflits de salles"):
-                    # Logique simple de vérification
-                    dups = df.duplicated(subset=['h_norm', 'j_norm', 'Lieu'], keep=False)
-                    conflits = df[dups & (df['Lieu'] != "Non défini")]
-                    if not conflits.empty:
-                        st.dataframe(conflits[['Enseignants', 'Lieu', 'Horaire', 'Jours']])
-                    else:
-                        st.success("Aucun conflit de salle détecté.")
+                # 1. Trier tous les enseignants par charge actuelle pour l'équité
+                profs_tries = sorted(liste_profs_surv, key=lambda p: stats[p])
 
-# ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE =================
-    elif portail == "🤖 Générateur Automatique":
-        st.subheader("⚙️ Outil d'Administration - Générateur d'EDT")
+                for p in profs_tries:
+                    if len(binome) < 2:
+                        # VERIFICATION DU QUOTA (LA RELATION QUE VOUS AVEZ DEMANDÉE)
+                        if p in profs_exception and stats[p] >= quota_limite:
+                            continue # On passe au suivant, l'exception a atteint son max
+                        
+                        # Vérification anti-conflit (pas 2 salles en même temps)
+                        deja_occupe = any(x for x in global_tracking if x['D']==row['Date'] and x['H']==row['Heure'] and x['N']==p)
+                        
+                        if not deja_occupe:
+                            binome.append(p)
+                            stats[p] += 1
+                            global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+
+                results.append({
+                    "Promotion": row['Promotion'], "Date": row['Date'], "Heure": row['Heure'],
+                    "Matière": row['Matière'], "Salle": row['Salle'],
+                    "Binôme": " & ".join(binome) if len(binome) == 2 else "⚠️ MANQUE EFFECTIF"
+                })
+
+            st.session_state.stats_charge = stats
+            st.session_state.df_genere = pd.DataFrame(results)
+            st.rerun()
+
+    # --- AFFICHAGE NUMÉRIQUE ET TABLEAU INDIVIDUEL ---
+    if st.session_state.df_genere is not None:
+        st.divider()
+        st.subheader("📊 Analyse des charges après redistribution")
         
-        if not is_admin:
-            st.warning("⚠️ Accès réservé aux administrateurs du département.")
-        else:
-            col_gen1, col_gen2 = st.columns(2)
-            
-            with col_gen1:
-                st.markdown("### 📤 Mise à jour des données")
-                uploaded_file = st.file_uploader("Charger le nouveau fichier Excel (EDT)", type=["xlsx"])
-                if uploaded_file is not None:
-                    if st.button("🚀 Remplacer le fichier actuel"):
-                        with open(NOM_FICHIER_FIXE, "wb") as f:
-                            f.write(uploaded_file.getbuffer())
-                        st.success("Fichier mis à jour avec succès ! Redémarrage en cours...")
-                        st.rerun()
+        prof_sel = st.selectbox("Vérifier l'impact du curseur sur :", sorted(liste_profs_surv))
+        charge_reelle = st.session_state.stats_charge[prof_sel]
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric("Surveillances attribuées", f"{charge_reelle} séances")
+        with c2:
+            statut = "Limité (Poste Sup/Vac)" if prof_sel in profs_exception else "Normal"
+            st.metric("Statut Enseignant", statut)
+        with c3:
+            limite_label = quota_limite if prof_sel in profs_exception else "∞"
+            st.metric("Limite autorisée", limite_label)
 
-            with col_gen2:
-                st.markdown("### 📥 Exportation")
-                st.write("Générer une version imprimable de tous les EDTs (PDF/Excel)")
-                if st.button("📦 Préparer l'exportation globale"):
-                    # Logique d'exportation
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df.to_excel(writer, index=False, sheet_name='EDT_Complet')
-                    st.download_button(
-                        label="⬇️ Télécharger l'EDT Complet",
-                        data=output.getvalue(),
-                        file_name=f"EDT_S2_2026_Export_{date_str.replace('/','-')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-
-            st.divider()
-            st.markdown("### 🛠️ Paramètres du Système")
-            st.checkbox("Autoriser les enseignants à modifier leurs voeux", value=False)
-            st.checkbox("Afficher les conflits en temps réel sur l'accueil", value=True)
-            
-            if st.button("🗑️ Vider le cache du navigateur"):
-                st.cache_data.clear()
-                st.success("Cache vidé.")
-
-# --- PIED DE PAGE ---
-st.markdown("---")
-st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px;'>© 2026 Département d'Électrotechnique - SBA | Dernière mise à jour : {date_str}</div>", unsafe_allow_html=True)
-
-
+        # Tableau individuel spécifique
+        st.write(f"**📅 Planning personnel de {prof_sel} :**")
+        df_perso = st.session_state.df_genere[st.session_state.df_genere['Binôme'].str.contains(prof_sel, na=False)]
+        st.table(df_perso[["Date", "Heure", "Matière", "Salle", "Promotion"]])
