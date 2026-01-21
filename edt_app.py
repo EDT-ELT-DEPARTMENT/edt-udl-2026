@@ -187,11 +187,6 @@ if df is not None:
         data_s = {"Date": ["15/06", "17/06"], "Heure": ["09h00", "13h00"], "Module": ["Electrot.", "IA"], "Lieu": ["Amphi A", "S06"]}
         st.table(pd.DataFrame(data_s))
 
-import streamlit as st
-import pandas as pd
-import os
-import io
-
 # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
     elif portail == "🤖 Générateur Automatique":
         if not is_admin:
@@ -301,4 +296,5 @@ import io
                             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                                 df_export.to_excel(writer, index=False)
                             st.download_button("📥 TÉLÉCHARGER LE PLANNING FINAL", buffer.getvalue(), "Planning_Surv_Equitable.xlsx", use_container_width=True)
+
 
