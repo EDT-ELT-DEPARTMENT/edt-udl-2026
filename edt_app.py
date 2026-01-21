@@ -52,6 +52,7 @@ st.markdown(f"""
 
 # --- CHARGEMENT DU FICHIER EDT ---
 NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
+NOM_SURV_SRC = "surveillances_2026.xlsx"
 df = None
 
 def normalize(s):
@@ -77,12 +78,24 @@ if not st.session_state["user_data"]:
     st.markdown("<h1 class='main-title'>🏛️ DÉPARTEMENT D'ÉLECTROTECHNIQUE - UDL SBA</h1>", unsafe_allow_html=True)
     tab_conn, tab_ins, tab_adm = st.tabs(["🔑 Connexion", "📝 Inscription", "🛡️ Admin"])
     with tab_conn:
-        em = st.text_input("Email")
+        em = st.text_input("Email").strip().lower()
         ps = st.text_input("Mot de passe", type="password")
         if st.button("Se connecter"):
-            res = supabase.table("enseignants_auth").select("*").eq("email", em).eq("password_hash", hash_pw(ps)).execute()
-            if res.data: st.session_state["user_data"] = res.data[0]; st.rerun()
+            res = supabase.table("enseignants_auth").select("*").eq("email", em).execute()
+            if res.data and res.data[0]['password_hash'] == hash_pw(ps):
+                st.session_state["user_data"] = res.data[0]
+                st.rerun()
             else: st.error("Identifiants incorrects.")
+            
+    with tab_ins:
+        new_nom = st.text_input("Nom Complet (ex: ABBES)").strip().upper()
+        new_em = st.text_input("Email Académique").strip().lower()
+        new_ps = st.text_input("Nouveau mot de passe", type="password")
+        if st.button("S'inscrire"):
+            data = {"nom_officiel": new_nom, "email": new_em, "password_hash": hash_pw(new_ps), "role": "user"}
+            supabase.table("enseignants_auth").insert(data).execute()
+            st.success("Inscription réussie ! Connectez-vous.")
+            
     with tab_adm:
         if st.text_input("Code Admin", type="password") == "doctorat2026":
             if st.button("Entrer en tant qu'Admin"):
@@ -95,7 +108,6 @@ user = st.session_state["user_data"]
 is_admin = user.get("role") == "admin"
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
 horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
-
 map_h = {normalize(h): h for h in horaires_list}
 map_j = {normalize(j): j for j in jours_list}
 
@@ -106,7 +118,7 @@ with st.sidebar:
     mode_view = "Personnel"
     poste_sup = False
     if portail == "📖 Emploi du Temps":
-        mode_view = st.radio("Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"]) if is_admin else "Personnel"
+        mode_view = st.sidebar.radio("Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"]) if is_admin else "Personnel"
         poste_sup = st.checkbox("Poste Supérieur (Décharge)")
     if st.button("🚪 Déconnexion"): st.session_state["user_data"] = None; st.rerun()
 
@@ -120,7 +132,6 @@ if df is not None:
             cible = user['nom_officiel'] if mode_view == "Personnel" else st.selectbox("Choisir Enseignant :", sorted(df["Enseignants"].unique()))
             df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
             
-            # --- LOGIQUE DE NATURE ---
             def get_nature(code):
                 val = str(code).upper()
                 if "COURS" in val: return "📘 COURS"
@@ -136,18 +147,12 @@ if df is not None:
             charge_reglementaire = 3.0 if poste_sup else 6.0
             heures_sup = charge_reelle - charge_reglementaire
             
-            nb_cours = len(df_u[df_u['Type'] == 'COURS'])
-            nb_td = len(df_u[df_u['Type'] == 'TD'])
-            nb_tp = len(df_u[df_u['Type'] == 'TP'])
-
             st.markdown(f"### 📊 Bilan : {cible}")
-            st.markdown(f"""
-                <div class="stat-container">
-                    <div class="stat-box bg-cours">📘 {nb_cours} COURS</div>
-                    <div class="stat-box bg-td">📗 {nb_td} TD</div>
-                    <div class="stat-box bg-tp">📙 {nb_tp} TP</div>
-                </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="stat-container">
+                <div class="stat-box bg-cours">📘 {len(df_u[df_u['Type'] == 'COURS'])} COURS</div>
+                <div class="stat-box bg-td">📗 {len(df_u[df_u['Type'] == 'TD'])} TD</div>
+                <div class="stat-box bg-tp">📙 {len(df_u[df_u['Type'] == 'TP'])} TP</div>
+            </div>""", unsafe_allow_html=True)
 
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
@@ -155,56 +160,46 @@ if df is not None:
             color_sup = "#e74c3c" if heures_sup > 0 else "#27ae60"
             c3.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup<br><h2 style='color:{color_sup};'>{heures_sup} h</h2></div>", unsafe_allow_html=True)
 
-            # --- FONCTION DE FORMATAGE CASE (CORRIGÉE) ---
             def fmt_e(rows):
-                items = []
-                for _, r in rows.iterrows():
-                    nat = get_nature(r['Code'])
-                    items.append(f"<b>{nat} : {r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>")
+                items = [f"<b>{get_nature(r['Code'])} : {r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _, r in rows.iterrows()]
                 return "<div class='separator'></div>".join(items)
             
             if not df_f.empty:
                 grid = df_f.groupby(['h_norm', 'j_norm']).apply(fmt_e, include_groups=False).unstack('j_norm')
                 grid = grid.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
-                grid.index = [map_h.get(i, i) for i in grid.index]
-                grid.columns = [map_j.get(c, c) for c in grid.columns]
+                grid.index = [map_h.get(i, i) for i in grid.index]; grid.columns = [map_j.get(c, c) for c in grid.columns]
                 st.write(grid.to_html(escape=False), unsafe_allow_html=True)
-            else:
-                st.warning(f"Aucune donnée trouvée pour {cible}")
-
-        elif is_admin and mode_view == "Promotion":
-            p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
-            df_p = df[df["Promotion"] == p_sel]
-            
-            def fmt_p(rows):
-                items = []
-                for _, r in rows.iterrows():
-                    nat = "📘 COURS" if "COURS" in str(r['Code']).upper() else ("📗 TD" if "TD" in str(r['Code']).upper() else "📙 TP")
-                    items.append(f"<b>{nat} : {r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>")
-                return "<div class='separator'></div>".join(items)
-
-            grid_p = df_p.groupby(['h_norm', 'j_norm']).apply(fmt_p, include_groups=False).unstack('j_norm')
-            grid_p = grid_p.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
-            grid_p.index = horaires_list; grid_p.columns = jours_list
-            st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
 
     elif portail == "📅 Surveillances Examens":
-        st.subheader(f"📋 Surveillances - {user['nom_officiel']}")
-        st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-        # Ici vous pouvez insérer la logique de lecture du fichier surveillances_2026.xlsx
-        data_s = {"Date": ["15/06", "17/06"], "Heure": ["09h00", "13h00"], "Module": ["Electrot.", "IA"], "Lieu": ["Amphi A", "S06"]}
-        st.table(pd.DataFrame(data_s))
+        st.subheader(f"📋 Mes Surveillances - {user['nom_officiel']}")
+        if os.path.exists("Planning_Surv_Equitable.xlsx"):
+            df_surv = pd.read_excel("Planning_Surv_Equitable.xlsx")
+            ma_surv = df_surv[df_surv['Binôme'].str.contains(user['nom_officiel'], case=False, na=False)]
+            if not ma_surv.empty: st.table(ma_surv)
+            else: st.info("Aucune surveillance affectée.")
+        else: st.warning("Planning non disponible.")
 
     elif portail == "🤖 Générateur Automatique":
-        if not is_admin:
-            st.error("Accès réservé à l'administration.")
+        if not is_admin: st.error("Accès réservé.")
         else:
-            st.header("⚙️ Générateur de Surveillances par Promotion")
-            NOM_SURV_SRC = "surveillances_2026.xlsx"
+            st.header("⚙️ Générateur Équitable par Binômes")
             if os.path.exists(NOM_SURV_SRC):
                 df_src = pd.read_excel(NOM_SURV_SRC)
-                st.info("Fichier source chargé. Prêt pour la génération.")
-                # ... (Reste de votre logique de génération préservé)
-            else:
-                st.error("Fichier source introuvable.")
-
+                profs = sorted([p for p in df_src['Enseignants'].unique() if str(p) != 'nan'])
+                decharge = st.multiselect("👤 Décharges (Charge 50%)", profs)
+                p_cible = st.multiselect("🎓 Promotions :", sorted(df_src['Promotion'].unique()))
+                if st.button("🚀 GÉNÉRER"):
+                    stats = {p: 0 for p in profs}
+                    log, final = [], []
+                    for promo in p_cible:
+                        df_p = df_src[df_src['Promotion'] == promo]
+                        for _, row in df_p.iterrows():
+                            binome = []
+                            prio = sorted(profs, key=lambda p: stats[p] / (0.5 if p in decharge else 1.0))
+                            for p in prio:
+                                if len(binome) < 2 and not any(x for x in log if x['D']==row['Date'] and x['H']==row['Heure'] and x['N']==p):
+                                    binome.append(p); stats[p] += 1; log.append({'D':row['Date'], 'H':row['Heure'], 'N':p})
+                            final.append({"Date": row['Date'], "Heure": row['Heure'], "Promotion": promo, "Matière": row['Matière'], "Salle": row['Salle'], "Binôme": " & ".join(binome)})
+                    res_df = pd.DataFrame(final)
+                    res_df.to_excel("Planning_Surv_Equitable.xlsx", index=False)
+                    st.success("Planning généré !"); st.table(res_df)
