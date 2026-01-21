@@ -187,193 +187,142 @@ if df is not None:
         data_s = {"Date": ["15/06", "17/06"], "Heure": ["09h00", "13h00"], "Module": ["Electrot.", "IA"], "Lieu": ["Amphi A", "S06"]}
         st.table(pd.DataFrame(data_s))
 
-# ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+# ================= PORTAIL 2 : SURVEILLANCES EXAMENS =================
+    elif portail == "📅 Surveillances Examens":
+        NOM_SURV = "surveillances_2026.xlsx"
+        horaires_examens = ["08h30 – 10h30", "11h00 – 13h00", "13h30 – 15h30"]
+        
+        if os.path.exists(NOM_SURV):
+            df_surv = pd.read_excel(NOM_SURV)
+            df_surv.columns = [str(c).strip() for c in df_surv.columns]
+            df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
+            
+            # Nettoyage
+            for c in ['Surveillant(s)', 'Jour', 'Heure', 'Matière', 'Salle', 'Promotion']:
+                if c in df_surv.columns: 
+                    df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
+
+            liste_profs = sorted(df_surv['Surveillant(s)'].unique()) if not df_surv.empty else []
+            u_nom = user['nom_officiel']
+            idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
+            
+            prof_sel = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs, index=idx_p)
+            
+            df_u = df_surv[df_surv['Surveillant(s)'] == prof_sel].sort_values(by='Date_Tri')
+            st.metric("Total surveillances", f"{len(df_u)} séance(s)")
+            
+            tab1, tab2 = st.tabs(["👤 Mon Planning", "🌍 Liste Globale"])
+            
+            with tab1:
+                if not df_u.empty:
+                    for _, r in df_u.iterrows():
+                        dt_disp = r['Date_Tri'].strftime('%d/%m/%Y') if pd.notnull(r['Date_Tri']) else r['Date']
+                        st.markdown(f"""
+                            <div style="background-color: #f8f9fa; padding: 10px; border-left: 5px solid #1E3A8A; margin-bottom: 5px; border: 1px solid #ddd; border-radius: 5px;">
+                                <small>📅 {r['Jour']} {dt_disp} | 🕒 {r['Heure']}</small><br>
+                                <b>{r['Matière']}</b><br>
+                                <small>📍 Salle: {r['Salle']} | 🎓 {r['Promotion']}</small>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    st.divider()
+                    ex1, ex2 = st.columns(2)
+                    with ex1: components.html('<button onclick="window.parent.print()" style="width:100%; padding:10px; background:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🖨️ IMPRIMER / PDF</button>', height=60)
+                    with ex2:
+                        out = io.BytesIO()
+                        df_u.drop(columns=['Date_Tri']).to_excel(out, index=False)
+                        st.download_button("📥 EXCEL (.XLSX)", out.getvalue(), f"Surv_{prof_sel}.xlsx", use_container_width=True)
+                else:
+                    st.info("Aucune surveillance trouvée pour cet enseignant.")
+
+            with tab2:
+                st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
+        else:
+            st.warning("⚠️ Le fichier 'surveillances_2026.xlsx' est requis pour ce portail.")
+
+    # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
     elif portail == "🤖 Générateur Automatique":
         if not is_admin:
             st.error("Accès réservé à l'administration.")
         else:
             st.header("⚙️ Générateur de Surveillances par Promotion")
-            st.info("Répartition par binômes avec gestion des décharges et vacataires")
+            st.info("Configuration de la Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-            NOM_SURV_SRC = "surveillances_2026.xlsx"
+            # 1. FILTRES DE GÉNÉRATION
+            col_a, col_b = st.columns(2)
+            with col_a:
+                promo_dispo = sorted(df['Promotion'].unique()) if 'Promotion' in df.columns else []
+                promo_cible = st.multiselect("🎓 Choisir les Promotions :", promo_dispo)
+            with col_b:
+                # Dates personnalisables
+                dates_exam = st.multiselect("📅 Dates de la session :", 
+                                           ["Dimanche 25/01", "Lundi 26/01", "Mardi 27/01", "Mercredi 28/01", "Jeudi 29/01"],
+                                           default=["Dimanche 25/01"])
 
-            if not os.path.exists(NOM_SURV_SRC):
-                st.error(f"❌ Le fichier '{NOM_SURV_SRC}' est introuvable.")
-            else:
-                df_src = pd.read_excel(NOM_SURV_SRC)
-                df_src.columns = [str(c).strip() for c in df_src.columns]
-                for c in df_src.columns:
-                    df_src[c] = df_src[c].fillna("").astype(str).str.strip()
+            # 2. GESTION DES ENSEIGNANTS
+            liste_profs_edt = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "None", "Non défini"]])
+            profs_alleger = st.multiselect("👤 Enseignants avec décharge (Poste Sup) :", liste_profs_edt)
+            coef = st.slider("Intensité de charge pour les décharges (%)", 10, 100, 50) / 100
 
-                # Extraction des enseignants
-                col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
-                liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
-                promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
-
-                # --- CONFIGURATION DES GROUPES ---
-                st.subheader("📋 Configuration des Groupes")
-                col_cfg1, col_cfg2 = st.columns(2)
-                with col_cfg1:
-                    profs_decharge = st.multiselect("👤 Enseignants avec décharge (50%) :", liste_profs_surv)
-                with col_cfg2:
-                    vacataires = st.multiselect("🎓 Vacataires (Quota réduit) :", liste_profs_surv)
-                
-                coef_decharge = st.slider("Coefficient de charge pour décharge/vacataire", 0.1, 0.9, 0.5)
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    promo_cible = st.multiselect("🎓 Promotions à générer :", promo_dispo)
-                with col2:
-                    dates_exam = st.multiselect("📅 Sélectionner les dates :", sorted(df_src['Date'].unique()))
-
-                if st.button("🚀 GÉNÉRER LA RÉPARTITION ÉQUITABLE"):
-                    if not promo_cible:
-                        st.warning("Veuillez choisir au moins une promotion.")
-                    else:
-                        stats_charge = {p: 0 for p in liste_profs_surv}
-                        global_tracking = []
-                        all_promos_df = []
-
-                        # Algorithme de sélection par binôme avec pondération
-                        for promo in promo_cible:
-                            st.markdown(f"#### 📋 Tableau : {promo}")
-                            df_p = df_src[df_src['Promotion'] == promo].copy()
-                            if dates_exam:
-                                df_p = df_p[df_p['Date'].isin(dates_exam)]
-
-                            final_rows = []
-                            for _, row in df_p.iterrows():
-                                binome = []
-                                
-                                # On cherche 2 surveillants
-                                for _ in range(2):
-                                    # Calcul de la charge pondérée pour l'équité
-                                    # Charge réelle / coefficient si l'enseignant est privilégié
-                                    prio = sorted(liste_profs_surv, key=lambda p: (
-                                        stats_charge[p] / (coef_decharge if (p in profs_decharge or p in vacataires) else 1.0)
-                                    ))
-
-                                    for p in prio:
-                                        # Pas deux fois dans le même binôme ET pas déjà occupé à cette heure
-                                        if p not in binome:
-                                            occupe = any(x for x in global_tracking if x['D'] == row['Date'] and x['H'] == row['Heure'] and x['N'] == p)
-                                            if not occupe:
-                                                binome.append(p)
-                                                stats_charge[p] += 1
-                                                global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
-                                                break
-                                
-                                row_data = {
-                                    "Date": row['Date'], "Heure": row['Heure'],
-                                    "Matière": row['Matière'], "Salle": row['Salle'],
-                                    "Binôme": " & ".join(binome)
-                                }
-                                final_rows.append(row_data)
-                                row_data["Promotion"] = promo
-                                all_promos_df.append(row_data)
-
-                            st.table(pd.DataFrame(final_rows))
-
-                        # --- ANALYSE NUMÉRIQUE ---
-                        st.divider()
-                        st.subheader("🔍 Analyse numérique des charges")
-                        
-                        prof_analyse = st.selectbox("Sélectionner un enseignant :", liste_profs_surv)
-                        quota = stats_charge.get(prof_analyse, 0)
-                        
-                        c_met1, c_met2, c_met3 = st.columns(3)
-                        with c_met1:
-                            st.metric(label=f"Quota {prof_analyse}", value=f"{quota} séances")
-                        with c_met2:
-                            st.metric(label="Type", value="Décharge/Vacataire" if (prof_analyse in profs_decharge or prof_analyse in vacataires) else "Normal")
-                        with c_met3:
-                            moyenne = sum(stats_charge.values()) / len(liste_profs_surv)
-                            st.metric(label="Moyenne globale", value=f"{moyenne:.1f}")
-
-                        if all_promos_df:
-                            df_export = pd.DataFrame(all_promos_df)
-                            buffer = io.BytesIO()
-                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                                df_export.to_excel(writer, index=False)
-                            st.download_button("📥 TÉLÉCHARGER LE PLANNING FINAL", buffer.getvalue(), "Planning_Surv_Equitable.xlsx", use_container_width=True)
-
-# ================= PORTAIL 2 : SURVEILLANCES EXAMENS =================
-    elif portail == "📅 Surveillances Examens":
-        NOM_SURV = "surveillances_2026.xlsx"
-        
-        if os.path.exists(NOM_SURV):
-            df_surv = pd.read_excel(NOM_SURV)
-            df_surv.columns = [str(c).strip() for c in df_surv.columns]
-            
-            # Nettoyage et conversion des dates pour le tri
-            df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
-            for c in df_surv.columns:
-                df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
-
-            # Liste des enseignants présents dans le fichier
-            col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_surv.columns else 'Enseignants'
-            # Si les surveillants sont stockés en binômes "Nom A & Nom B", on les sépare pour la liste
-            all_profs = []
-            for entry in df_surv[col_prof].unique():
-                for p in entry.split('&'):
-                    p_clean = p.strip()
-                    if p_clean and p_clean not in ["nan", "Non défini"]:
-                        all_profs.append(p_clean)
-            liste_profs = sorted(list(set(all_profs)))
-
-            # Sélection de l'enseignant
-            u_nom = user['nom_officiel']
-            idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
-            prof_sel = st.selectbox("🔍 Sélectionner un enseignant pour voir ses statistiques :", liste_profs, index=idx_p)
-
-            # Filtrage des données pour l'enseignant sélectionné
-            # On cherche le nom dans la colonne (gère les binômes)
-            df_u = df_surv[df_surv[col_prof].str.contains(prof_sel, case=False, na=False)].sort_values(by='Date_Tri')
-
-            # --- AFFICHAGE NUMÉRIQUE (STATISTIQUES) ---
-            st.markdown(f"### 📊 Bilan numérique : {prof_sel}")
-            
-            nb_total = len(df_u)
-            
-            # Calcul de la répartition par semaine (optionnel mais utile)
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.metric(label="Total Surveillances", value=f"{nb_total} séances")
-            with c2:
-                # Exemple : Compte les matinées (08h30 ou 09h00)
-                matin = len(df_u[df_u['Heure'].str.contains("08h|09h|10h", case=False)])
-                st.metric(label="Séances Matin", value=matin)
-            with c3:
-                apres_midi = nb_total - matin
-                st.metric(label="Séances Après-midi", value=apres_midi)
-
-            st.divider()
-
-            # --- DÉTAILS DES MISSIONS ---
-            tab_perso, tab_global = st.tabs(["📋 Ma Feuille de Route", "🌐 Planning Complet"])
-            
-            with tab_perso:
-                if not df_u.empty:
-                    for _, r in df_u.iterrows():
-                        st.markdown(f"""
-                            <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; border-left: 5px solid #1E3A8A; margin-bottom: 10px;">
-                                <span style="font-size: 18px; font-weight: bold; color: #1E3A8A;">📅 {r['Jour']} {r['Date']}</span>
-                                <span style="float: right; background: #1E3A8A; color: white; padding: 2px 10px; border-radius: 20px;">🕒 {r['Heure']}</span>
-                                <br><b style="font-size: 16px;">📖 {r['Matière']}</b>
-                                <br><small>📍 Salle : <b>{r['Salle']}</b> | 🎓 Promotion : <b>{r['Promotion']}</b></small>
-                                <br><small>👥 Partenaire(s) : {r[col_prof]}</small>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    
-                    # Bouton d'export individuel
-                    out = io.BytesIO()
-                    df_u.drop(columns=['Date_Tri']).to_excel(out, index=False)
-                    st.download_button(f"📥 Télécharger mon planning ({prof_sel})", out.getvalue(), f"Surv_{prof_sel}.xlsx", use_container_width=True)
+            if st.button("🚀 LANCER LA RÉPARTITION"):
+                NOM_SURV_SRC = "surveillances_2026.xlsx"
+                if not os.path.exists(NOM_SURV_SRC):
+                    st.error("❌ Fichier source 'surveillances_2026.xlsx' introuvable. Veuillez l'uploader.")
+                elif not promo_cible:
+                    st.warning("⚠️ Veuillez sélectionner au moins une promotion.")
                 else:
-                    st.info("Aucune surveillance affectée pour le moment.")
+                    try:
+                        df_src = pd.read_excel(NOM_SURV_SRC)
+                        stats_charge = {e: 0 for e in liste_profs_edt}
+                        global_tracking = [] # Pour éviter les doubles surveillances au même moment
+                        
+                        for promo in promo_cible:
+                            st.markdown(f"### 📋 Tableau d'Examen : **{promo}**")
+                            df_p = df_src[df_src['Promotion'].astype(str).str.contains(promo)].copy()
+                            
+                            if df_p.empty:
+                                st.write(f"∅ Aucune donnée trouvée pour {promo}")
+                                continue
 
-            with tab_global:
-                st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
-        else:
-            st.error("Le fichier 'surveillances_2026.xlsx' est manquant.")
+                            final_rows_promo = []
+                            for _, row in df_p.iterrows():
+                                salle = str(row['Salle']).upper()
+                                # Règle : Amphi = 3 surveillants, Salle = 2
+                                nb_besoin = 3 if any(a in salle for a in ["A", "AMPHI"]) else 2
+                                
+                                surv_attribues = []
+                                # Tri des profs par charge pondérée pour l'équité
+                                for _ in range(nb_besoin):
+                                    prio = sorted(liste_profs_edt, key=lambda e: (stats_charge[e] / (coef if e in profs_alleger else 1.0)))
+                                    
+                                    for p in prio:
+                                        # Vérifier si le prof n'est pas déjà occupé sur cette Date/Heure
+                                        conflit = any(x for x in global_tracking if x['Date']==row['Date'] and x['Heure']==row['Heure'] and x['Nom']==p)
+                                        if not conflit:
+                                            surv_attribues.append(p)
+                                            stats_charge[p] += 1
+                                            global_tracking.append({'Date': row['Date'], 'Heure': row['Heure'], 'Nom': p})
+                                            break
+                                
+                                final_rows_promo.append({
+                                    "Date": row['Date'],
+                                    "Heure": row['Heure'],
+                                    "Matière": row['Matière'],
+                                    "Salle": row['Salle'],
+                                    "Surveillants": " / ".join(surv_attribues)
+                                })
+                            
+                            # Affichage du tableau final pour la promo
+                            st.table(pd.DataFrame(final_rows_promo))
+                        
+                        st.success("✅ Répartition équitable terminée avec succès.")
+                        
+                        # Affichage du bilan de charge
+                        with st.expander("📊 Voir le bilan des charges par enseignant"):
+                            bilan_df = pd.DataFrame([{"Enseignant": k, "Nombre": v} for k, v in stats_charge.items()])
+                            st.bar_chart(bilan_df.set_index("Enseignant"))
 
+                    except Exception as e:
+                        st.error(f"Erreur lors de la génération : {e}")
+else:
+    st.error("Le fichier 'dataEDT-ELT-S2-2026.xlsx' est introuvable au démarrage.")
