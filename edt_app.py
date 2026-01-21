@@ -240,7 +240,6 @@ if df is not None:
             st.header("⚙️ Générateur de Surveillances par Promotion")
             st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-            # Mémorisation des données pour éviter les rafraîchissements vides
             if "df_genere" not in st.session_state: st.session_state.df_genere = None
             if "stats_charge" not in st.session_state: st.session_state.stats_charge = {}
 
@@ -257,23 +256,23 @@ if df is not None:
                 liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
                 promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
 
-                # --- CONFIGURATION DES PARAMÈTRES ---
-                with st.expander("🛠️ Configuration des Groupes (Décharges/Vacataires)", expanded=True):
+                # --- CONFIGURATION STRICTE DES QUOTAS ---
+                with st.expander("⚖️ Réglage des Exceptions (Postes Supérieurs / Vacataires)", expanded=True):
                     c_cfg1, c_cfg2 = st.columns(2)
                     with c_cfg1:
-                        profs_decharge = st.multiselect("👤 Enseignants avec décharge :", liste_profs_surv)
+                        profs_exception = st.multiselect("👤 Enseignants avec Quota limité :", liste_profs_surv)
                     with c_cfg2:
-                        vacataires = st.multiselect("🎓 Vacataires :", liste_profs_surv)
-                    coef_decharge = st.slider("Coefficient de priorité", 0.1, 0.9, 0.5)
+                        max_base = st.number_input("Nombre Max de surveillances (100%)", min_value=1, value=10)
+                    
+                    pourcentage = st.slider("Pourcentage du quota autorisé (%)", 10, 100, 50)
+                    quota_calcule = int(max_base * (pourcentage / 100))
+                    st.warning(f"🎯 Les enseignants sélectionnés seront limités à **{quota_calcule} surveillances** maximum.")
 
                 col_p, col_d = st.columns(2)
-                with col_p:
-                    promo_cible = st.multiselect("🎓 Choisir les Promotions :", promo_dispo)
-                with col_d:
-                    dates_exam = st.multiselect("📅 Choisir les Dates :", sorted(df_src['Date'].unique()))
+                with col_p: promo_cible = st.multiselect("🎓 Promotions :", promo_dispo)
+                with col_d: dates_exam = st.multiselect("📅 Dates :", sorted(df_src['Date'].unique()))
 
-                # --- BOUTON DE GÉNÉRATION ---
-                if st.button("🚀 LANCER LA GÉNÉRATION"):
+                if st.button("🚀 GÉNÉRER AVEC PLAFONNEMENT"):
                     if not promo_cible:
                         st.warning("Sélectionnez au moins une promotion.")
                     else:
@@ -287,22 +286,27 @@ if df is not None:
 
                             for _, row in df_p.iterrows():
                                 binome = []
-                                for _ in range(2):
-                                    prio = sorted(liste_profs_surv, key=lambda p: (
-                                        stats[p] / (coef_decharge if (p in profs_decharge or p in vacataires) else 1.0)
-                                    ))
-                                    for p in prio:
-                                        if p not in binome:
-                                            conflit = any(x for x in global_tracking if x['D']==row['Date'] and x['H']==row['Heure'] and x['N']==p)
-                                            if not conflit:
-                                                binome.append(p)
-                                                stats[p] += 1
-                                                global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
-                                                break
+                                # On trie les profs par charge actuelle (équité)
+                                prio = sorted(liste_profs_surv, key=lambda p: stats[p])
+
+                                for p in prio:
+                                    if len(binome) < 2:
+                                        # CONDITION 1 : Pas de dépassement de quota pour les exceptions
+                                        if p in profs_exception and stats[p] >= quota_calcule:
+                                            continue
+                                        
+                                        # CONDITION 2 : Disponibilité temporelle
+                                        conflit = any(x for x in global_tracking if x['D']==row['Date'] and x['H']==row['Heure'] and x['N']==p)
+                                        
+                                        if not conflit:
+                                            binome.append(p)
+                                            stats[p] += 1
+                                            global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+                                
                                 results.append({
                                     "Promotion": promo, "Date": row['Date'], "Heure": row['Heure'],
                                     "Matière": row['Matière'], "Salle": row['Salle'],
-                                    "Binôme": " & ".join(binome)
+                                    "Binôme": " & ".join(binome) if len(binome)==2 else "MANQUE SURVEILLANT"
                                 })
                         
                         st.session_state.stats_charge = stats
@@ -313,40 +317,28 @@ if df is not None:
                 if st.session_state.df_genere is not None:
                     st.divider()
                     
-                    # 1. ANALYSE NUMÉRIQUE INDIVIDUELLE
-                    st.subheader("🔍 Analyse numérique et Tableau Individuel")
-                    profs_actifs = sorted([k for k,v in st.session_state.stats_charge.items() if v > 0])
+                    # Analyse numérique
+                    prof_sel = st.selectbox("📊 Vérifier un quota :", sorted(st.session_state.stats_charge.keys()))
+                    q = st.session_state.stats_charge[prof_sel]
                     
-                    if profs_actifs:
-                        prof_sel = st.selectbox("Sélectionner un enseignant :", profs_actifs)
-                        
-                        # Metrics
-                        val_quota = st.session_state.stats_charge.get(prof_sel, 0)
-                        c1, c2, c3 = st.columns(3)
-                        with c1: st.metric(f"Quota {prof_sel}", f"{val_quota} séances")
-                        with c2: st.metric("Type", "Décharge/Vacataire" if (prof_sel in profs_decharge or prof_sel in vacataires) else "Normal")
-                        with c3: st.metric("Moyenne Dép.", f"{sum(st.session_state.stats_charge.values())/len(liste_profs_surv):.1f}")
-                        
-                        # TABLEAU INDIVIDUEL (Ce que vous avez demandé)
-                        st.markdown(f"**🗓️ Détail des surveillances pour {prof_sel} :**")
-                        df_perso = st.session_state.df_genere[st.session_state.df_genere['Binôme'].str.contains(prof_sel)]
-                        st.dataframe(df_perso[["Date", "Heure", "Matière", "Salle", "Promotion"]], use_container_width=True, hide_index=True)
+                    c1, c2, c3 = st.columns(3)
+                    with c1: st.metric(f"Total {prof_sel}", f"{q} / {quota_calcule if prof_sel in profs_exception else max_base}")
+                    with c2: st.metric("Statut", "Limité" if prof_sel in profs_exception else "Normal")
+                    with c3: 
+                        rempli = (q / quota_calcule * 100) if prof_sel in profs_exception else (q / max_base * 100)
+                        st.metric("Taux d'occupation", f"{int(rempli)}%")
+
+                    # Tableau Individuel
+                    df_p_ind = st.session_state.df_genere[st.session_state.df_genere['Binôme'].str.contains(prof_sel, na=False)]
+                    st.dataframe(df_p_ind[["Date", "Heure", "Matière", "Salle"]], use_container_width=True)
 
                     st.divider()
-
-                    # 2. AFFICHAGE GLOBAL PAR PROMO
+                    # Affichage par promo
                     for p in promo_cible:
                         st.write(f"### 📋 Planning : {p}")
                         st.table(st.session_state.df_genere[st.session_state.df_genere['Promotion'] == p].drop(columns=['Promotion']))
 
-                    # 3. EXPORT ET RESET
-                    col_ex1, col_ex2 = st.columns(2)
-                    with col_ex1:
-                        buffer = io.BytesIO()
-                        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                            st.session_state.df_genere.to_excel(writer, index=False)
-                        st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "Planning_Surveillances.xlsx", use_container_width=True)
-                    with col_ex2:
-                        if st.button("🗑️ EFFACER TOUT", use_container_width=True):
-                            st.session_state.df_genere = None
-                            st.rerun()
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        st.session_state.df_genere.to_excel(writer, index=False)
+                    st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "EDT_Surv_S2.xlsx", use_container_width=True)
