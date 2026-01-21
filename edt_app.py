@@ -193,7 +193,7 @@ if df is not None:
             st.error("Accès réservé à l'administration.")
         else:
             st.header("⚙️ Générateur de Surveillances par Promotion")
-            st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+            st.info("Répartition par binômes avec gestion des décharges et vacataires")
 
             NOM_SURV_SRC = "surveillances_2026.xlsx"
 
@@ -202,25 +202,31 @@ if df is not None:
             else:
                 df_src = pd.read_excel(NOM_SURV_SRC)
                 df_src.columns = [str(c).strip() for c in df_src.columns]
-                
                 for c in df_src.columns:
                     df_src[c] = df_src[c].fillna("").astype(str).str.strip()
 
-                # Extraction des enseignants du fichier source
+                # Extraction des enseignants
                 col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
                 liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
                 promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
 
+                # --- CONFIGURATION DES GROUPES ---
+                st.subheader("📋 Configuration des Groupes")
+                col_cfg1, col_cfg2 = st.columns(2)
+                with col_cfg1:
+                    profs_decharge = st.multiselect("👤 Enseignants avec décharge (50%) :", liste_profs_surv)
+                with col_cfg2:
+                    vacataires = st.multiselect("🎓 Vacataires (Quota réduit) :", liste_profs_surv)
+                
+                coef_decharge = st.slider("Coefficient de charge pour décharge/vacataire", 0.1, 0.9, 0.5)
+
                 col1, col2 = st.columns(2)
                 with col1:
-                    promo_cible = st.multiselect("🎓 Sélectionner les Promotions :", promo_dispo)
+                    promo_cible = st.multiselect("🎓 Promotions à générer :", promo_dispo)
                 with col2:
-                    dates_exam = st.multiselect("📅 Dates à traiter :", sorted(df_src['Date'].unique()))
+                    dates_exam = st.multiselect("📅 Sélectionner les dates :", sorted(df_src['Date'].unique()))
 
-                profs_alleger = st.multiselect("👤 Enseignants avec décharge :", liste_profs_surv)
-                coef = st.slider("Intensité de charge pour les décharges (%)", 10, 100, 50) / 100
-
-                if st.button("🚀 GÉNÉRER ET CALCULER LES CHARGES"):
+                if st.button("🚀 GÉNÉRER LA RÉPARTITION ÉQUITABLE"):
                     if not promo_cible:
                         st.warning("Veuillez choisir au moins une promotion.")
                     else:
@@ -228,81 +234,67 @@ if df is not None:
                         global_tracking = []
                         all_promos_df = []
 
+                        # Algorithme de sélection par binôme avec pondération
                         for promo in promo_cible:
-                            st.markdown(f"#### 📋 Planning : {promo}")
-                            df_p = df_src[(df_src['Promotion'] == promo)].copy()
+                            st.markdown(f"#### 📋 Tableau : {promo}")
+                            df_p = df_src[df_src['Promotion'] == promo].copy()
                             if dates_exam:
                                 df_p = df_p[df_p['Date'].isin(dates_exam)]
 
-                            if df_p.empty:
-                                st.write(f"∅ Aucune donnée pour {promo}")
-                                continue
-
                             final_rows = []
                             for _, row in df_p.iterrows():
-                                salle = row['Salle'].upper()
-                                nb_besoin = 3 if any(a in salle for a in ["AMPHI", "A", "B"]) else 2
+                                binome = []
                                 
-                                attribues = []
-                                # Tri par charge actuelle pour l'équité
-                                prio = sorted(liste_profs_surv, key=lambda p: (stats_charge[p] / (coef if p in profs_alleger else 1.0)))
-                                
-                                for p in prio:
-                                    if len(attribues) < nb_besoin:
-                                        # Vérification de disponibilité (pas deux salles en même temps)
-                                        est_occupe = any(x for x in global_tracking if x['D'] == row['Date'] and x['H'] == row['Heure'] and x['N'] == p)
-                                        if not est_occupe:
-                                            attribues.append(p)
-                                            stats_charge[p] += 1
-                                            global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+                                # On cherche 2 surveillants
+                                for _ in range(2):
+                                    # Calcul de la charge pondérée pour l'équité
+                                    # Charge réelle / coefficient si l'enseignant est privilégié
+                                    prio = sorted(liste_profs_surv, key=lambda p: (
+                                        stats_charge[p] / (coef_decharge if (p in profs_decharge or p in vacataires) else 1.0)
+                                    ))
+
+                                    for p in prio:
+                                        # Pas deux fois dans le même binôme ET pas déjà occupé à cette heure
+                                        if p not in binome:
+                                            occupe = any(x for x in global_tracking if x['D'] == row['Date'] and x['H'] == row['Heure'] and x['N'] == p)
+                                            if not occupe:
+                                                binome.append(p)
+                                                stats_charge[p] += 1
+                                                global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+                                                break
                                 
                                 row_data = {
-                                    "Date": row['Date'],
-                                    "Heure": row['Heure'],
-                                    "Matière": row['Matière'],
-                                    "Salle": row['Salle'],
-                                    "Surveillants": " / ".join(attribues),
-                                    "Effectif": len(attribues)
+                                    "Date": row['Date'], "Heure": row['Heure'],
+                                    "Matière": row['Matière'], "Salle": row['Salle'],
+                                    "Binôme": " & ".join(binome)
                                 }
                                 final_rows.append(row_data)
-                                # Pour l'export global
-                                export_row = row_data.copy()
-                                export_row["Promotion"] = promo
-                                all_promos_df.append(export_row)
+                                row_data["Promotion"] = promo
+                                all_promos_df.append(row_data)
 
                             st.table(pd.DataFrame(final_rows))
 
-                        # --- RÉSUMÉ DES CHARGES PAR ENSEIGNANT ---
+                        # --- ANALYSE NUMÉRIQUE ---
                         st.divider()
-                        st.subheader("📊 Bilan du nombre de surveillances par enseignant")
+                        st.subheader("🔍 Analyse numérique des charges")
                         
-                        # Création d'un tableau récapitulatif
-                        df_bilan = pd.DataFrame([
-                            {"Enseignant": k, "Nombre de Surveillances": v, "Statut": "Décharge" if k in profs_alleger else "Normal"} 
-                            for k, v in stats_charge.items() if v > 0
-                        ]).sort_values(by="Nombre de Surveillances", ascending=False)
+                        prof_analyse = st.selectbox("Sélectionner un enseignant :", liste_profs_surv)
+                        quota = stats_charge.get(prof_analyse, 0)
                         
-                        col_stat1, col_stat2 = st.columns([1, 2])
-                        with col_stat1:
-                            st.dataframe(df_bilan, use_container_width=True, hide_index=True)
-                        with col_stat2:
-                            st.bar_chart(df_bilan.set_index("Enseignant")["Nombre de Surveillances"])
+                        c_met1, c_met2, c_met3 = st.columns(3)
+                        with c_met1:
+                            st.metric(label=f"Quota {prof_analyse}", value=f"{quota} séances")
+                        with c_met2:
+                            st.metric(label="Type", value="Décharge/Vacataire" if (prof_analyse in profs_decharge or prof_analyse in vacataires) else "Normal")
+                        with c_met3:
+                            moyenne = sum(stats_charge.values()) / len(liste_profs_surv)
+                            st.metric(label="Moyenne globale", value=f"{moyenne:.1f}")
 
-                        # --- EXPORTATION ---
                         if all_promos_df:
                             df_export = pd.DataFrame(all_promos_df)
                             buffer = io.BytesIO()
                             with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                                df_export.to_excel(writer, index=False, sheet_name='Planning_S2_2026')
-                            
-                            st.download_button(
-                                label="📥 TÉLÉCHARGER LE PLANNING GLOBAL (.XLSX)",
-                                data=buffer.getvalue(),
-                                file_name=f"Surveillances_Complet_S2_2026.xlsx",
-                                mime="application/vnd.ms-excel",
-                                use_container_width=True
-                            )
-            if st.button("🗑️ Vider le cache système"):
-                st.cache_data.clear()
-                st.success("Mémoire cache vidée.")
+                                df_export.to_excel(writer, index=False)
+                            st.download_button("📥 TÉLÉCHARGER LE PLANNING FINAL", buffer.getvalue(), "Planning_Surv_Equitable.xlsx", use_container_width=True)
+
 
