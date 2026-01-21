@@ -209,84 +209,77 @@ if df is not None:
         else:
             st.warning("⚠️ Fichier 'surveillances_2026.xlsx' introuvable.")
 
-    # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
-    # CORRECTION : Ce bloc doit être au même niveau d'indentation que le Portail 2
-    elif portail == "🤖 Générateur Automatique":
-        st.header("⚙️ Générateur de Surveillances (S2-2026)")
-        
-        # --- 1. RÉCUPÉRATION DES ENSEIGNANTS ---
-        # On utilise les enseignants issus du fichier EDT chargé au début
-        if df is not None:
-            liste_profs = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "None", "Non défini"]])
-        else:
-            liste_profs = ["ZIDI", "BERMAKI", "TOUHAMI", "BENHAMIDA", "REZOUG", "BELLEBNA", "MAAMMAR"]
+   # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+elif portail == "🤖 Générateur Automatique":
+    st.header("⚙️ Générateur de Surveillances par Promotion")
+    
+    if df is not None:
+        # 1. PARAMÈTRES DE FILTRAGE
+        col_a, col_b = st.columns(2)
+        with col_a:
+            promo_cible = st.multiselect("🎓 Filtrer par Promotion(s) :", sorted(df['Promotion'].unique()), default=sorted(df['Promotion'].unique())[:2])
+        with col_b:
+            dates_exam = st.multiselect("📅 Dates des examens :", 
+                                       ["Dimanche 25/01", "Lundi 26/01", "Mardi 27/01", "Mercredi 28/01", "Jeudi 29/01"],
+                                       default=["Dimanche 25/01", "Lundi 26/01"])
 
-        st.success(f"✅ Moteur prêt : **{len(liste_profs)}** enseignants détectés dans l'EDT.")
+        # 2. PARAMÈTRES ENSEIGNANTS
+        liste_profs = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "None", "Non défini"]])
+        profs_alleger = st.multiselect("👤 Enseignants avec décharge (Poste Sup) :", liste_profs)
+        coef = st.slider("Charge autorisée (%)", 10, 100, 50) / 100
 
-        # --- 2. INTERFACE ---
-        with st.expander("🔧 Paramètres de répartition", expanded=True):
-            profs_alleger = st.multiselect("Enseignants avec décharge (Poste Sup) :", liste_profs)
-            coef = st.slider("Charge autorisée pour ces enseignants (%)", 10, 100, 50) / 100
-
-        # --- 3. BOUTON D'ACTION ---
-        if st.button("🚀 GÉNÉRER LA RÉPARTITION ÉQUITABLE"):
+        if st.button("🚀 GÉNÉRER LES TABLEAUX PAR PROMOTION"):
             NOM_SURV = "surveillances_2026.xlsx"
-            
             if not os.path.exists(NOM_SURV):
-                st.error(f"❌ Erreur : Le fichier source '{NOM_SURV}' est absent.")
+                st.error("Fichier 'surveillances_2026.xlsx' introuvable.")
             else:
-                try:
-                    df_src = pd.read_excel(NOM_SURV)
-                    df_src.columns = [str(c).strip() for c in df_src.columns]
-                    
-                    # Déduplication pour avoir la liste des séances d'examens uniques
-                    df_exam = df_src.drop_duplicates(subset=['Date', 'Heure', 'Salle', 'Matière'])
-                    
-                    final_rows = []
-                    stats_charge = {e: 0 for e in liste_profs}
-                    
-                    for _, row in df_exam.iterrows():
-                        salle = str(row['Salle']).upper()
-                        # Règle : Amphis = 3 surveillants, Salles = 2
-                        nb_besoin = 3 if any(a in salle for a in ["A8", "A9", "A10", "A12", "AMPHI"]) else 2
-                        
-                        for _ in range(nb_besoin):
-                            # Tri par équité (Charge / coefficient de décharge)
-                            prio = sorted(liste_profs, key=lambda e: (stats_charge[e] / (coef if e in profs_alleger else 1.0)))
-                            
-                            for p in prio:
-                                # Vérifie si le prof n'a pas déjà une surveillance sur ce créneau
-                                conflit = any(x for x in final_rows if x['Date']==row['Date'] and x['Heure']==row['Heure'] and x['Surveillant(s)']==p)
-                                if not conflit:
-                                    new_entry = row.to_dict()
-                                    new_entry['Surveillant(s)'] = p
-                                    final_rows.append(new_entry)
-                                    stats_charge[p] += 1
-                                    break
-                    
-                    # --- 4. AFFICHAGE ET TÉLÉCHARGEMENT ---
-                    if final_rows:
-                        df_res = pd.DataFrame(final_rows)
-                        st.balloons()
-                        st.success("🎉 Planning généré avec succès !")
-                        
-                        col_stats, col_view = st.columns([1, 2])
-                        with col_stats:
-                            st.subheader("📊 Bilan Équité")
-                            bilan = pd.DataFrame([{"Nom": k, "Missions": v} for k, v in stats_charge.items() if v > 0])
-                            st.dataframe(bilan.sort_values("Missions", ascending=False), hide_index=True)
-                        
-                        with col_view:
-                            st.subheader("📝 Aperçu")
-                            st.dataframe(df_res[['Date', 'Heure', 'Matière', 'Surveillant(s)']], height=400)
-                        
-                        # Bouton de téléchargement
-                        buf = io.BytesIO()
-                        df_res.to_excel(buf, index=False)
-                        st.download_button("📥 Télécharger l'EDT Final (.xlsx)", buf.getvalue(), "EDT_Surveillance_S2_2026.xlsx", "application/vnd.ms-excel")
-                    
-                except Exception as e:
-                    st.error(f"Erreur lors de la génération : {e}")
+                df_src = pd.read_excel(NOM_SURV)
+                # Filtrage sur les dates choisies (si présentes dans le fichier)
+                # Note : On suppose ici que votre fichier contient une colonne 'Promotion'
+                
+                final_data = []
+                stats_charge = {e: 0 for e in liste_profs}
 
-# (Note : assurez-vous que ce bloc 'elif portail == "🤖 Générateur Automatique"' 
-# est bien aligné avec 'if portail == "📖 Emploi du Temps"')
+                # --- ALGORITHME DE RÉPARTITION ---
+                for promo in promo_cible:
+                    st.subheader(f"📋 Tableau des Examens : {promo}")
+                    
+                    # On filtre les examens pour cette promo spécifique
+                    df_promo = df_src[df_src['Promotion'] == promo]
+                    
+                    if df_promo.empty:
+                        st.warning(f"Aucun examen trouvé pour {promo} dans le fichier source.")
+                        continue
+
+                    # Attribution des surveillants
+                    rows_promo = []
+                    for _, row in df_promo.iterrows():
+                        # On détermine le besoin (Amphi=3, Salle=2)
+                        salle = str(row['Salle']).upper()
+                        nb_besoin = 3 if any(a in salle for a in ["A", "AMPHI"]) else 2
+                        
+                        surv_attribues = []
+                        for _ in range(nb_besoin):
+                            prio = sorted(liste_profs, key=lambda e: (stats_charge[e] / (coef if e in profs_alleger else 1.0)))
+                            for p in prio:
+                                # Anti-conflit sur le même créneau horaire
+                                if not any(x for x in final_data if x['Date']==row['Date'] and x['Heure']==row['Heure'] and x['Surv']==p):
+                                    surv_attribues.append(p)
+                                    stats_charge[p] += 1
+                                    final_data.append({'Date': row['Date'], 'Heure': row['Heure'], 'Surv': p})
+                                    break
+                        
+                        # Création de la ligne pour le tableau d'affichage
+                        rows_promo.append({
+                            "Date": row['Date'],
+                            "Heure": row['Heure'],
+                            "Matière": row['Matière'],
+                            "Salle": row['Salle'],
+                            "Surveillants": " / ".join(surv_attribues)
+                        })
+                    
+                    # --- AFFICHAGE DU TABLEAU FINAL ---
+                    df_final_promo = pd.DataFrame(rows_promo)
+                    st.table(df_final_promo)
+                
+                st.success("✅ Répartition terminée avec équité de charge.")
