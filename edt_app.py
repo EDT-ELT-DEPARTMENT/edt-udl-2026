@@ -194,7 +194,7 @@ import io
 
 # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
 elif portail == "🤖 Générateur Automatique":
-    if not is_admin:
+if not is_admin:
         st.error("Accès réservé à l'administration.")
     else:
         st.header("⚙️ Générateur de Surveillances par Promotion")
@@ -305,4 +305,5 @@ elif portail == "🤖 Générateur Automatique":
                         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                             df_export.to_excel(writer, index=False)
                         st.download_button("📥 TÉLÉCHARGER LE PLANNING FINAL", buffer.getvalue(), "Planning_Surv_Equitable.xlsx", use_container_width=True)
+
 
