@@ -45,15 +45,15 @@ st.markdown(f"""
 NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
 df = None
 
-# Fonction de normalisation pour la correspondance parfaite (CORRIGÉE pour les heures)
+# Fonction de normalisation pour la correspondance parfaite (CORRECTION : support des variations de 00)
 def normalize(s):
     if not s: return ""
-    # On enlève espaces, tirets ET les ":00" ou "00" pour que 14h00 corresponde à 14h
     return str(s).strip().replace(" ", "").lower().replace("-", "").replace("–", "").replace(":00", "").replace("h00", "h")
 
 if os.path.exists(NOM_FICHIER_FIXE):
     df = pd.read_excel(NOM_FICHIER_FIXE)
     df.columns = [str(c).strip() for c in df.columns]
+    # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
     for col in ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']:
         if col in df.columns: 
             df[col] = df[col].fillna("Non défini").astype(str).str.strip()
@@ -89,10 +89,10 @@ if not st.session_state["user_data"]:
 user = st.session_state["user_data"]
 is_admin = user.get("role") == "admin"
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-# Correction des labels pour correspondre au standard Excel
+# CORRECTION : Alignement des chaînes de caractères avec le format Excel standard (14h au lieu de 14h00)
 horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
 
-# Dictionnaires de mapping (CORRIGÉS avec .get pour éviter les KeyError)
+# Dictionnaires de mapping (CORRECTION : utilisation de .get pour éviter les plantages)
 map_h = {normalize(h): h for h in horaires_list}
 map_j = {normalize(j): j for j in jours_list}
 
@@ -110,11 +110,13 @@ st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Dépa
 st.markdown(f"<div class='portal-badge'>MODE : {portail.upper()}</div>", unsafe_allow_html=True)
 
 if df is not None:
+    # ================= PORTAIL 1 : EMPLOI DU TEMPS =================
     if portail == "📖 Emploi du Temps":
-        if mode_view in ["Personnel", "Enseignant"]:
+        if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
             cible = user['nom_officiel'] if mode_view == "Personnel" else st.selectbox("Choisir Enseignant :", sorted(df["Enseignants"].unique()))
             df_f = df[df["Enseignants"] == cible].copy()
             
+            # Correction : Identification via la colonne 'Code'
             def get_t(x): 
                 val = str(x).upper()
                 if "COURS" in val: return "COURS"
@@ -123,6 +125,8 @@ if df is not None:
             
             df_f['Type'] = df_f['Code'].apply(get_t)
             df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
+            
+            # Détection des séances uniques via les clés normalisées
             df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
             
             # --- CALCULS ---
@@ -134,31 +138,53 @@ if df is not None:
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
             c2.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reglementaire} h</h2></div>", unsafe_allow_html=True)
+            
             color_sup = "#e74c3c" if heures_sup > 0 else "#27ae60"
             c3.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup<br><h2 style='color:{color_sup};'>{heures_sup} h</h2></div>", unsafe_allow_html=True)
             
+            st.write("") 
+            s1, s2, s3 = st.columns(3)
+            s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {len(df_u[df_u['Type'] == 'COURS'])} COURS</div>", unsafe_allow_html=True)
+            s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {len(df_u[df_u['Type'] == 'TD'])} TD</div>", unsafe_allow_html=True)
+            s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {len(df_u[df_u['Type'] == 'TP'])} TP</div>", unsafe_allow_html=True)
+
             def fmt_e(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
             
+            # Pivot sur les colonnes normalisées
             grid = df_f.groupby(['h_norm', 'j_norm']).apply(fmt_e, include_groups=False).unstack('j_norm')
             
-            # Réindexation forcée sur toutes les tranches horaires
-            idx_norm = [normalize(h) for h in horaires_list]
-            cols_norm = [normalize(j) for j in jours_list]
-            grid = grid.reindex(index=idx_norm, columns=cols_norm).fillna("")
+            # Réindexation propre
+            grid = grid.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
             
-            # Traduction propre pour l'affichage
+            # Traduction des index pour l'affichage (Utilisation de .get pour la sécurité)
             grid.index = [map_h.get(i, i) for i in grid.index]
             grid.columns = [map_j.get(c, c) for c in grid.columns]
             
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
-        # Les autres vues (Promotion, Salles) utilisent la même logique de reindex
         elif is_admin and mode_view == "Promotion":
             p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
             df_p = df[df["Promotion"] == p_sel]
             def fmt_p(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
             grid_p = df_p.groupby(['h_norm', 'j_norm']).apply(fmt_p, include_groups=False).unstack('j_norm')
             grid_p = grid_p.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
-            grid_p.index = horaires_list
-            grid_p.columns = jours_list
+            grid_p.index = [map_h.get(i, i) for i in grid_p.index]
+            grid_p.columns = [map_j.get(c, c) for c in grid_p.columns]
+            st.write(f"### 📅 Emploi du Temps : {p_sel}")
             st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
+
+        elif is_admin and mode_view == "🏢 Planning Salles":
+            s_sel = st.selectbox("Choisir Salle (Racine) :", sorted([r for r in df['Lieu_Racine'].unique() if r != "Non défini"]))
+            df_s = df[df['Lieu_Racine'] == s_sel]
+            def fmt_s(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><small>{r['Lieu']}</small>" for _,r in rows.iterrows()])
+            grid_s = df_s.groupby(['h_norm', 'j_norm']).apply(fmt_s, include_groups=False).unstack('j_norm')
+            grid_s = grid_s.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
+            grid_s.index = [map_h.get(i, i) for i in grid_s.index]
+            grid_s.columns = [map_j.get(c, c) for c in grid_s.columns]
+            st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
+
+        elif is_admin and mode_view == "🚩 Vérificateur":
+            dup = df[df['Enseignants'] != "Non défini"].duplicated(subset=['j_norm', 'h_norm', 'Enseignants'], keep=False)
+            err = df[df['Enseignants'] != "Non défini"][dup]
+            if err.empty: st.success("✅ Aucun conflit détecté.")
+            else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err[['Enseignements', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']])
