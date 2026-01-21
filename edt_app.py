@@ -187,170 +187,113 @@ if df is not None:
         data_s = {"Date": ["15/06", "17/06"], "Heure": ["09h00", "13h00"], "Module": ["Electrot.", "IA"], "Lieu": ["Amphi A", "S06"]}
         st.table(pd.DataFrame(data_s))
 
-# ================= PORTAIL 2 : SURVEILLANCES =================
-    elif portail == "📅 Surveillances Examens":
-        NOM_SURV = "surveillances_2026.xlsx"
-        horaires_examens = ["08h30 – 10h30", "11h00 – 13h00", "13h30 – 15h30"]
-        
-        if os.path.exists(NOM_SURV):
-            df_surv = pd.read_excel(NOM_SURV)
-            df_surv.columns = [str(c).strip() for c in df_surv.columns]
-            
-            # 1. Conversion forcée de la colonne Date en format Date Python pour le tri
-            # On utilise errors='coerce' pour éviter les plantages si une date est mal écrite
-            df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
-            
-            # Nettoyage des autres colonnes (en texte)
-            cols_to_clean = ['Surveillant(s)', 'Jour', 'Heure', 'Matière', 'Chargé de matière', 'Salle', 'Promotion']
-            for col in cols_to_clean:
-                if col in df_surv.columns:
-                    df_surv[col] = df_surv[col].fillna("").astype(str).str.strip()
-
-            liste_profs = sorted(df_surv['Surveillant(s)'].unique())
-            prof_sel = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs, index=liste_profs.index(user['nom_officiel']) if user['nom_officiel'] in liste_profs else 0)
-            
-            # 2. Filtrage et TRI CHRONOLOGIQUE RÉEL
-            df_u = df_surv[df_surv['Surveillant(s)'] == prof_sel].sort_values(by='Date_Tri', ascending=True)
-            
-            st.metric("Nombre de séances", f"{len(df_u)} séance(s)")
-            
-            tab1, tab2 = st.tabs(["👤 Planning Individuel", "🌍 Vue Globale"])
-            
-            with tab1:
-                if not df_u.empty:
-                    st.markdown("#### 📝 Résumé chronologique des missions")
-                    
-                    # Affichage des lignes de résumé
-                    for _, r in df_u.iterrows():
-                        # On récupère la date propre (sans l'heure du tri)
-                        dt_display = r['Date'].split(' ')[0] if ' ' in str(r['Date']) else r['Date']
-                        
-                        st.markdown(f"""
-                            <div style="background-color: #f8f9fa; padding: 12px; border-left: 5px solid #D4AF37; margin-bottom: 8px; border-radius: 5px; border: 1px solid #e0e0e0;">
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span style="color: #1E3A8A; font-weight: bold; font-size:15px;">📅 {r['Jour']} {dt_display}</span>
-                                    <span style="background-color: #1E3A8A; color: white; padding: 2px 10px; border-radius: 15px; font-size: 12px;">🕒 {r['Heure']}</span>
-                                </div>
-                                <div style="margin-top: 5px;">
-                                    <b style="font-size: 14px; color: #333;">{r['Matière']}</b><br>
-                                    <span style="font-size: 13px;">
-                                        👤 Resp: <b>{r['Chargé de matière']}</b> | 📍 Salle: <b>{r['Salle']}</b> | 🎓 Promo: <b>{r['Promotion']}</b>
-                                    </span>
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    
-                    st.markdown("<br>#### 🗓️ Vue Calendrier", unsafe_allow_html=True)
-                    
-                    # 3. Grille Visuelle (inchangée)
-                    grid_s = pd.DataFrame("", index=horaires_examens, columns=jours_list)
-                    for _, r in df_u.iterrows():
-                        dt_grid = str(r['Date']).split(' ')[0]
-                        txt = f"<div style='font-size:11px; line-height:1.2;'><b>{r['Matière']}</b><br><span style='color:#d35400; font-weight:bold;'>📅 {dt_grid}</span><br>📍 <b>{r['Salle']}</b><br><small>🎓 {r['Promotion']}</small></div>"
-                        j, h = str(r['Jour']).strip().capitalize(), str(r['Heure']).strip()
-                        if j in grid_s.columns and h in grid_s.index:
-                            grid_s.at[h, j] += (f"<hr style='margin:5px 0;'>" if grid_s.at[h, j] != "" else "") + txt
-                    
-                    st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
-                    
-                    # BOUTONS (Impression / Excel)
-                    st.divider()
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        components.html(f'<button onclick="window.parent.print()" style="width:100%; padding:12px; background:#1E3A8A; color:white; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">🖨️ IMPRIMER LA FICHE</button>', height=60)
-                    with c2:
-                        import io
-                        out = io.BytesIO()
-                        # On exporte le dataframe trié sans la colonne technique 'Date_Tri'
-                        df_u.drop(columns=['Date_Tri']).to_excel(out, index=False)
-                        st.download_button("📥 TÉLÉCHARGER (.XLSX)", out.getvalue(), f"Fiche_Surv_{prof_sel}.xlsx", use_container_width=True)
-                        
-    # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+ # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
     elif portail == "🤖 Générateur Automatique":
         if not is_admin:
             st.error("Accès réservé à l'administration.")
         else:
             st.header("⚙️ Générateur de Surveillances par Promotion")
-            st.info("Configuration de la Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+            st.info("Répartition par binômes avec gestion des décharges et vacataires")
 
-            # 1. FILTRES DE GÉNÉRATION
-            col_a, col_b = st.columns(2)
-            with col_a:
-                promo_dispo = sorted(df['Promotion'].unique()) if 'Promotion' in df.columns else []
-                promo_cible = st.multiselect("🎓 Choisir les Promotions :", promo_dispo)
-            with col_b:
-                # Dates personnalisables
-                dates_exam = st.multiselect("📅 Dates de la session :", 
-                                           ["Dimanche 25/01", "Lundi 26/01", "Mardi 27/01", "Mercredi 28/01", "Jeudi 29/01"],
-                                           default=["Dimanche 25/01"])
+            NOM_SURV_SRC = "surveillances_2026.xlsx"
 
-            # 2. GESTION DES ENSEIGNANTS
-            liste_profs_edt = sorted([str(e).strip() for e in df['Enseignants'].unique() if str(e).strip() not in ["nan", "None", "Non défini"]])
-            profs_alleger = st.multiselect("👤 Enseignants avec décharge (Poste Sup) :", liste_profs_edt)
-            coef = st.slider("Intensité de charge pour les décharges (%)", 10, 100, 50) / 100
+            if not os.path.exists(NOM_SURV_SRC):
+                st.error(f"❌ Le fichier '{NOM_SURV_SRC}' est introuvable.")
+            else:
+                df_src = pd.read_excel(NOM_SURV_SRC)
+                df_src.columns = [str(c).strip() for c in df_src.columns]
+                for c in df_src.columns:
+                    df_src[c] = df_src[c].fillna("").astype(str).str.strip()
 
-            if st.button("🚀 LANCER LA RÉPARTITION"):
-                NOM_SURV_SRC = "surveillances_2026.xlsx"
-                if not os.path.exists(NOM_SURV_SRC):
-                    st.error("❌ Fichier source 'surveillances_2026.xlsx' introuvable. Veuillez l'uploader.")
-                elif not promo_cible:
-                    st.warning("⚠️ Veuillez sélectionner au moins une promotion.")
-                else:
-                    try:
-                        df_src = pd.read_excel(NOM_SURV_SRC)
-                        stats_charge = {e: 0 for e in liste_profs_edt}
-                        global_tracking = [] # Pour éviter les doubles surveillances au même moment
-                        
+                # Extraction des enseignants
+                col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
+                liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
+                promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
+
+                # --- CONFIGURATION DES GROUPES ---
+                st.subheader("📋 Configuration des Groupes")
+                col_cfg1, col_cfg2 = st.columns(2)
+                with col_cfg1:
+                    profs_decharge = st.multiselect("👤 Enseignants avec décharge (50%) :", liste_profs_surv)
+                with col_cfg2:
+                    vacataires = st.multiselect("🎓 Vacataires (Quota réduit) :", liste_profs_surv)
+                
+                coef_decharge = st.slider("Coefficient de charge pour décharge/vacataire", 0.1, 0.9, 0.5)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    promo_cible = st.multiselect("🎓 Promotions à générer :", promo_dispo)
+                with col2:
+                    dates_exam = st.multiselect("📅 Sélectionner les dates :", sorted(df_src['Date'].unique()))
+
+                if st.button("🚀 GÉNÉRER LA RÉPARTITION ÉQUITABLE"):
+                    if not promo_cible:
+                        st.warning("Veuillez choisir au moins une promotion.")
+                    else:
+                        stats_charge = {p: 0 for p in liste_profs_surv}
+                        global_tracking = []
+                        all_promos_df = []
+
+                        # Algorithme de sélection par binôme avec pondération
                         for promo in promo_cible:
-                            st.markdown(f"### 📋 Tableau d'Examen : **{promo}**")
-                            df_p = df_src[df_src['Promotion'].astype(str).str.contains(promo)].copy()
-                            
-                            if df_p.empty:
-                                st.write(f"∅ Aucune donnée trouvée pour {promo}")
-                                continue
+                            st.markdown(f"#### 📋 Tableau : {promo}")
+                            df_p = df_src[df_src['Promotion'] == promo].copy()
+                            if dates_exam:
+                                df_p = df_p[df_p['Date'].isin(dates_exam)]
 
-                            final_rows_promo = []
+                            final_rows = []
                             for _, row in df_p.iterrows():
-                                salle = str(row['Salle']).upper()
-                                # Règle : Amphi = 3 surveillants, Salle = 2
-                                nb_besoin = 3 if any(a in salle for a in ["A", "AMPHI"]) else 2
+                                binome = []
                                 
-                                surv_attribues = []
-                                # Tri des profs par charge pondérée pour l'équité
-                                for _ in range(nb_besoin):
-                                    prio = sorted(liste_profs_edt, key=lambda e: (stats_charge[e] / (coef if e in profs_alleger else 1.0)))
-                                    
+                                # On cherche 2 surveillants
+                                for _ in range(2):
+                                    # Calcul de la charge pondérée pour l'équité
+                                    # Charge réelle / coefficient si l'enseignant est privilégié
+                                    prio = sorted(liste_profs_surv, key=lambda p: (
+                                        stats_charge[p] / (coef_decharge if (p in profs_decharge or p in vacataires) else 1.0)
+                                    ))
+
                                     for p in prio:
-                                        # Vérifier si le prof n'est pas déjà occupé sur cette Date/Heure
-                                        conflit = any(x for x in global_tracking if x['Date']==row['Date'] and x['Heure']==row['Heure'] and x['Nom']==p)
-                                        if not conflit:
-                                            surv_attribues.append(p)
-                                            stats_charge[p] += 1
-                                            global_tracking.append({'Date': row['Date'], 'Heure': row['Heure'], 'Nom': p})
-                                            break
+                                        # Pas deux fois dans le même binôme ET pas déjà occupé à cette heure
+                                        if p not in binome:
+                                            occupe = any(x for x in global_tracking if x['D'] == row['Date'] and x['H'] == row['Heure'] and x['N'] == p)
+                                            if not occupe:
+                                                binome.append(p)
+                                                stats_charge[p] += 1
+                                                global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+                                                break
                                 
-                                final_rows_promo.append({
-                                    "Date": row['Date'],
-                                    "Heure": row['Heure'],
-                                    "Matière": row['Matière'],
-                                    "Salle": row['Salle'],
-                                    "Surveillants": " / ".join(surv_attribues)
-                                })
-                            
-                            # Affichage du tableau final pour la promo
-                            st.table(pd.DataFrame(final_rows_promo))
+                                row_data = {
+                                    "Date": row['Date'], "Heure": row['Heure'],
+                                    "Matière": row['Matière'], "Salle": row['Salle'],
+                                    "Binôme": " & ".join(binome)
+                                }
+                                final_rows.append(row_data)
+                                row_data["Promotion"] = promo
+                                all_promos_df.append(row_data)
+
+                            st.table(pd.DataFrame(final_rows))
+
+                        # --- ANALYSE NUMÉRIQUE ---
+                        st.divider()
+                        st.subheader("🔍 Analyse numérique des charges")
                         
-                        st.success("✅ Répartition équitable terminée avec succès.")
+                        prof_analyse = st.selectbox("Sélectionner un enseignant :", liste_profs_surv)
+                        quota = stats_charge.get(prof_analyse, 0)
                         
-                        # Affichage du bilan de charge
-                        with st.expander("📊 Voir le bilan des charges par enseignant"):
-                            bilan_df = pd.DataFrame([{"Enseignant": k, "Nombre": v} for k, v in stats_charge.items()])
-                            st.bar_chart(bilan_df.set_index("Enseignant"))
+                        c_met1, c_met2, c_met3 = st.columns(3)
+                        with c_met1:
+                            st.metric(label=f"Quota {prof_analyse}", value=f"{quota} séances")
+                        with c_met2:
+                            st.metric(label="Type", value="Décharge/Vacataire" if (prof_analyse in profs_decharge or prof_analyse in vacataires) else "Normal")
+                        with c_met3:
+                            moyenne = sum(stats_charge.values()) / len(liste_profs_surv)
+                            st.metric(label="Moyenne globale", value=f"{moyenne:.1f}")
 
-                    except Exception as e:
-                        st.error(f"Erreur lors de la génération : {e}")
-else:
-    st.error("Le fichier 'dataEDT-ELT-S2-2026.xlsx' est introuvable au démarrage.")
-
-
+                        if all_promos_df:
+                            df_export = pd.DataFrame(all_promos_df)
+                            buffer = io.BytesIO()
+                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                                df_export.to_excel(writer, index=False)
+                            st.download_button("📥 TÉLÉCHARGER LE PLANNING FINAL", buffer.getvalue(), "Planning_Surv_Equitable.xlsx", use_container_width=True)
 
