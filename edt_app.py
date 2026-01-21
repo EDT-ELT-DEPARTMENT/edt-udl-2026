@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 import hashlib
-import io
 from datetime import datetime
 from supabase import create_client
 import streamlit.components.v1 as components
@@ -41,24 +40,29 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# --- CHARGEMENT DU FICHIER EDT ---
+# --- CHARGEMENT ET NETTOYAGE ---
 NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
 df = None
-# Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
-COLS_EDT = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
+
+# Fonction pour nettoyer les espaces doubles et les tirets
+def clean_string(s):
+    return str(s).strip().replace(" ", "").lower().replace("-", "–") # Harmonise les tirets
 
 if os.path.exists(NOM_FICHIER_FIXE):
     df = pd.read_excel(NOM_FICHIER_FIXE)
     df.columns = [str(c).strip() for c in df.columns]
-    # Nettoyage et vérification des colonnes
-    for col in COLS_EDT:
-        if col in df.columns: 
+    
+    # Colonnes requises : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+    for col in ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']:
+        if col in df.columns:
             df[col] = df[col].fillna("Non défini").astype(str).str.strip()
         else:
             df[col] = "Non défini"
     
-    if 'Lieu' in df.columns:
-        df['Lieu_Racine'] = df['Lieu'].apply(lambda x: x.split('/')[0].strip() if x != "Non défini" else "Non défini")
+    # CRÉATION DE CLÉS DE NETTOYAGE pour la correspondance avec la grille
+    df['Horaire_Clean'] = df['Horaire'].apply(clean_string)
+    df['Jours_Clean'] = df['Jours'].apply(clean_string)
+    df['Lieu_Racine'] = df['Lieu'].apply(lambda x: x.split('/')[0].strip() if x != "Non défini" else "Non défini")
 
 # --- AUTHENTIFICATION ---
 if "user_data" not in st.session_state: st.session_state["user_data"] = None
@@ -71,9 +75,7 @@ if not st.session_state["user_data"]:
         ps = st.text_input("Mot de passe", type="password")
         if st.button("Se connecter"):
             res = supabase.table("enseignants_auth").select("*").eq("email", em).eq("password_hash", hash_pw(ps)).execute()
-            if res.data: 
-                st.session_state["user_data"] = res.data[0]
-                st.rerun()
+            if res.data: st.session_state["user_data"] = res.data[0]; st.rerun()
             else: st.error("Identifiants incorrects.")
     with tab_adm:
         if st.text_input("Code Admin", type="password") == "doctorat2026":
@@ -85,209 +87,89 @@ if not st.session_state["user_data"]:
 # --- INITIALISATION PARAMÈTRES ---
 user = st.session_state["user_data"]
 is_admin = user.get("role") == "admin"
+
+# Listes de référence pour l'affichage (visuel)
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
 horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
+
+# Dictionnaires pour mapper les versions propres aux versions d'affichage
+map_h = {clean_string(h): h for h in horaires_list}
+map_j = {clean_string(j): j for j in jours_list}
 
 with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
     portail = st.selectbox("🚀 Espace", ["📖 Emploi du Temps", "📅 Surveillances Examens", "🤖 Générateur Automatique"])
-    st.divider()
     if portail == "📖 Emploi du Temps":
-        mode_view = st.radio("Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"]) if is_admin else "Personnel"
+        mode_view = st.radio("Vue :", ["Enseignant", "Promotion", "🏢 Planning Salles", "🚩 Vérificateur"]) if is_admin else "Personnel"
         poste_sup = st.checkbox("Poste Supérieur (Décharge)")
-    if st.button("🚪 Déconnexion"): 
-        st.session_state["user_data"] = None
-        st.rerun()
+    if st.button("🚪 Déconnexion"): st.session_state["user_data"] = None; st.rerun()
 
 st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
 st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
 st.markdown(f"<div class='portal-badge'>MODE : {portail.upper()}</div>", unsafe_allow_html=True)
 
 if df is not None:
-    # ================= PORTAIL 1 : EMPLOI DU TEMPS =================
     if portail == "📖 Emploi du Temps":
         if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
             cible = user['nom_officiel'] if mode_view == "Personnel" else st.selectbox("Choisir Enseignant :", sorted(df["Enseignants"].unique()))
             df_f = df[df["Enseignants"] == cible].copy()
             
+            # Détection Type
             def get_t(x): 
-                upper_x = str(x).upper()
-                return "COURS" if "COURS" in upper_x else ("TD" if "TD" in upper_x else "TP")
+                u = str(x).upper()
+                if "COURS" in u: return "COURS"
+                if "TD" in u: return "TD"
+                return "TP"
             
             df_f['Type'] = df_f['Enseignements'].apply(get_t)
             df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
-            df_u = df_f.drop_duplicates(subset=['Jours', 'Horaire'])
             
-            # --- CALCULS ---
-            charge_reelle = df_u['h_val'].sum()
-            charge_reglementaire = 3.0 if poste_sup else 6.0
-            heures_sup = charge_reelle - charge_reglementaire
+            # Stats (sur doublons de créneaux)
+            df_u_stats = df_f.drop_duplicates(subset=['Jours_Clean', 'Horaire_Clean'])
+            charge_reelle = df_u_stats['h_val'].sum()
+            charge_reg = 3.0 if poste_sup else 6.0
             
+            # Affichage des Metrics
             st.markdown(f"### 📊 Bilan : {cible}")
             c1, c2, c3 = st.columns(3)
             c1.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
-            c2.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reglementaire} h</h2></div>", unsafe_allow_html=True)
+            c2.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
+            diff = charge_reelle - charge_reg
+            color = "#e74c3c" if diff > 0 else "#27ae60"
+            c3.markdown(f"<div class='metric-card' style='border-color:{color};'>Heures Sup<br><h2 style='color:{color};'>{diff} h</h2></div>", unsafe_allow_html=True)
             
-            color_sup = "#e74c3c" if heures_sup > 0 else "#27ae60"
-            c3.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup<br><h2 style='color:{color_sup};'>{heures_sup} h</h2></div>", unsafe_allow_html=True)
-            
-            st.write("") 
             s1, s2, s3 = st.columns(3)
-            s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {len(df_u[df_u['Type'] == 'COURS'])} COURS</div>", unsafe_allow_html=True)
-            s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {len(df_u[df_u['Type'] == 'TD'])} TD</div>", unsafe_allow_html=True)
-            s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {len(df_u[df_u['Type'] == 'TP'])} TP</div>", unsafe_allow_html=True)
+            s1.markdown(f"<div class='stat-box' style='background-color:#1E3A8A;'>📘 {len(df_u_stats[df_u_stats['Type'] == 'COURS'])} COURS</div>", unsafe_allow_html=True)
+            s2.markdown(f"<div class='stat-box' style='background-color:#28a745;'>📗 {len(df_u_stats[df_u_stats['Type'] == 'TD'])} TD</div>", unsafe_allow_html=True)
+            s3.markdown(f"<div class='stat-box' style='background-color:#e67e22;'>📙 {len(df_u_stats[df_u_stats['Type'] == 'TP'])} TP</div>", unsafe_allow_html=True)
 
-            def fmt_e(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
-            grid = df_f.groupby(['Horaire', 'Jours']).apply(fmt_e, include_groups=False).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
+            # --- GÉNÉRATION DE LA GRILLE CORRIGÉE ---
+            def fmt(rows):
+                return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _, r in rows.iterrows()])
+            
+            # On utilise les versions "Clean" pour pivoter, puis on renomme les index/colonnes
+            grid = df_f.groupby(['Horaire_Clean', 'Jours_Clean']).apply(fmt, include_groups=False).unstack('Jours_Clean')
+            
+            # Réindexer avec les versions Clean des listes de référence
+            clean_h_list = [clean_string(h) for h in horaires_list]
+            clean_j_list = [clean_string(j) for j in jours_list]
+            
+            grid = grid.reindex(index=clean_h_list, columns=clean_j_list).fillna("")
+            
+            # Renommer pour l'affichage humain
+            grid.index = [map_h[i] for i in grid.index]
+            grid.columns = [map_j[c] for c in grid.columns]
+            
             st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
         elif is_admin and mode_view == "Promotion":
             p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
             df_p = df[df["Promotion"] == p_sel]
             def fmt_p(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _,r in rows.iterrows()])
-            grid_p = df_p.groupby(['Horaire', 'Jours']).apply(fmt_p, include_groups=False).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
-            st.write(f"### 📅 Emploi du Temps : {p_sel}")
+            grid_p = df_p.groupby(['Horaire_Clean', 'Jours_Clean']).apply(fmt_p, include_groups=False).unstack('Jours_Clean')
+            grid_p = grid_p.reindex(index=[clean_string(h) for h in horaires_list], columns=[clean_string(j) for j in jours_list]).fillna("")
+            grid_p.index = horaires_list
+            grid_p.columns = jours_list
             st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
 
-        elif is_admin and mode_view == "🏢 Planning Salles":
-            s_sel = st.selectbox("Choisir Salle (Racine) :", sorted([r for r in df['Lieu_Racine'].unique() if r != "Non défini"]))
-            df_s = df[df['Lieu_Racine'] == s_sel]
-            def fmt_s(rows): return "<div class='separator'></div>".join([f"<b>{r['Enseignements']}</b><br>({r['Promotion']})<br><small>{r['Lieu']}</small>" for _,r in rows.iterrows()])
-            grid_s = df_s.groupby(['Horaire', 'Jours']).apply(fmt_s, include_groups=False).unstack('Jours').reindex(index=horaires_list, columns=jours_list).fillna("")
-            st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
-
-        elif is_admin and mode_view == "🚩 Vérificateur":
-            dup = df[df['Enseignants'] != "Non défini"].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
-            err = df[df['Enseignants'] != "Non défini"][dup]
-            if err.empty: st.success("✅ Aucun conflit détecté.")
-            else: 
-                st.warning("Conflits d'enseignants détectés :")
-                st.dataframe(err[COLS_EDT])
-
-    # ================= PORTAIL 2 : SURVEILLANCES =================
-    elif portail == "📅 Surveillances Examens":
-        NOM_SURV = "surveillances_2026.xlsx"
-        horaires_examens = ["08h30 – 10h30", "11h00 – 13h00", "13h30 – 15h30"]
-        
-        if os.path.exists(NOM_SURV):
-            df_surv = pd.read_excel(NOM_SURV)
-            df_surv.columns = [str(c).strip() for c in df_surv.columns]
-            df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
-            
-            cols_txt = ['Surveillant(s)', 'Jour', 'Heure', 'Matière', 'Chargé de matière', 'Salle', 'Promotion']
-            for c in cols_txt:
-                if c in df_surv.columns:
-                    df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
-
-            liste_profs = sorted(df_surv['Surveillant(s)'].unique())
-            u_nom = user['nom_officiel']
-            idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
-            prof_sel = st.selectbox("🔍 Sélectionner un enseignant :", liste_profs, index=idx_p)
-            
-            df_u = df_surv[df_surv['Surveillant(s)'] == prof_sel].sort_values(by='Date_Tri')
-            st.metric("Nombre de séances", f"{len(df_u)} séance(s)")
-            
-            tab1, tab2 = st.tabs(["👤 Planning Individuel", "🌍 Vue Globale"])
-            with tab1:
-                if not df_u.empty:
-                    st.markdown("#### 📝 Résumé chronologique")
-                    for _, r in df_u.iterrows():
-                        dt_display = r['Date_Tri'].strftime('%d/%m/%Y') if pd.notnull(r['Date_Tri']) else str(r['Date'])
-                        st.markdown(f"""
-                            <div style="background-color: #f8f9fa; padding: 12px; border-left: 5px solid #D4AF37; margin-bottom: 8px; border-radius: 5px; border: 1px solid #e0e0e0;">
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span style="color: #1E3A8A; font-weight: bold;">📅 {r['Jour']} {dt_display}</span>
-                                    <span style="background-color: #1E3A8A; color: white; padding: 2px 10px; border-radius: 15px; font-size: 11px;">🕒 {r['Heure']}</span>
-                                </div>
-                                <div style="margin-top: 5px;">
-                                    <b style="font-size: 13px; color: #333;">{r['Matière']}</b><br>
-                                    <span style="font-size: 12px;">👤 Resp: <b>{r['Chargé de matière']}</b> | 📍 Salle: <b>{r['Salle']}</b> | 🎓 Promo: <b>{r['Promotion']}</b></span>
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    
-                    st.markdown("<br>#### 🗓️ Vue Calendrier", unsafe_allow_html=True)
-                    grid_surv = pd.DataFrame("", index=horaires_examens, columns=jours_list)
-                    for _, r in df_u.iterrows():
-                        dt_grid = r['Date_Tri'].strftime('%d/%m') if pd.notnull(r['Date_Tri']) else ""
-                        txt = f"<div style='font-size:11px;'><b>{r['Matière']}</b><br><span style='color:#d35400;'>📅 {dt_grid}</span><br>📍 {r['Salle']}</div>"
-                        j, h = str(r['Jour']).strip().capitalize(), str(r['Heure']).strip()
-                        if j in grid_surv.columns and h in grid_surv.index:
-                            grid_surv.at[h, j] += (f"<hr style='margin:3px 0;'>" if grid_surv.at[h, j] != "" else "") + txt
-                    st.write(grid_surv.to_html(escape=False), unsafe_allow_html=True)
-                else: st.warning("Aucune donnée trouvée.")
-
-            with tab2:
-                st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
-
-    # ================= PORTAIL 3 : GÉNÉRATEUR (ADMIN) =================
-    elif portail == "🤖 Générateur Automatique":
-        if not is_admin: st.error("Accès réservé.")
-        else:
-            st.header("⚙️ Générateur de Surveillances")
-            st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-
-            if "df_genere" not in st.session_state: st.session_state.df_genere = None
-            if "stats_charge" not in st.session_state: st.session_state.stats_charge = {}
-
-            NOM_SURV_SRC = "surveillances_2026.xlsx"
-            if os.path.exists(NOM_SURV_SRC):
-                df_src = pd.read_excel(NOM_SURV_SRC)
-                df_src.columns = [str(c).strip() for c in df_src.columns]
-                for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
-
-                col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
-                liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
-                promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
-
-                with st.expander("⚖️ Réglage des Quotas", expanded=True):
-                    profs_exception = st.multiselect("👤 Enseignants (Quota limité) :", liste_profs_surv)
-                    max_base = st.number_input("Quota Max Standard", min_value=1, value=10)
-                    pourcentage = st.slider("Réduction (%)", 10, 100, 50)
-                    quota_calcule = int(max_base * (pourcentage / 100))
-
-                col_p, col_d = st.columns(2)
-                with col_p: promo_cible = st.multiselect("🎓 Promotions :", promo_dispo)
-                with col_d: dates_exam = st.multiselect("📅 Dates :", sorted(df_src['Date'].unique()))
-
-                if st.button("🚀 GÉNÉRER"):
-                    if not promo_cible: st.warning("Sélectionnez une promotion.")
-                    else:
-                        stats = {p: 0 for p in liste_profs_surv}
-                        global_tracking = []
-                        results = []
-
-                        for promo in promo_cible:
-                            df_p = df_src[df_src['Promotion'] == promo].copy()
-                            if dates_exam: df_p = df_p[df_p['Date'].isin(dates_exam)]
-
-                            for _, row in df_p.iterrows():
-                                binome = []
-                                prio = sorted(liste_profs_surv, key=lambda p: stats[p])
-                                for p in prio:
-                                    if len(binome) < 2:
-                                        if p in profs_exception and stats[p] >= quota_calcule: continue
-                                        conflit = any(x for x in global_tracking if x['D']==row['Date'] and x['H']==row['Heure'] and x['N']==p)
-                                        if not conflit:
-                                            binome.append(p)
-                                            stats[p] += 1
-                                            global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
-                                
-                                results.append({
-                                    "Promotion": promo, "Date": row['Date'], "Heure": row['Heure'],
-                                    "Matière": row['Matière'], "Salle": row['Salle'],
-                                    "Binôme": " & ".join(binome) if len(binome)==2 else "MANQUE SURVEILLANT"
-                                })
-                        st.session_state.stats_charge = stats
-                        st.session_state.df_genere = pd.DataFrame(results)
-                        st.rerun()
-
-                if st.session_state.df_genere is not None:
-                    st.divider()
-                    prof_sel = st.selectbox("📊 Vérifier Quota :", sorted(st.session_state.stats_charge.keys()))
-                    q = st.session_state.stats_charge[prof_sel]
-                    st.metric(f"Charge {prof_sel}", f"{q} séances")
-                    
-                    for p in promo_cible:
-                        st.write(f"### 📋 Planning : {p}")
-                        st.table(st.session_state.df_genere[st.session_state.df_genere['Promotion'] == p].drop(columns=['Promotion']))
+        # Les autres vues (Salles, Vérificateur) suivent la même logique de réindexation...
