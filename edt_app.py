@@ -190,29 +190,77 @@ if df is not None:
             else: st.warning("Conflits d'enseignants détectés :"); st.dataframe(err[['Enseignements', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']])
                 # ================= PORTAIL 2 : SURVEILLANCES EXAMENS =================
     elif portail == "📅 Surveillances Examens":
-        st.subheader("📋 Planning des Surveillances - S2 2026")
+        st.markdown(f"### 📋 Planning des Surveillances - {user['nom_officiel']}")
         
-        # Simulation ou chargement d'un fichier de surveillance si existant
-        # Pour l'instant, nous affichons les informations liées à l'utilisateur
-        st.info(f"Session d'examens : Juin 2026. Enseignant : {user['nom_officiel']}")
+        # Création d'une structure type pour les surveillances
+        # Vous pourrez plus tard charger un fichier Excel spécifique pour cela
+        col_s1, col_s2 = st.columns([2, 1])
         
-        # Création d'un espace pour afficher un tableau de surveillance
-        # (Cette partie peut être liée à une table Supabase 'surveillances')
-        tabs_surv = st.tabs(["Mes Surveillances", "Planning Global", "Remplacements"])
-        
-        with tabs_surv[0]:
-            st.markdown("### 🕒 Votre calendrier")
-            # Exemple de structure de données pour les surveillances
-            data_surv = {
-                "Date": ["15/06/2026", "17/06/2026"],
-                "Horaire": ["09:00 - 10:30", "13:30 - 15:00"],
-                "Module": ["Électrotechnique", "Intelligence Artificielle"],
-                "Lieu": ["Amphi A", "Salle S06"]
+        with col_s1:
+            st.info("Les dates de surveillances pour la session de rattrapage S1 / normale S2.")
+            # Exemple de tableau de surveillance
+            surv_data = {
+                "Date": ["Dimanche 08/02", "Lundi 09/02", "Mercredi 11/02"],
+                "Heure": ["09h00", "13h00", "11h00"],
+                "Salle": ["Amphi A", "S06", "Amphi B"],
+                "Module": ["Électrotechnique Fond.", "Mesures", "Réseaux"],
+                "Rôle": ["Chef de salle", "Surveillant", "Surveillant"]
             }
-            st.table(pd.DataFrame(data_surv))
+            st.table(pd.DataFrame(surv_data))
             
-        with tabs_surv[1]:
-            st.write("Le planning complet sera affiché ici après validation par le département.")
+        with col_s2:
+            st.warning("🔔 Rappel : Présence obligatoire 15 min avant le début.")
+            st.button("🖨️ Imprimer mon planning")
+
+# ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE =================
+    elif portail == "🤖 Générateur Automatique":
+        st.markdown("### ⚙️ Administration & Gestion du Fichier")
+        
+        if not is_admin:
+            st.error("🚫 Accès restreint. Veuillez vous connecter avec le compte Administrateur.")
+        else:
+            st.success("✅ Accès Admin validé.")
+            
+            # --- ZONE DE TÉLÉVERSEMENT ---
+            st.markdown("#### 📤 Mettre à jour l'EDT global")
+            up_file = st.file_uploader("Choisir le fichier Excel (dataEDT-ELT-S2-2026.xlsx)", type=["xlsx"])
+            
+            if up_file:
+                if st.button("🔄 Remplacer et Redémarrer la plateforme"):
+                    with open(NOM_FICHIER_FIXE, "wb") as f:
+                        f.write(up_file.getbuffer())
+                    st.cache_data.clear()
+                    st.success("Fichier mis à jour ! La plateforme va redémarrer...")
+                    st.rerun()
+            
+            st.divider()
+            
+            # --- ZONE D'EXPORT ---
+            st.markdown("#### 📥 Exportation des données")
+            col_ex1, col_ex2 = st.columns(2)
+            
+            with col_ex1:
+                # Export Excel simple
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, index=False)
+                
+                st.download_button(
+                    label="📊 Télécharger l'EDT complet (Excel)",
+                    data=output.getvalue(),
+                    file_name="EDT_SBA_2026_Global.xlsx",
+                    mime="application/vnd.ms-excel"
+                )
+            
+            with col_ex2:
+                if st.button("🚩 Vérifier tous les conflits de salles"):
+                    # Logique simple de vérification
+                    dups = df.duplicated(subset=['h_norm', 'j_norm', 'Lieu'], keep=False)
+                    conflits = df[dups & (df['Lieu'] != "Non défini")]
+                    if not conflits.empty:
+                        st.dataframe(conflits[['Enseignants', 'Lieu', 'Horaire', 'Jours']])
+                    else:
+                        st.success("Aucun conflit de salle détecté.")
 
 # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE =================
     elif portail == "🤖 Générateur Automatique":
@@ -260,4 +308,5 @@ if df is not None:
 # --- PIED DE PAGE ---
 st.markdown("---")
 st.markdown(f"<div style='text-align: center; color: gray; font-size: 10px;'>© 2026 Département d'Électrotechnique - SBA | Dernière mise à jour : {date_str}</div>", unsafe_allow_html=True)
+
 
