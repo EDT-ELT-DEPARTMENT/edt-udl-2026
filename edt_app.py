@@ -457,7 +457,7 @@ if df is not None:
                 with st.expander("⚖️ Paramètres de Distribution & Plafonnement", expanded=True):
                     cl1, cl2 = st.columns(2)
                     with cl1: exc_p = st.multiselect("👤 Enseignants à nombre de surveillances réduit :", liste_p_gen)
-                    with cl2: m_base = st.number_input("nombre de surveillances Max de base (100%)", min_value=1, value=10)
+                    with cl2: m_base = st.number_input("Nombre de surveillances Max de base (100%)", min_value=1, value=10)
                     
                     pct = st.slider("Réduction pour les enseignants sélectionnés (%)", 10, 100, 50)
                     quota_limite = int(m_base * (pct / 100))
@@ -650,6 +650,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
