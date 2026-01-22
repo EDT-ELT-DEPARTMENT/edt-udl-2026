@@ -467,7 +467,7 @@ if df is not None:
                 with cp1: p_cible = st.multiselect("🎓 Promotions concernées :", promos)
                 with cp2: d_exam = st.multiselect("📅 Filtrer par Dates :", sorted(df_src['Date'].unique()))
 
-                if st.button("🚀 LANCER LA GÉNÉRATION DES surveillants BINÔMES"):
+                if st.button("🚀 LANCER LA GÉNÉRATION DES SURVEILLANTS BINÔMES"):
                     if not p_cible:
                         st.warning("Veuillez sélectionner au moins une promotion.")
                     else:
@@ -568,26 +568,42 @@ if df is not None:
         en_attente = sum(1 for d in donnees_finales if d["État d'envoi"] == "⏳ En attente")
         c2.metric("EDTs à envoyer (En attente)", en_attente)
 
+        # --- AFFICHAGE DU TABLEAU ---
         st.dataframe(df_portail, use_container_width=True, hide_index=True)
 
-        # 3. ACTIONS : RÉINITIALISATION & ENVOI
-        col_reset, col_mail = st.columns(2)
+        # --- PRÉPARATION DU FICHIER EXCEL (POUR LE BOUTON TÉLÉCHARGER) ---
+        import io
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df_portail.to_excel(writer, index=False, sheet_name='Suivi_Envois_S2_2026')
+        buffer.seek(0)
+
+        # --- 3. ACTIONS : TÉLÉCHARGEMENT, RÉINITIALISATION & ENVOI ---
+        st.write("---") # Ligne de séparation
+        col_dl, col_reset, col_mail = st.columns(3)
+
+        with col_dl:
+            st.download_button(
+                label="📥 Télécharger Suivi (Excel)",
+                data=buffer,
+                file_name=f"Suivi_Envois_EDT_SBA_2026.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 
         with col_reset:
             if st.button("🔄 Réinitialiser tous les témoins", use_container_width=True):
-                # Remet à zéro la colonne last_sent pour recommencer un envoi général
                 supabase.table("enseignants_auth").update({"last_sent": None}).neq("email", "").execute()
-                st.success("Prêt pour un nouvel envoi général ! Le statut est repassé en 'En attente'.")
+                st.success("Statuts remis à zéro.")
                 st.rerun()
 
         with col_mail:
-            if st.button("🚀 Lancer l'envoi (Uniquement 'En attente')", use_container_width=True):
+            if st.button("🚀 Lancer l'envoi (EDTs en attente)", use_container_width=True, type="primary"):
                 import smtplib
                 from email.mime.text import MIMEText
                 from email.mime.multipart import MIMEMultipart
 
                 try:
-                    # Connexion SMTP
                     server = smtplib.SMTP('smtp.gmail.com', 587)
                     server.starttls()
                     server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
@@ -597,17 +613,14 @@ if df is not None:
                     success_count = 0
 
                     for i, row in enumerate(donnees_finales):
-                        # FILTRE : On n'envoie que si le statut est "En attente"
                         if row["État d'envoi"] == "⏳ En attente" and "@" in row["Email"]:
                             nom_prof = row['Enseignant']
                             status_msg.text(f"Envoi en cours vers : {nom_prof}...")
 
-                            # Préparation de l'EDT avec la DISPOSITION DEMANDÉE
+                            # DISPOSITION DEMANDÉE : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
                             df_perso = df[df["Enseignants"].str.contains(nom_prof, case=False, na=False)]
-                            # Ordre : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
                             df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
 
-                            # Construction de l'Email
                             msg = MIMEMultipart()
                             msg['From'] = f"Département Électrotechnique <{st.secrets['EMAIL_USER']}>"
                             msg['To'] = row["Email"]
@@ -616,26 +629,26 @@ if df is not None:
                             corps_html = f"""
                             <html>
                             <body style="font-family: Arial, sans-serif;">
-                                <h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                                <h3 style="color: #2E86C1;">Plateforme de gestion des EDTs-S2-2026</h3>
+                                <h4>Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h4>
                                 <p>Bonjour M. <b>{nom_prof}</b>,</p>
-                                <p>Voici votre emploi du temps personnalisé pour le second semestre 2026 :</p>
+                                <p>Veuillez trouver ci-dessous votre emploi du temps pour le S2-2026 :</p>
                                 {df_mail.to_html(index=False, border=1, justify='center')}
-                                <p><br>Cordialement,<br>L'Administration</p>
+                                <p><br>Cordialement,<br>L'Administration du Département</p>
                             </body>
                             </html>
                             """
                             msg.attach(MIMEText(corps_html, 'html'))
                             server.send_message(msg)
                             
-                            # MISE À JOUR SUPABASE : Marquer comme envoyé
+                            # Mise à jour Supabase
                             supabase.table("enseignants_auth").update({"last_sent": "now()"}).eq("email", row["Email"]).execute()
                             success_count += 1
 
-                        # Barre de progression
                         progress_bar.progress((i + 1) / len(donnees_finales))
 
                     server.quit()
-                    st.success(f"✅ Mission accomplie ! {success_count} emails envoyés.")
+                    st.success(f"✅ Terminé ! {success_count} nouveaux emails envoyés.")
                     st.balloons()
                     st.rerun()
 
@@ -650,6 +663,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
