@@ -411,7 +411,7 @@ if df is not None:
             c3.metric("Après-midi", len(df_u_surv) - nb_mat)
             
             st.divider()
-            t1, t2 = st.tabs(["📋 Ma Feuille de Route", "🌐 Planning Global"])
+            t1, t2 = st.tabs(["📋 Mes surveillances", "🌐 Planning Global"])
             
             with t1:
                 if not df_u_surv.empty:
@@ -425,7 +425,7 @@ if df is not None:
                     
                     buf = io.BytesIO()
                     df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
-                    st.download_button("📥 Télécharger ma feuille de route", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
+                    st.download_button("📥 Télécharger mes surveillances", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
                 else:
                     st.info("Aucune séance de surveillance n'est enregistrée pour vous.")
             
@@ -650,6 +650,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
