@@ -101,14 +101,24 @@ map_j = {normalize(j): j for j in jours_list}
 
 with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
-    portail = st.selectbox("🚀 Espace", ["📖 Emploi du Temps", "📅 Surveillances Examens", "🤖 Générateur Automatique"])
+    
+    # --- Menu Dynamique ---
+    options_menu = ["📖 Emploi du Temps", "📅 Surveillances Examens", "🤖 Générateur Automatique"]
+    if is_admin:
+        options_menu.extend(["👥 Enseignants Permanents", "📝 Enseignants Vacataires"])
+    
+    portail = st.selectbox("🚀 Espace", options_menu)
     st.divider()
+    
     mode_view = "Personnel"
     poste_sup = False
     if portail == "📖 Emploi du Temps":
         mode_view = st.radio("Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"]) if is_admin else "Personnel"
         poste_sup = st.checkbox("Poste Supérieur (Décharge)")
-    if st.button("🚪 Déconnexion"): st.session_state["user_data"] = None; st.rerun()
+    
+    if st.button("🚪 Déconnexion"): 
+        st.session_state["user_data"] = None
+        st.rerun()
 
 st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
 st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
@@ -378,4 +388,5 @@ if df is not None:
                     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                         st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "EDT_Surv_S2.xlsx", use_container_width=True)
+
 
