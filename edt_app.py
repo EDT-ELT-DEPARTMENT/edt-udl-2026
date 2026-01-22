@@ -388,27 +388,18 @@ if df is not None:
                 df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
                 
             c_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_surv.columns else 'Enseignants'
+            all_profs = []
+            for entry in df_surv[c_prof].unique():
+                for p in entry.split('&'):
+                    clean_p = p.strip()
+                    if clean_p and clean_p not in ["nan", "Non défini"]:
+                        all_profs.append(clean_p)
             
-            # --- 🛡️ VERROUILLAGE DE SÉCURITÉ ---
+            liste_profs = sorted(list(set(all_profs)))
             u_nom = user['nom_officiel']
+            idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
             
-            if is_admin:
-                # L'Admin voit tout et peut choisir
-                all_profs = []
-                for entry in df_surv[c_prof].unique():
-                    for p in entry.split('&'):
-                        clean_p = p.strip()
-                        if clean_p and clean_p not in ["nan", "Non défini"]:
-                            all_profs.append(clean_p)
-                liste_profs = sorted(list(set(all_profs)))
-                idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
-                prof_sel = st.selectbox("🔍 Sélectionner un surveillant :", liste_profs, index=idx_p)
-            else:
-                # L'Enseignant ne voit QUE son nom (Pas de menu déroulant)
-                prof_sel = u_nom
-                st.info(f"📍 Mes surveillances personnelles : **{u_nom}**")
-
-            # Filtrage strict
+            prof_sel = st.selectbox("🔍 Sélectionner un surveillant :", liste_profs, index=idx_p)
             df_u_surv = df_surv[df_surv[c_prof].str.contains(prof_sel, case=False, na=False)].sort_values(by='Date_Tri')
             
             st.markdown(f"### 📊 État des lieux : {prof_sel}")
@@ -420,13 +411,8 @@ if df is not None:
             c3.metric("Après-midi", len(df_u_surv) - nb_mat)
             
             st.divider()
+            t1, t2 = st.tabs(["📋 Mes surveillances", "🌐 Planning Global"])
             
-            # --- GESTION DES ONGLETS (Invisible pour les profs) ---
-            if is_admin:
-                t1, t2 = st.tabs(["📋 Surveillances", "🌐 Planning Global (Admin)"])
-            else:
-                t1 = st.container() # Simple conteneur pour les profs
-
             with t1:
                 if not df_u_surv.empty:
                     for _, r in df_u_surv.iterrows():
@@ -439,134 +425,107 @@ if df is not None:
                     
                     buf = io.BytesIO()
                     df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
-                    st.download_button(f"📥 Télécharger l'EDT de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
+                    st.download_button("📥 Télécharger mes surveillances", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
                 else:
-                    st.warning("Aucune séance de surveillance enregistrée pour vous.")
-
-            if is_admin:
-                with t2:
-                    st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
+                    st.info("Aucune séance de surveillance n'est enregistrée pour vous.")
+            
+            with t2:
+                st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
         else:
             st.error("Fichier source 'surveillances_2026.xlsx' manquant.")
-        elif portail == "🤖 Générateur Automatique":
-        # --- 🛡️ VERROUILLAGE ADMIN ---
+
+    elif portail == "🤖 Générateur Automatique":
         if not is_admin:
-            st.error("🚫 Accès réservé au Bureau des Examens.")
-            st.stop()
-        
-        st.header("⚙️ Moteur de Génération de Surveillances")
-        
-        # Initialisation des états de session
-        if "df_genere" not in st.session_state: st.session_state.df_genere = None
-        if "stats_charge" not in st.session_state: st.session_state.stats_charge = {}
-        
-        SRC = "surveillances_2026.xlsx"
-        
-        if not os.path.exists(SRC):
-            st.error(f"❌ Fichier source '{SRC}' introuvable.")
+            st.error("Accès réservé au Bureau des Examens.")
         else:
-            # 1. Chargement et Nettoyage
-            df_src = pd.read_excel(SRC)
-            df_src.columns = [str(c).strip() for c in df_src.columns]
-            for c in df_src.columns: 
-                df_src[c] = df_src[c].fillna("").astype(str).str.strip()
+            st.header("⚙️ Moteur de Génération de Surveillances")
+            if "df_genere" not in st.session_state: st.session_state.df_genere = None
+            if "stats_charge" not in st.session_state: st.session_state.stats_charge = {}
             
-            # Identification de la colonne des personnels
-            c_prof_g = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
-            
-            # Extraction de la liste unique des personnels valides
-            liste_p_gen = sorted([p for p in df_src[c_prof_g].unique() if p not in ["", "Non défini", "nan"]])
-            promos = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
-
-            # 2. Interface de configuration
-            with st.expander("⚖️ Paramètres de Distribution & Plafonnement", expanded=True):
-                cl1, cl2 = st.columns(2)
-                with cl1: 
-                    exc_p = st.multiselect("👤 Personnels à quota réduit (ex: Chefs de labo) :", liste_p_gen)
-                with cl2: 
-                    m_base = st.number_input("Quota Max standard (séances)", min_value=1, value=10)
+            SRC = "surveillances_2026.xlsx"
+            if not os.path.exists(SRC):
+                st.error("Impossible de générer : Fichier source introuvable.")
+            else:
+                df_src = pd.read_excel(SRC)
+                df_src.columns = [str(c).strip() for c in df_src.columns]
+                for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
                 
-                pct = st.slider("Pourcentage de réduction (%)", 10, 100, 50)
-                quota_limite = int(m_base * (pct / 100))
-                st.warning(f"🎯 Limite pour personnels sélectionnés : **{quota_limite} séances**.")
+                c_prof_g = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
+                liste_p_gen = sorted([p for p in df_src[c_prof_g].unique() if p not in ["", "Non défini", "nan"]])
+                promos = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
 
-            cp1, cp2 = st.columns(2)
-            with cp1: 
-                p_cible = st.multiselect("🎓 Promotions à générer :", promos)
-            with cp2: 
-                d_exam = st.multiselect("📅 Filtrer par Dates (optionnel) :", sorted(df_src['Date'].unique()))
-
-            # 3. Moteur de Calcul
-            if st.button("🚀 LANCER LA GÉNÉRATION DES BINÔMES", type="primary"):
-                if not p_cible:
-                    st.warning("Veuillez sélectionner au moins une promotion.")
-                else:
-                    stats = {p: 0 for p in liste_p_gen}
-                    tracker = [] # Pour éviter qu'un prof soit dans 2 salles à la même heure
-                    res_list = []
+                with st.expander("⚖️ Paramètres de Distribution & Plafonnement", expanded=True):
+                    cl1, cl2 = st.columns(2)
+                    with cl1: exc_p = st.multiselect("👤 Enseignants à nombre de surveillances réduit :", liste_p_gen)
+                    with cl2: m_base = st.number_input("Nombre de surveillances Max de base (100%)", min_value=1, value=10)
                     
-                    for p_name in p_cible:
-                        df_p = df_src[df_src['Promotion'] == p_name].copy()
-                        if d_exam: 
-                            df_p = df_p[df_p['Date'].isin(d_exam)]
+                    pct = st.slider("Réduction pour les enseignants sélectionnés (%)", 10, 100, 50)
+                    quota_limite = int(m_base * (pct / 100))
+                    st.warning(f"🎯 Limite appliquée aux enseignants sélectionnés : **{quota_limite} séances**.")
+
+                cp1, cp2 = st.columns(2)
+                with cp1: p_cible = st.multiselect("🎓 Promotions concernées :", promos)
+                with cp2: d_exam = st.multiselect("📅 Filtrer par Dates :", sorted(df_src['Date'].unique()))
+
+                if st.button("🚀 LANCER LA GÉNÉRATION DES SURVEILLANTS BINÔMES"):
+                    if not p_cible:
+                        st.warning("Veuillez sélectionner au moins une promotion.")
+                    else:
+                        stats = {p: 0 for p in liste_p_gen}
+                        tracker = []
+                        res_list = []
                         
-                        for _, row in df_p.iterrows():
-                            pair = []
-                            # Équilibrage : on trie les profs par ceux qui ont le moins de séances
-                            tri_prio = sorted(liste_p_gen, key=lambda x: stats[x])
+                        for p_name in p_cible:
+                            df_p = df_src[df_src['Promotion'] == p_name].copy()
+                            if d_exam: df_p = df_p[df_p['Date'].isin(d_exam)]
                             
-                            for p in tri_prio:
-                                if len(pair) < 2:
-                                    # Vérifier si quota atteint
-                                    limite_actuelle = quota_limite if p in exc_p else m_base
-                                    if stats[p] >= limite_actuelle:
-                                        continue
-                                        
-                                    # Vérifier conflit (Date + Heure)
-                                    deja_pris = any(t for t in tracker if t['D']==row['Date'] and t['H']==row['Heure'] and t['N']==p)
-                                    
-                                    if not deja_pris:
-                                        pair.append(p)
-                                        stats[p] += 1
-                                        tracker.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
-                                        
-                            res_list.append({
-                                "Promotion": p_name,
-                                "Date": row['Date'],
-                                "Heure": row['Heure'],
-                                "Matière": row['Matière'],
-                                "Salle": row['Salle'],
-                                "Binôme": " & ".join(pair) if len(pair)==2 else "⚠️ MANQUE"
-                            })
-                            
-                    st.session_state.stats_charge = stats
-                    st.session_state.df_genere = pd.DataFrame(res_list)
-                    st.success("Planning généré !")
-                    st.rerun()
+                            for _, row in df_p.iterrows():
+                                pair = []
+                                tri_prio = sorted(liste_p_gen, key=lambda x: stats[x])
+                                
+                                for p in tri_prio:
+                                    if len(pair) < 2:
+                                        if p in exc_p and stats[p] >= quota_limite: continue
+                                        conflit = any(t for t in tracker if t['D']==row['Date'] and t['H']==row['Heure'] and t['N']==p)
+                                        if not conflit:
+                                            pair.append(p)
+                                            stats[p] += 1
+                                            tracker.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+                                            
+                                res_list.append({
+                                    "Promotion": p_name,
+                                    "Date": row['Date'],
+                                    "Heure": row['Heure'],
+                                    "Matière": row['Matière'],
+                                    "Salle": row['Salle'],
+                                    "Binôme": " & ".join(pair) if len(pair)==2 else "⚠️ MANQUE"
+                                })
+                                
+                        st.session_state.stats_charge = stats
+                        st.session_state.df_genere = pd.DataFrame(res_list)
+                        st.rerun()
 
-            # 4. Affichage des résultats et Stats
-            if st.session_state.df_genere is not None:
-                st.divider()
-                st.subheader("📊 Analyse de la charge")
-                
-                p_verif = st.selectbox("Vérifier un enseignant :", sorted(st.session_state.stats_charge.keys()))
-                val_q = st.session_state.stats_charge[p_verif]
-                
-                v1, v2, v3 = st.columns(3)
-                v1.metric(f"Total {p_verif}", f"{val_q} séances")
-                v2.metric("Statut Quota", "Réduit" if p_verif in exc_p else "Standard")
-                with v3:
-                    lim = quota_limite if p_verif in exc_p else m_base
-                    prog = (val_q / lim) if lim > 0 else 0
-                    st.progress(min(prog, 1.0), text=f"{int(prog*100)}%")
+                if st.session_state.df_genere is not None:
+                    st.divider()
+                    p_verif = st.selectbox("📊 Voir occupation :", sorted(st.session_state.stats_charge.keys()))
+                    val_q = st.session_state.stats_charge[p_verif]
+                    
+                    v1, v2, v3 = st.columns(3)
+                    with v1: st.metric(f"Total {p_verif}", f"{val_q} séances")
+                    with v2: st.metric("Type de quota", "Limité" if p_verif in exc_p else "Standard")
+                    with v3: 
+                        occup = (val_q / quota_limite * 100) if p_verif in exc_p else (val_q / m_base * 100)
+                        st.progress(min(int(occup), 100))
 
-                st.write("### 📋 Aperçu du planning")
-                st.dataframe(st.session_state.df_genere, use_container_width=True, hide_index=True)
-                
-                # Exportation
-                buf_gen = io.BytesIO()
-                st.session_state.df_genere.to_excel(buf_gen, index=False)
-                st.download_button("📥 EXPORTER LE PLANNING GÉNÉRÉ (.XLSX)", buf_gen.getvalue(), "EDT_Examens_S2_2026.xlsx")
+                    for p_title in p_cible:
+                        st.write(f"### 📋 Planning : {p_title}")
+                        disp = st.session_state.df_genere[st.session_state.df_genere['Promotion'] == p_title]
+                        st.table(disp.drop(columns=['Promotion']))
+                    
+                    xlsx_buf = io.BytesIO()
+                    with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
+                        st.session_state.df_genere.to_excel(writer, index=False)
+                    st.download_button("📥 EXPORTER TOUT LE PLANNING (.XLSX)", xlsx_buf.getvalue(), "EDT_Examens_Complet.xlsx")
 
     elif portail == "👥 Portail Enseignants":
         # --- 🛡️ VERROU DE SÉCURITÉ ADMIN ---
@@ -609,42 +568,26 @@ if df is not None:
         en_attente = sum(1 for d in donnees_finales if d["État d'envoi"] == "⏳ En attente")
         c2.metric("EDTs à envoyer (En attente)", en_attente)
 
-        # --- AFFICHAGE DU TABLEAU ---
         st.dataframe(df_portail, use_container_width=True, hide_index=True)
 
-        # --- PRÉPARATION DU FICHIER EXCEL (POUR LE BOUTON TÉLÉCHARGER) ---
-        import io
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_portail.to_excel(writer, index=False, sheet_name='Suivi_Envois_S2_2026')
-        buffer.seek(0)
-
-        # --- 3. ACTIONS : TÉLÉCHARGEMENT, RÉINITIALISATION & ENVOI ---
-        st.write("---") # Ligne de séparation
-        col_dl, col_reset, col_mail = st.columns(3)
-
-        with col_dl:
-            st.download_button(
-                label="📥 Télécharger Suivi (Excel)",
-                data=buffer,
-                file_name=f"Suivi_Envois_EDT_SBA_2026.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+        # 3. ACTIONS : RÉINITIALISATION & ENVOI
+        col_reset, col_mail = st.columns(2)
 
         with col_reset:
             if st.button("🔄 Réinitialiser tous les témoins", use_container_width=True):
+                # Remet à zéro la colonne last_sent pour recommencer un envoi général
                 supabase.table("enseignants_auth").update({"last_sent": None}).neq("email", "").execute()
-                st.success("Statuts remis à zéro.")
+                st.success("Prêt pour un nouvel envoi général ! Le statut est repassé en 'En attente'.")
                 st.rerun()
 
         with col_mail:
-            if st.button("🚀 Lancer l'envoi (EDTs en attente)", use_container_width=True, type="primary"):
+            if st.button("🚀 Lancer l'envoi (Uniquement 'En attente')", use_container_width=True):
                 import smtplib
                 from email.mime.text import MIMEText
                 from email.mime.multipart import MIMEMultipart
 
                 try:
+                    # Connexion SMTP
                     server = smtplib.SMTP('smtp.gmail.com', 587)
                     server.starttls()
                     server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
@@ -654,14 +597,17 @@ if df is not None:
                     success_count = 0
 
                     for i, row in enumerate(donnees_finales):
+                        # FILTRE : On n'envoie que si le statut est "En attente"
                         if row["État d'envoi"] == "⏳ En attente" and "@" in row["Email"]:
                             nom_prof = row['Enseignant']
                             status_msg.text(f"Envoi en cours vers : {nom_prof}...")
 
-                            # DISPOSITION DEMANDÉE : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+                            # Préparation de l'EDT avec la DISPOSITION DEMANDÉE
                             df_perso = df[df["Enseignants"].str.contains(nom_prof, case=False, na=False)]
+                            # Ordre : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
                             df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
 
+                            # Construction de l'Email
                             msg = MIMEMultipart()
                             msg['From'] = f"Département Électrotechnique <{st.secrets['EMAIL_USER']}>"
                             msg['To'] = row["Email"]
@@ -670,26 +616,26 @@ if df is not None:
                             corps_html = f"""
                             <html>
                             <body style="font-family: Arial, sans-serif;">
-                                <h3 style="color: #2E86C1;">Plateforme de gestion des EDTs-S2-2026</h3>
-                                <h4>Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h4>
+                                <h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
                                 <p>Bonjour M. <b>{nom_prof}</b>,</p>
-                                <p>Veuillez trouver ci-dessous votre emploi du temps pour le S2-2026 :</p>
+                                <p>Voici votre emploi du temps personnalisé pour le second semestre 2026 :</p>
                                 {df_mail.to_html(index=False, border=1, justify='center')}
-                                <p><br>Cordialement,<br>L'Administration du Département</p>
+                                <p><br>Cordialement,<br>L'Administration</p>
                             </body>
                             </html>
                             """
                             msg.attach(MIMEText(corps_html, 'html'))
                             server.send_message(msg)
                             
-                            # Mise à jour Supabase
+                            # MISE À JOUR SUPABASE : Marquer comme envoyé
                             supabase.table("enseignants_auth").update({"last_sent": "now()"}).eq("email", row["Email"]).execute()
                             success_count += 1
 
+                        # Barre de progression
                         progress_bar.progress((i + 1) / len(donnees_finales))
 
                     server.quit()
-                    st.success(f"✅ Terminé ! {success_count} nouveaux emails envoyés.")
+                    st.success(f"✅ Mission accomplie ! {success_count} emails envoyés.")
                     st.balloons()
                     st.rerun()
 
@@ -704,10 +650,6 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
-
-
-
-
 
 
 
