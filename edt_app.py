@@ -388,18 +388,27 @@ if df is not None:
                 df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
                 
             c_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_surv.columns else 'Enseignants'
-            all_profs = []
-            for entry in df_surv[c_prof].unique():
-                for p in entry.split('&'):
-                    clean_p = p.strip()
-                    if clean_p and clean_p not in ["nan", "Non défini"]:
-                        all_profs.append(clean_p)
             
-            liste_profs = sorted(list(set(all_profs)))
+            # --- 🛡️ VERROUILLAGE DE SÉCURITÉ ---
             u_nom = user['nom_officiel']
-            idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
             
-            prof_sel = st.selectbox("🔍 Sélectionner un surveillant :", liste_profs, index=idx_p)
+            if is_admin:
+                # L'Admin voit tout et peut choisir
+                all_profs = []
+                for entry in df_surv[c_prof].unique():
+                    for p in entry.split('&'):
+                        clean_p = p.strip()
+                        if clean_p and clean_p not in ["nan", "Non défini"]:
+                            all_profs.append(clean_p)
+                liste_profs = sorted(list(set(all_profs)))
+                idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
+                prof_sel = st.selectbox("🔍 Sélectionner un surveillant :", liste_profs, index=idx_p)
+            else:
+                # L'Enseignant ne voit QUE son nom (Pas de menu déroulant)
+                prof_sel = u_nom
+                st.info(f"📍 Mes surveillances personnelles : **{u_nom}**")
+
+            # Filtrage strict
             df_u_surv = df_surv[df_surv[c_prof].str.contains(prof_sel, case=False, na=False)].sort_values(by='Date_Tri')
             
             st.markdown(f"### 📊 État des lieux : {prof_sel}")
@@ -411,8 +420,13 @@ if df is not None:
             c3.metric("Après-midi", len(df_u_surv) - nb_mat)
             
             st.divider()
-            t1, t2 = st.tabs(["📋 Mes surveillances", "🌐 Planning Global"])
             
+            # --- GESTION DES ONGLETS (Invisible pour les profs) ---
+            if is_admin:
+                t1, t2 = st.tabs(["📋 Surveillances", "🌐 Planning Global (Admin)"])
+            else:
+                t1 = st.container() # Simple conteneur pour les profs
+
             with t1:
                 if not df_u_surv.empty:
                     for _, r in df_u_surv.iterrows():
@@ -425,107 +439,25 @@ if df is not None:
                     
                     buf = io.BytesIO()
                     df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
-                    st.download_button("📥 Télécharger mes surveillances", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
+                    st.download_button(f"📥 Télécharger l'EDT de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
                 else:
-                    st.info("Aucune séance de surveillance n'est enregistrée pour vous.")
-            
-            with t2:
-                st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
+                    st.warning("Aucune séance de surveillance enregistrée pour vous.")
+
+            if is_admin:
+                with t2:
+                    st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
         else:
             st.error("Fichier source 'surveillances_2026.xlsx' manquant.")
 
     elif portail == "🤖 Générateur Automatique":
+        # --- 🛡️ VERROUILLAGE ADMIN TOTAL ---
         if not is_admin:
-            st.error("Accès réservé au Bureau des Examens.")
-        else:
-            st.header("⚙️ Moteur de Génération de Surveillances")
-            if "df_genere" not in st.session_state: st.session_state.df_genere = None
-            if "stats_charge" not in st.session_state: st.session_state.stats_charge = {}
-            
-            SRC = "surveillances_2026.xlsx"
-            if not os.path.exists(SRC):
-                st.error("Impossible de générer : Fichier source introuvable.")
-            else:
-                df_src = pd.read_excel(SRC)
-                df_src.columns = [str(c).strip() for c in df_src.columns]
-                for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
-                
-                c_prof_g = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
-                liste_p_gen = sorted([p for p in df_src[c_prof_g].unique() if p not in ["", "Non défini", "nan"]])
-                promos = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
-
-                with st.expander("⚖️ Paramètres de Distribution & Plafonnement", expanded=True):
-                    cl1, cl2 = st.columns(2)
-                    with cl1: exc_p = st.multiselect("👤 Enseignants à nombre de surveillances réduit :", liste_p_gen)
-                    with cl2: m_base = st.number_input("Nombre de surveillances Max de base (100%)", min_value=1, value=10)
-                    
-                    pct = st.slider("Réduction pour les enseignants sélectionnés (%)", 10, 100, 50)
-                    quota_limite = int(m_base * (pct / 100))
-                    st.warning(f"🎯 Limite appliquée aux enseignants sélectionnés : **{quota_limite} séances**.")
-
-                cp1, cp2 = st.columns(2)
-                with cp1: p_cible = st.multiselect("🎓 Promotions concernées :", promos)
-                with cp2: d_exam = st.multiselect("📅 Filtrer par Dates :", sorted(df_src['Date'].unique()))
-
-                if st.button("🚀 LANCER LA GÉNÉRATION DES SURVEILLANTS BINÔMES"):
-                    if not p_cible:
-                        st.warning("Veuillez sélectionner au moins une promotion.")
-                    else:
-                        stats = {p: 0 for p in liste_p_gen}
-                        tracker = []
-                        res_list = []
-                        
-                        for p_name in p_cible:
-                            df_p = df_src[df_src['Promotion'] == p_name].copy()
-                            if d_exam: df_p = df_p[df_p['Date'].isin(d_exam)]
-                            
-                            for _, row in df_p.iterrows():
-                                pair = []
-                                tri_prio = sorted(liste_p_gen, key=lambda x: stats[x])
-                                
-                                for p in tri_prio:
-                                    if len(pair) < 2:
-                                        if p in exc_p and stats[p] >= quota_limite: continue
-                                        conflit = any(t for t in tracker if t['D']==row['Date'] and t['H']==row['Heure'] and t['N']==p)
-                                        if not conflit:
-                                            pair.append(p)
-                                            stats[p] += 1
-                                            tracker.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
-                                            
-                                res_list.append({
-                                    "Promotion": p_name,
-                                    "Date": row['Date'],
-                                    "Heure": row['Heure'],
-                                    "Matière": row['Matière'],
-                                    "Salle": row['Salle'],
-                                    "Binôme": " & ".join(pair) if len(pair)==2 else "⚠️ MANQUE"
-                                })
-                                
-                        st.session_state.stats_charge = stats
-                        st.session_state.df_genere = pd.DataFrame(res_list)
-                        st.rerun()
-
-                if st.session_state.df_genere is not None:
-                    st.divider()
-                    p_verif = st.selectbox("📊 Voir occupation :", sorted(st.session_state.stats_charge.keys()))
-                    val_q = st.session_state.stats_charge[p_verif]
-                    
-                    v1, v2, v3 = st.columns(3)
-                    with v1: st.metric(f"Total {p_verif}", f"{val_q} séances")
-                    with v2: st.metric("Type de quota", "Limité" if p_verif in exc_p else "Standard")
-                    with v3: 
-                        occup = (val_q / quota_limite * 100) if p_verif in exc_p else (val_q / m_base * 100)
-                        st.progress(min(int(occup), 100))
-
-                    for p_title in p_cible:
-                        st.write(f"### 📋 Planning : {p_title}")
-                        disp = st.session_state.df_genere[st.session_state.df_genere['Promotion'] == p_title]
-                        st.table(disp.drop(columns=['Promotion']))
-                    
-                    xlsx_buf = io.BytesIO()
-                    with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
-                        st.session_state.df_genere.to_excel(writer, index=False)
-                    st.download_button("📥 EXPORTER TOUT LE PLANNING (.XLSX)", xlsx_buf.getvalue(), "EDT_Examens_Complet.xlsx")
+            st.error("🚫 Accès réservé au Bureau des Examens.")
+            st.stop()
+        
+        st.header("⚙️ Moteur de Génération de Surveillances")
+        # ... (Conservez ici tout le reste de votre code de génération tel que vous l'avez fourni) ...
+        # (Le code de génération que vous avez posté est très bien structuré, gardez-le intégralement ici)
 
     elif portail == "👥 Portail Enseignants":
         # --- 🛡️ VERROU DE SÉCURITÉ ADMIN ---
@@ -663,6 +595,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
