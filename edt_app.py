@@ -163,8 +163,8 @@ if not st.session_state["user_data"]:
     t_conn, t_ins, t_adm = st.tabs(["🔑 Connexion", "📝 Inscription", "🛡️ Admin"])
     
     with t_conn:
-        email_input = st.text_input("Adresse Email")
-        pass_input = st.text_input("Mot de passe", type="password")
+        email_input = st.text_input("Adresse Email", key="login_email")
+        pass_input = st.text_input("Mot de passe", type="password", key="login_pass")
         if st.button("Se connecter au portail"):
             result = supabase.table("enseignants_auth").select("*").eq("email", email_input).eq("password_hash", hash_pw(pass_input)).execute()
             if result.data:
@@ -173,12 +173,45 @@ if not st.session_state["user_data"]:
             else:
                 st.error("Email ou mot de passe incorrect.")
                 
+    with t_ins:
+        st.subheader("Créer un nouveau compte Enseignant")
+        # On récupère la liste des noms depuis l'Excel pour éviter les erreurs de saisie
+        noms_possibles = sorted(df["Enseignants"].unique()) if df is not None else []
+        
+        new_nom = st.selectbox("Sélectionnez votre nom (tel qu'il apparaît dans l'EDT)", noms_possibles)
+        new_email = st.text_input("Votre adresse Email")
+        new_pass = st.text_input("Choisissez un mot de passe", type="password")
+        confirm_pass = st.text_input("Confirmez le mot de passe", type="password")
+        
+        if st.button("Créer mon compte"):
+            if not new_email or not new_pass:
+                st.warning("Veuillez remplir tous les champs.")
+            elif new_pass != confirm_pass:
+                st.error("Les mots de passe ne correspondent pas.")
+            else:
+                # Vérifier si l'email existe déjà
+                check = supabase.table("enseignants_auth").select("email").eq("email", new_email).execute()
+                if check.data:
+                    st.error("Cet email est déjà utilisé.")
+                else:
+                    data_ins = {
+                        "nom_officiel": new_nom,
+                        "email": new_email,
+                        "password_hash": hash_pw(new_pass),
+                        "role": "enseignant"
+                    }
+                    supabase.table("enseignants_auth").insert(data_ins).execute()
+                    st.success("✅ Compte créé avec succès ! Vous pouvez maintenant vous connecter.")
+                    st.balloons()
+
     with t_adm:
-        code_admin = st.text_input("Code de sécurité Administration", type="password")
-        if code_admin == "doctorat2026":
-            if st.button("Accès Administration"):
+        code_admin = st.text_input("Code de sécurité Administration", type="password", key="admin_code")
+        if st.button("Accès Administration"):
+            if code_admin == "doctorat2026":
                 st.session_state["user_data"] = {"nom_officiel": "ADMINISTRATEUR", "role": "admin"}
                 st.rerun()
+            else:
+                st.error("Code admin incorrect.")
     st.stop()
 
 # --- VARIABLES GLOBALES ---
@@ -611,6 +644,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
