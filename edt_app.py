@@ -429,7 +429,7 @@ if df is not None:
                         st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "EDT_Surv_S2.xlsx", use_container_width=True)
 # ================= PORTAIL 4 : ENSEIGNANTS (LISTE GLOBALE) =================
-   elif portail == "👥 Enseignants Permanents":
+        elif portail == "👥 Enseignants Permanents":
         st.header("🏢 Corps Enseignant Permanent (Inscrits)")
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
         res = supabase.table("enseignants_auth").select("nom_officiel, grade_prof, email").eq("statut_prof", "Permanent").execute()
@@ -441,7 +441,7 @@ if df is not None:
             st.info("Aucun enseignant permanent ne s'est encore inscrit.")
 
     # ================= PORTAIL 5 : MODULES ET AFFECTATIONS =================
-    elif portail == "📝 Enseignants Vacataires":
+        elif portail == "📝 Enseignants Vacataires":
         st.header("📋 Liste des Enseignants Vacataires (Inscrits)")
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
         
@@ -452,6 +452,7 @@ if df is not None:
             st.table(df_res)
         else:
             st.info("Aucun vacataire inscrit pour le moment.")
+
 
 
 
