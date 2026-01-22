@@ -362,7 +362,6 @@ elif portail == "👨‍🏫 Données Enseignants":
 
         if df is not None:
             # 1. Extraction propre depuis la colonne 'Enseignants' du fichier dataEDT
-            # On gère les cas où plusieurs profs sont dans la même cellule (séparés par &)
             raw_profs = []
             for entry in df["Enseignants"].dropna().unique():
                 for p in str(entry).split('&'):
@@ -370,10 +369,9 @@ elif portail == "👨‍🏫 Données Enseignants":
                     if name and name.lower() not in ["non défini", "nan", "vide"]:
                         raw_profs.append(name)
             
-            # Liste unique et triée
             liste_officielle = sorted(list(set(raw_profs)))
 
-            # 2. Récupération des emails depuis Supabase pour ceux qui sont inscrits
+            # 2. Récupération des emails depuis Supabase
             try:
                 res_auth = supabase.table("enseignants_auth").select("nom_officiel, email").execute()
                 dict_auth = {str(row['nom_officiel']).strip().upper(): row['email'] for row in res_auth.data} if res_auth.data else {}
@@ -386,7 +384,7 @@ elif portail == "👨‍🏫 Données Enseignants":
             for prof in liste_officielle:
                 nom_maj = prof.upper()
                 email = dict_auth.get(nom_maj, "⚠️ Non collecté (Compte non créé)")
-                statut = "✅ Inconscrit" if nom_maj in dict_auth else "❌ En attente"
+                statut = "✅ Inscrit" if nom_maj in dict_auth else "❌ En attente"
                 if nom_maj in dict_auth: inscrits += 1
                 
                 tableau_profs.append({
@@ -397,19 +395,14 @@ elif portail == "👨‍🏫 Données Enseignants":
 
             df_profs = pd.DataFrame(tableau_profs)
 
-            # Affichage des métriques
             c1, c2 = st.columns(2)
             c1.metric("Enseignants dans l'EDT", len(liste_officielle))
             c2.metric("Emails collectés", inscrits)
 
             st.subheader("📋 Annuaire des Enseignants du Semestre")
             st.dataframe(df_profs, use_container_width=True, hide_index=True)
-
-            # Bouton Export
-            csv = df_profs.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 Télécharger l'Annuaire (CSV)", csv, "Annuaire_Enseignants_S2.csv", "text/csv")
         else:
-            st.error("Fichier 'dataEDT-ELT-S2-2026.xlsx' introuvable à la racine.")
+            st.error("Fichier 'dataEDT-ELT-S2-2026.xlsx' introuvable.")
 
 # --- PORTAIL 5 : DONNÉES ÉTUDIANTS (ADMIN) ---
 elif portail == "🎓 Données Étudiants":
@@ -428,4 +421,6 @@ elif portail == "🎓 Données Étudiants":
                 sel_p = st.selectbox("Sélectionner la Promotion :", p_list)
                 df_f = df_s[df_s['Promotion'] == sel_p]
                 st.success(f"Liste {sel_p} : {len(df_f)} étudiants trouvés.")
-                st.dataframe(df_f, use_container_width=True, hide_index=
+                st.dataframe(df_f, use_container_width=True, hide_index=True)
+            else:
+                st.error("La colonne 'Promotion' est manquante dans votre fichier Excel.")
