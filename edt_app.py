@@ -429,37 +429,29 @@ if df is not None:
                         st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "EDT_Surv_S2.xlsx", use_container_width=True)
 # ================= PORTAIL 4 : ENSEIGNANTS (LISTE GLOBALE) =================
-    elif portail == "👥 Enseignants Permanents":
-        st.header("🏢 Liste des Enseignants du Département")
+   elif portail == "👥 Enseignants Permanents":
+        st.header("🏢 Corps Enseignant Permanent (Inscrits)")
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
         
-        if df is not None:
-            # Extraction des noms uniques depuis la colonne 'Enseignants' du fichier Excel
-            liste_profs = sorted(df["Enseignants"].unique())
-            
-            # Création d'un petit tableau récapitulatif
-            df_profs = pd.DataFrame({
-                "N°": range(1, len(liste_profs) + 1),
-                "Nom de l'Enseignant": liste_profs
-            })
-            
-            st.dataframe(df_profs, use_container_width=True, hide_index=True)
-            st.success(f"✅ {len(liste_profs)} enseignants répertoriés dans l'emploi du temps actuel.")
+        res = supabase.table("enseignants_auth").select("nom_officiel, grade_prof, email").eq("statut_prof", "Permanent").execute()
+        if res.data:
+            df_res = pd.DataFrame(res.data)
+            df_res.columns = ["Enseignants", "Grade", "Contact"]
+            st.dataframe(df_res, use_container_width=True, hide_index=True)
         else:
-            st.error("Fichier Excel source introuvable.")
+            st.info("Aucun enseignant permanent ne s'est encore inscrit.")
 
     # ================= PORTAIL 5 : MODULES ET AFFECTATIONS =================
     elif portail == "📝 Enseignants Vacataires":
-        st.header("📋 Récapitulatif des Modules par Enseignant")
+        st.header("📋 Liste des Enseignants Vacataires (Inscrits)")
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
         
-        if df is not None:
-            # On regroupe les enseignements par prof pour voir qui fait quoi
-            # Disposition respectée : Enseignements, Code, Enseignants, Promotion
-            df_view = df[['Enseignants', 'Enseignements', 'Code', 'Promotion']].drop_duplicates()
-            df_view.columns = ["Enseignants", "Module", "Code", "Promotion"]
-            
-            st.dataframe(df_view.sort_values(by="Enseignants"), use_container_width=True, hide_index=True)
+        res = supabase.table("enseignants_auth").select("nom_officiel, grade_prof, email").eq("statut_prof", "Vacataire").execute()
+        if res.data:
+            df_res = pd.DataFrame(res.data)
+            df_res.columns = ["Enseignants", "Grade/Titre", "Contact"]
+            st.table(df_res)
         else:
-            st.error("Impossible de charger les données.")
+            st.info("Aucun vacataire inscrit pour le moment.")
+
 
