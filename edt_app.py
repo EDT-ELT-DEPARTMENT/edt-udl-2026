@@ -95,7 +95,14 @@ map_j = {normalize(j): j for j in jours_list}
 
 with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
-    portail = st.selectbox("🚀 Espace", ["📖 Emploi du Temps", "📅 Surveillances Examens", "🤖 Générateur Automatique"])
+    # Ajout des deux nouveaux espaces dans le selectbox
+    portail = st.selectbox("🚀 Espace", [
+        "📖 Emploi du Temps", 
+        "👨‍🏫 Données Enseignants", 
+        "🎓 Données Étudiants", 
+        "📅 Surveillances Examens", 
+        "🤖 Générateur Automatique"
+    ])
     st.divider()
     mode_view = "Personnel"
     poste_sup = False
@@ -345,6 +352,7 @@ if df is not None:
                     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                         st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "EDT_Surv_S2.xlsx", use_container_width=True)
+
 
 
 
