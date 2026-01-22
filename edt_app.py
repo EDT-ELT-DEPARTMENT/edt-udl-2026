@@ -495,24 +495,48 @@ if df is not None:
                     st.download_button("📥 EXPORTER TOUT LE PLANNING (.XLSX)", xlsx_buf.getvalue(), "EDT_Examens_Complet.xlsx")
 
     elif portail == "👥 Portail Enseignants":
-        st.header("🏢 Répertoire des Enseignants du Département")
-        
-        # Extraction de la liste unique des noms depuis la colonne 'Enseignants' du fichier source
-        # On filtre pour éviter les valeurs vides ou "Non défini"
-        liste_ens = sorted([
+        st.header("🏢 Répertoire et Contacts des Enseignants")
+
+        # 1. Récupération des inscrits depuis Supabase
+        res_auth = supabase.table("enseignants_auth").select("nom_officiel, email").execute()
+        dict_emails = {row['nom_officiel']: row['email'] for row in res_auth.data} if res_auth.data else {}
+
+        # 2. Extraction des noms depuis le fichier Excel
+        noms_excel = sorted([
             e for e in df['Enseignants'].unique() 
             if e not in ["Non défini", "nan", ""]
         ])
-        
-        st.write(f"Nombre d'enseignants répertoriés : **{len(liste_ens)}**")
-        
-        # Affichage sous forme de tableau simple avec une colonne propre
-        df_noms = pd.DataFrame(liste_ens, columns=["Noms et Prénoms des Enseignants"])
-        
+
+        # 3. Construction de la liste finale avec Email ou Statut
+        donnees_finales = []
+        for nom in noms_excel:
+            email = dict_emails.get(nom, "⚠️ Non inscrit sur la plateforme")
+            donnees_finales.append({
+                "Noms et Prénoms": nom,
+                "Adresse Email": email
+            })
+
+        df_portail = pd.DataFrame(donnees_finales)
+
+        # Affichage des statistiques
+        c1, c2 = st.columns(2)
+        c1.metric("Total Enseignants (Excel)", len(noms_excel))
+        c2.metric("Inscrits sur Portail", len(dict_emails))
+
+        # Affichage du tableau
         st.dataframe(
-            df_noms, 
-            use_container_width=True, 
+            df_portail,
+            use_container_width=True,
             hide_index=True
+        )
+        
+        # Option de téléchargement de l'annuaire
+        csv = df_portail.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "📥 Télécharger la liste des contacts",
+            csv,
+            "annuaire_enseignants.csv",
+            "text/csv"
         )
 
     elif portail == "🎓 Portail Étudiants":
@@ -523,4 +547,5 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
