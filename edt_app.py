@@ -467,7 +467,7 @@ if df is not None:
                 with cp1: p_cible = st.multiselect("🎓 Promotions concernées :", promos)
                 with cp2: d_exam = st.multiselect("📅 Filtrer par Dates :", sorted(df_src['Date'].unique()))
 
-                if st.button("🚀 LANCER LA GÉNÉRATION DES BINÔMES"):
+                if st.button("🚀 LANCER LA GÉNÉRATION DES surveillants BINÔMES"):
                     if not p_cible:
                         st.warning("Veuillez sélectionner au moins une promotion.")
                     else:
@@ -650,6 +650,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
