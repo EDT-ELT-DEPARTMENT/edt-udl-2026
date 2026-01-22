@@ -530,13 +530,17 @@ if df is not None:
             hide_index=True
         )
         
-        # Option de téléchargement de l'annuaire
-        csv = df_portail.to_csv(index=False).encode('utf-8')
+        # --- BLOC DE TÉLÉCHARGEMENT EXCEL ---
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df_portail.to_excel(writer, index=False, sheet_name='Annuaire')
+        
         st.download_button(
-            "📥 Télécharger la liste des contacts",
-            csv,
-            "annuaire_enseignants.csv",
-            "text/csv"
+            label="📥 Télécharger l'annuaire en Excel",
+            data=buffer.getvalue(),
+            file_name="annuaire_enseignants_2026.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
         )
 
     elif portail == "🎓 Portail Étudiants":
@@ -547,5 +551,6 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
