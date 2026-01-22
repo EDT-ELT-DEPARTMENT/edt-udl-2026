@@ -449,15 +449,120 @@ if df is not None:
         else:
             st.error("Fichier source 'surveillances_2026.xlsx' manquant.")
 
-    elif portail == "🤖 Générateur Automatique":
+   elif portail == "🤖 Générateur Automatique":
         # --- 🛡️ VERROUILLAGE ADMIN TOTAL ---
         if not is_admin:
             st.error("🚫 Accès réservé au Bureau des Examens.")
             st.stop()
         
         st.header("⚙️ Moteur de Génération de Surveillances")
-        # ... (Conservez ici tout le reste de votre code de génération tel que vous l'avez fourni) ...
-        # (Le code de génération que vous avez posté est très bien structuré, gardez-le intégralement ici)
+        
+        # Initialisation sécurisée des variables d'état
+        if "df_genere" not in st.session_state: st.session_state.df_genere = None
+        if "stats_charge" not in st.session_state: st.session_state.stats_charge = {}
+        
+        SRC = "surveillances_2026.xlsx"
+        if not os.path.exists(SRC):
+            st.error("Impossible de générer : Fichier source 'surveillances_2026.xlsx' introuvable.")
+        else:
+            df_src = pd.read_excel(SRC)
+            df_src.columns = [str(c).strip() for c in df_src.columns]
+            for c in df_src.columns: 
+                df_src[c] = df_src[c].fillna("").astype(str).str.strip()
+            
+            c_prof_g = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
+            liste_p_gen = sorted([p for p in df_src[c_prof_g].unique() if p not in ["", "Non défini", "nan"]])
+            promos = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
+
+            with st.expander("⚖️ Paramètres de Distribution & Plafonnement", expanded=True):
+                cl1, cl2 = st.columns(2)
+                with cl1: 
+                    exc_p = st.multiselect("👤 Personnels à quota réduit :", liste_p_gen)
+                with cl2: 
+                    m_base = st.number_input("Quota Max de base (100%)", min_value=1, value=10)
+                
+                pct = st.slider("Réduction pour les personnels sélectionnés (%)", 10, 100, 50)
+                quota_limite = int(m_base * (pct / 100))
+                st.warning(f"🎯 Limite appliquée aux personnels sélectionnés : **{quota_limite} séances**.")
+
+            cp1, cp2 = st.columns(2)
+            with cp1: 
+                p_cible = st.multiselect("🎓 Promotions concernées :", promos)
+            with cp2: 
+                d_exam = st.multiselect("📅 Filtrer par Dates :", sorted(df_src['Date'].unique()))
+
+            if st.button("🚀 LANCER LA GÉNÉRATION DES BINÔMES", type="primary"):
+                if not p_cible:
+                    st.warning("Veuillez sélectionner au moins une promotion.")
+                else:
+                    stats = {p: 0 for p in liste_p_gen}
+                    tracker = []
+                    res_list = []
+                    
+                    for p_name in p_cible:
+                        df_p = df_src[df_src['Promotion'] == p_name].copy()
+                        if d_exam: 
+                            df_p = df_p[df_p['Date'].isin(d_exam)]
+                        
+                        for _, row in df_p.iterrows():
+                            pair = []
+                            # On trie les profs par charge actuelle (équilibrage)
+                            tri_prio = sorted(liste_p_gen, key=lambda x: stats[x])
+                            
+                            for p in tri_prio:
+                                if len(pair) < 2:
+                                    # Vérification quota réduit
+                                    if p in exc_p and stats[p] >= quota_limite: 
+                                        continue
+                                    # Vérification quota standard
+                                    if stats[p] >= m_base and p not in exc_p:
+                                        continue
+                                        
+                                    # Vérification conflit horaire
+                                    conflit = any(t for t in tracker if t['D']==row['Date'] and t['H']==row['Heure'] and t['N']==p)
+                                    if not conflit:
+                                        pair.append(p)
+                                        stats[p] += 1
+                                        tracker.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+                                        
+                            res_list.append({
+                                "Promotion": p_name,
+                                "Date": row['Date'],
+                                "Heure": row['Heure'],
+                                "Matière": row['Matière'],
+                                "Salle": row['Salle'],
+                                "Binôme": " & ".join(pair) if len(pair)==2 else "⚠️ MANQUE"
+                            })
+                            
+                    st.session_state.stats_charge = stats
+                    st.session_state.df_genere = pd.DataFrame(res_list)
+                    st.success("Génération terminée avec succès !")
+                    st.rerun()
+
+            # --- AFFICHAGE DES RÉSULTATS ---
+            if st.session_state.df_genere is not None:
+                st.divider()
+                p_verif = st.selectbox("📊 Voir occupation :", sorted(st.session_state.stats_charge.keys()))
+                val_q = st.session_state.stats_charge[p_verif]
+                
+                v1, v2, v3 = st.columns(3)
+                with v1: st.metric(f"Total {p_verif}", f"{val_q} séances")
+                with v2: st.metric("Type de quota", "Limité" if p_verif in exc_p else "Standard")
+                with v3: 
+                    limite_ref = quota_limite if p_verif in exc_p else m_base
+                    occup = (val_q / limite_ref * 100) if limite_ref > 0 else 0
+                    st.progress(min(int(occup), 100))
+
+                for p_title in p_cible:
+                    st.write(f"### 📋 Planning : {p_title}")
+                    disp = st.session_state.df_genere[st.session_state.df_genere['Promotion'] == p_title]
+                    st.table(disp.drop(columns=['Promotion']))
+                
+                # Export Excel
+                xlsx_buf = io.BytesIO()
+                with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
+                    st.session_state.df_genere.to_excel(writer, index=False)
+                st.download_button("📥 EXPORTER TOUT LE PLANNING (.XLSX)", xlsx_buf.getvalue(), "EDT_Examens_Complet.xlsx")
 
     elif portail == "👥 Portail Enseignants":
         # --- 🛡️ VERROU DE SÉCURITÉ ADMIN ---
@@ -595,6 +700,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
