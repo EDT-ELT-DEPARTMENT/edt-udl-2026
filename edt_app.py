@@ -388,36 +388,37 @@ if df is not None:
                     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                         st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "EDT_Surv_S2.xlsx", use_container_width=True)
-# ================= PORTAIL 4 : ENSEIGNANTS PERMANENTS =================
+# ================= PORTAIL 4 : ENSEIGNANTS (LISTE GLOBALE) =================
     elif portail == "👥 Enseignants Permanents":
-        st.header("🏢 Corps Enseignant Permanent")
+        st.header("🏢 Liste des Enseignants du Département")
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
         
-        try:
-            res_p = supabase.table("enseignants_auth").select("nom_officiel, email, grade_prof").eq("statut_prof", "Permanent").execute()
-            if res_p.data:
-                df_p = pd.DataFrame(res_p.data)
-                df_p.columns = ["Enseignants", "Email Professional", "Grade"]
-                st.dataframe(df_p, use_container_width=True, hide_index=True)
-            else:
-                st.warning("Aucun enseignant permanent trouvé.")
-        except Exception as e:
-            st.error(f"Erreur Supabase : {e}")
+        if df is not None:
+            # Extraction des noms uniques depuis la colonne 'Enseignants' du fichier Excel
+            liste_profs = sorted(df["Enseignants"].unique())
+            
+            # Création d'un petit tableau récapitulatif
+            df_profs = pd.DataFrame({
+                "N°": range(1, len(liste_profs) + 1),
+                "Nom de l'Enseignant": liste_profs
+            })
+            
+            st.dataframe(df_profs, use_container_width=True, hide_index=True)
+            st.success(f"✅ {len(liste_profs)} enseignants répertoriés dans l'emploi du temps actuel.")
+        else:
+            st.error("Fichier Excel source introuvable.")
 
-    # ================= PORTAIL 5 : ENSEIGNANTS VACATAIRES =================
+    # ================= PORTAIL 5 : MODULES ET AFFECTATIONS =================
     elif portail == "📝 Enseignants Vacataires":
-        st.header("📋 Liste des Enseignants Vacataires")
+        st.header("📋 Récapitulatif des Modules par Enseignant")
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
         
-        try:
-            res_v = supabase.table("enseignants_auth").select("nom_officiel, email, grade_prof").eq("statut_prof", "Vacataire").execute()
-            if res_v.data:
-                df_v = pd.DataFrame(res_v.data)
-                df_v.columns = ["Enseignants", "Email", "Grade/Titre"]
-                st.table(df_v)
-            else:
-                st.info("Aucun vacataire inscrit pour le moment.")
-        except Exception as e:
-            st.error(f"Erreur de chargement : {e}")
-
-
+        if df is not None:
+            # On regroupe les enseignements par prof pour voir qui fait quoi
+            # Disposition respectée : Enseignements, Code, Enseignants, Promotion
+            df_view = df[['Enseignants', 'Enseignements', 'Code', 'Promotion']].drop_duplicates()
+            df_view.columns = ["Enseignants", "Module", "Code", "Promotion"]
+            
+            st.dataframe(df_view.sort_values(by="Enseignants"), use_container_width=True, hide_index=True)
+        else:
+            st.error("Impossible de charger les données.")
