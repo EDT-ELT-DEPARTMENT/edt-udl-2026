@@ -528,6 +528,12 @@ if df is not None:
                     st.download_button("📥 EXPORTER TOUT LE PLANNING (.XLSX)", xlsx_buf.getvalue(), "EDT_Examens_Complet.xlsx")
 
     elif portail == "👥 Portail Enseignants":
+        # --- LE VERROU DE SÉCURITÉ ---
+        if not is_admin:
+            st.error("🚫 ACCÈS RESTREINT : Seule l'administration peut accéder à ce portail.")
+            st.stop()  # Cette commande bloque immédiatement l'affichage du reste
+        # -----------------------------
+
         st.header("🏢 Répertoire et Envoi Automatisé des EDTs")
 
         # 1. RÉCUPÉRATION DES DONNÉES (SUPABASE + EXCEL)
@@ -644,6 +650,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
