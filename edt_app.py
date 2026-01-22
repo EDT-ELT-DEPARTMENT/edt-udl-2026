@@ -499,18 +499,34 @@ if df is not None:
 
         # 1. Récupération des inscrits depuis Supabase
         res_auth = supabase.table("enseignants_auth").select("nom_officiel, email").execute()
-        dict_emails = {row['nom_officiel']: row['email'] for row in res_auth.data} if res_auth.data else {}
+        
+        # On crée un dictionnaire avec les noms "nettoyés" en clés pour la comparaison
+        # .strip().upper() permet d'ignorer les espaces inutiles et la casse
+        dict_emails = {
+            str(row['nom_officiel']).strip().upper(): row['email'] 
+            for row in res_auth.data
+        } if res_auth.data else {}
 
-        # 2. Extraction des noms depuis le fichier Excel
+        # 2. Extraction des noms depuis le fichier Excel source
         noms_excel = sorted([
             e for e in df['Enseignants'].unique() 
             if e not in ["Non défini", "nan", ""]
         ])
 
-        # 3. Construction de la liste finale avec Email ou Statut
+        # 3. Construction de la liste finale
         donnees_finales = []
+        compteur_inscrits = 0
+        
         for nom in noms_excel:
-            email = dict_emails.get(nom, "⚠️ Non inscrit sur la plateforme")
+            # On nettoie le nom de l'Excel de la même manière pour comparer
+            nom_nettoye = str(nom).strip().upper()
+            
+            if nom_nettoye in dict_emails:
+                email = dict_emails[nom_nettoye]
+                compteur_inscrits += 1
+            else:
+                email = "⚠️ Non inscrit"
+                
             donnees_finales.append({
                 "Noms et Prénoms": nom,
                 "Adresse Email": email
@@ -518,25 +534,22 @@ if df is not None:
 
         df_portail = pd.DataFrame(donnees_finales)
 
-        # Affichage des statistiques
+        # Affichage des statistiques (Utilisation du compteur réel pour cohérence)
         c1, c2 = st.columns(2)
         c1.metric("Total Enseignants (Excel)", len(noms_excel))
-        c2.metric("Inscrits sur Portail", len(dict_emails))
+        c2.metric("Inscrits Reconnus", compteur_inscrits)
 
         # Affichage du tableau
-        st.dataframe(
-            df_portail,
-            use_container_width=True,
-            hide_index=True
-        )
+        st.dataframe(df_portail, use_container_width=True, hide_index=True)
         
         # --- BLOC DE TÉLÉCHARGEMENT EXCEL ---
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             df_portail.to_excel(writer, index=False, sheet_name='Annuaire')
         
+        st.divider()
         st.download_button(
-            label="📥 Télécharger l'annuaire en Excel",
+            label="📥 Télécharger l'annuaire en Excel (.xlsx)",
             data=buffer.getvalue(),
             file_name="annuaire_enseignants_2026.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -551,6 +564,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
