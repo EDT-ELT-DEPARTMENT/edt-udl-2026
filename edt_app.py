@@ -76,15 +76,55 @@ if "user_data" not in st.session_state: st.session_state["user_data"] = None
 if not st.session_state["user_data"]:
     st.markdown("<h1 class='main-title'>🏛️ DÉPARTEMENT D'ÉLECTROTECHNIQUE - UDL SBA</h1>", unsafe_allow_html=True)
     tab_conn, tab_ins, tab_adm = st.tabs(["🔑 Connexion", "📝 Inscription", "🛡️ Admin"])
+    
     with tab_conn:
         em = st.text_input("Email")
         ps = st.text_input("Mot de passe", type="password")
         if st.button("Se connecter"):
             res = supabase.table("enseignants_auth").select("*").eq("email", em).eq("password_hash", hash_pw(ps)).execute()
-            if res.data: st.session_state["user_data"] = res.data[0]; st.rerun()
-            else: st.error("Identifiants incorrects.")
+            if res.data: 
+                st.session_state["user_data"] = res.data[0]
+                st.rerun()
+            else: 
+                st.error("Identifiants incorrects.")
+    
+    with tab_ins:
+        st.subheader("📝 Créer votre compte Enseignant")
+        new_em = st.text_input("Email (Identifiant Unique)")
+        # Sélection du nom depuis le fichier Excel (df) mémorisé
+        liste_noms_edt = sorted(df["Enseignants"].unique()) if df is not None else []
+        new_nom = st.selectbox("Sélectionnez votre nom dans l'EDT :", liste_noms_edt)
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            new_statut = st.selectbox("Votre Statut :", ["Permanent", "Vacataire"])
+        with c2:
+            new_grade = st.selectbox("Votre Grade :", ["Professeur", "MCA", "MCB", "MAA", "MAB", "Doctorant"])
+            
+        new_ps = st.text_input("Définir un mot de passe", type="password", key="reg_ps")
+        
+        if st.button("Confirmer l'inscription"):
+            if not new_em or not new_ps:
+                st.warning("Veuillez remplir tous les champs.")
+            else:
+                # Préparation des données pour Supabase
+                data_ins = {
+                    "email": new_em,
+                    "nom_officiel": new_nom,
+                    "password_hash": hash_pw(new_ps),
+                    "statut_prof": new_statut,
+                    "grade_prof": new_grade,
+                    "role": "user" # Par défaut, tout le monde est user
+                }
+                try:
+                    supabase.table("enseignants_auth").insert(data_ins).execute()
+                    st.success(f"Compte créé avec succès pour {new_nom} ! Connectez-vous maintenant.")
+                except Exception as e:
+                    st.error(f"Erreur : L'email ou le nom est déjà utilisé.")
+
     with tab_adm:
-        if st.text_input("Code Admin", type="password") == "doctorat2026":
+        code_adm = st.text_input("Code Admin", type="password")
+        if code_adm == "doctorat2026":
             if st.button("Entrer en tant qu'Admin"):
                 st.session_state["user_data"] = {"nom_officiel": "ADMIN", "role": "admin"}
                 st.rerun()
@@ -422,3 +462,4 @@ if df is not None:
             st.dataframe(df_view.sort_values(by="Enseignants"), use_container_width=True, hide_index=True)
         else:
             st.error("Impossible de charger les données.")
+
