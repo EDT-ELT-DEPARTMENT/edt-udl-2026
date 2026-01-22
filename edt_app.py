@@ -388,5 +388,36 @@ if df is not None:
                     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                         st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "EDT_Surv_S2.xlsx", use_container_width=True)
+# ================= PORTAIL 4 : ENSEIGNANTS PERMANENTS =================
+    elif portail == "👥 Enseignants Permanents":
+        st.header("🏢 Corps Enseignant Permanent")
+        st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+        
+        try:
+            res_p = supabase.table("enseignants_auth").select("nom_officiel, email, grade_prof").eq("statut_prof", "Permanent").execute()
+            if res_p.data:
+                df_p = pd.DataFrame(res_p.data)
+                df_p.columns = ["Enseignants", "Email Professional", "Grade"]
+                st.dataframe(df_p, use_container_width=True, hide_index=True)
+            else:
+                st.warning("Aucun enseignant permanent trouvé.")
+        except Exception as e:
+            st.error(f"Erreur Supabase : {e}")
+
+    # ================= PORTAIL 5 : ENSEIGNANTS VACATAIRES =================
+    elif portail == "📝 Enseignants Vacataires":
+        st.header("📋 Liste des Enseignants Vacataires")
+        st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+        
+        try:
+            res_v = supabase.table("enseignants_auth").select("nom_officiel, email, grade_prof").eq("statut_prof", "Vacataire").execute()
+            if res_v.data:
+                df_v = pd.DataFrame(res_v.data)
+                df_v.columns = ["Enseignants", "Email", "Grade/Titre"]
+                st.table(df_v)
+            else:
+                st.info("Aucun vacataire inscrit pour le moment.")
+        except Exception as e:
+            st.error(f"Erreur de chargement : {e}")
 
 
