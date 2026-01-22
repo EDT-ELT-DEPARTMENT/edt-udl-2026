@@ -495,9 +495,25 @@ if df is not None:
                     st.download_button("📥 EXPORTER TOUT LE PLANNING (.XLSX)", xlsx_buf.getvalue(), "EDT_Examens_Complet.xlsx")
 
     elif portail == "👥 Portail Enseignants":
-        st.header("🏢 Liste des Enseignants & Affectations")
-        view_df = df[['Enseignants', 'Enseignements', 'Code', 'Promotion', 'Jours', 'Horaire', 'Lieu']]
-        st.dataframe(view_df.sort_values(by="Enseignants"), use_container_width=True, hide_index=True)
+        st.header("🏢 Répertoire des Enseignants du Département")
+        
+        # Extraction de la liste unique des noms depuis la colonne 'Enseignants' du fichier source
+        # On filtre pour éviter les valeurs vides ou "Non défini"
+        liste_ens = sorted([
+            e for e in df['Enseignants'].unique() 
+            if e not in ["Non défini", "nan", ""]
+        ])
+        
+        st.write(f"Nombre d'enseignants répertoriés : **{len(liste_ens)}**")
+        
+        # Affichage sous forme de tableau simple avec une colonne propre
+        df_noms = pd.DataFrame(liste_ens, columns=["Noms et Prénoms des Enseignants"])
+        
+        st.dataframe(
+            df_noms, 
+            use_container_width=True, 
+            hide_index=True
+        )
 
     elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
@@ -507,3 +523,4 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
