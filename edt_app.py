@@ -428,31 +428,36 @@ if df is not None:
                     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                         st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "EDT_Surv_S2.xlsx", use_container_width=True)
-# ================= PORTAIL 4 : ENSEIGNANTS (LISTE GLOBALE) =================
-        elif portail == "👥 Enseignants Permanents":
+# ================= PORTAIL 4 : ENSEIGNANTS PERMANENTS =================
+    elif portail == "👥 Enseignants Permanents":
         st.header("🏢 Corps Enseignant Permanent (Inscrits)")
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-        res = supabase.table("enseignants_auth").select("nom_officiel, grade_prof, email").eq("statut_prof", "Permanent").execute()
-        if res.data:
-            df_res = pd.DataFrame(res.data)
-            df_res.columns = ["Enseignants", "Grade", "Contact"]
-            st.dataframe(df_res, use_container_width=True, hide_index=True)
-        else:
-            st.info("Aucun enseignant permanent ne s'est encore inscrit.")
+        
+        try:
+            res = supabase.table("enseignants_auth").select("nom_officiel, grade_prof, email").eq("statut_prof", "Permanent").execute()
+            if res.data:
+                df_res = pd.DataFrame(res.data)
+                # Disposition respectée : Enseignants, Grade, Contact
+                df_res.columns = ["Enseignants", "Grade", "Contact"]
+                st.dataframe(df_res, use_container_width=True, hide_index=True)
+            else:
+                st.info("Aucun enseignant permanent ne s'est encore inscrit.")
+        except Exception as e:
+            st.error(f"Erreur de connexion : {e}")
 
-    # ================= PORTAIL 5 : MODULES ET AFFECTATIONS =================
-        elif portail == "📝 Enseignants Vacataires":
+    # ================= PORTAIL 5 : ENSEIGNANTS VACATAIRES =================
+    elif portail == "📝 Enseignants Vacataires":
         st.header("📋 Liste des Enseignants Vacataires (Inscrits)")
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
         
-        res = supabase.table("enseignants_auth").select("nom_officiel, grade_prof, email").eq("statut_prof", "Vacataire").execute()
-        if res.data:
-            df_res = pd.DataFrame(res.data)
-            df_res.columns = ["Enseignants", "Grade/Titre", "Contact"]
-            st.table(df_res)
-        else:
-            st.info("Aucun vacataire inscrit pour le moment.")
-
-
-
-
+        try:
+            res = supabase.table("enseignants_auth").select("nom_officiel, grade_prof, email").eq("statut_prof", "Vacataire").execute()
+            if res.data:
+                df_res = pd.DataFrame(res.data)
+                # Disposition respectée : Enseignants, Grade, Contact
+                df_res.columns = ["Enseignants", "Grade/Titre", "Contact"]
+                st.table(df_res)
+            else:
+                st.info("Aucun vacataire inscrit pour le moment.")
+        except Exception as e:
+            st.error(f"Erreur de connexion : {e}")
