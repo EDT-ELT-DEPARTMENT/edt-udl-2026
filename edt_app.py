@@ -352,9 +352,11 @@ if df is not None:
                     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                         st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "EDT_Surv_S2.xlsx", use_container_width=True)
-# ================= PORTAIL 4 & 5 : ADMINISTRATION DES DONNÉES =================
+# ==============================================================================
+# AJOUT DES PORTAILS 4 & 5 (À COLLER À LA FIN DU CODE)
+# ==============================================================================
 
-# --- ESPACE 4 : DONNÉES ENSEIGNANTS (ADMIN) ---
+# --- PORTAIL 4 : GESTION DES ENSEIGNANTS (ADMIN) ---
 elif portail == "👨‍🏫 Données Enseignants":
     if not is_admin:
         st.error("Accès réservé à l'administration.")
@@ -363,90 +365,62 @@ elif portail == "👨‍🏫 Données Enseignants":
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
         col1, col2 = st.columns([1, 2])
-        
         with col1:
             st.subheader("➕ Nouvel Enseignant")
-            with st.form("form_prof"):
+            with st.form("form_prof_new"):
                 nom_p = st.text_input("Nom et Prénom")
                 email_p = st.text_input("Email Professionnel")
-                grade_p = st.selectbox("Grade", ["Prof", "MCA", "MCB", "MAA", "MAB", "Vacataire"])
                 if st.form_submit_button("✅ Enregistrer"):
                     if nom_p and email_p:
-                        data = {
-                            "nom_officiel": nom_p.upper(), 
-                            "email": email_p.lower(), 
-                            "role": "user", 
-                            "password_hash": hash_pw("SBA2026")
-                        }
                         try:
-                            supabase.table("enseignants_auth").insert(data).execute()
-                            st.success(f"Enregistré ! (MDP: SBA2026)")
+                            data_p = {
+                                "nom_officiel": nom_p.upper(), 
+                                "email": email_p.lower(), 
+                                "role": "user", 
+                                "password_hash": hash_pw("SBA2026")
+                            }
+                            supabase.table("enseignants_auth").insert(data_p).execute()
+                            st.success("Enseignant ajouté (MDP: SBA2026)")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erreur : {e}")
                     else:
-                        st.warning("Veuillez remplir tous les champs.")
+                        st.warning("Champs requis.")
 
         with col2:
-            st.subheader("📋 Liste des Enseignants")
-            res = supabase.table("enseignants_auth").select("nom_officiel, email").execute()
-            if res.data:
-                df_profs = pd.DataFrame(res.data)
-                df_profs.columns = ["Nom Officiel", "Email"]
-                st.dataframe(df_profs, use_container_width=True, hide_index=True)
-                
-                # Export de l'annuaire
-                csv = df_profs.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Télécharger l'annuaire (CSV)", csv, "annuaire_enseignants.csv")
+            st.subheader("📋 Liste des Comptes")
+            res_p = supabase.table("enseignants_auth").select("nom_officiel, email").execute()
+            if res_p.data:
+                df_profs_list = pd.DataFrame(res_p.data)
+                df_profs_list.columns = ["Nom Officiel", "Email"]
+                st.dataframe(df_profs_list, use_container_width=True, hide_index=True)
 
-# --- ESPACE 5 : DONNÉES ÉTUDIANTS (ADMIN) ---
+# --- PORTAIL 5 : DONNÉES ÉTUDIANTS (ADMIN) ---
 elif portail == "🎓 Données Étudiants":
     if not is_admin:
         st.error("Accès réservé à l'administration.")
     else:
         st.header("📊 Base de Données des Étudiants")
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-
-        st.markdown("""
-        > **Note :** Le fichier Excel doit contenir les colonnes : **Matricule**, **Nom**, **Prénom**, **Promotion**.
-        """)
-
-        uploaded_stu = st.file_uploader("📤 Importer la liste globale (Excel)", type=["xlsx"])
         
-        if uploaded_stu:
-            df_stu = pd.read_excel(uploaded_stu)
-            # Nettoyage des colonnes
-            df_stu.columns = [str(c).strip() for c in df_stu.columns]
+        up_file = st.file_uploader("📤 Charger la liste Excel (Matricule, Nom, Prénom, Promotion)", type=["xlsx"])
+        
+        if up_file:
+            df_s = pd.read_excel(up_file)
+            df_s.columns = [str(c).strip() for c in df_s.columns]
             
-            if 'Promotion' in df_stu.columns:
-                promos_dispo = sorted(df_stu['Promotion'].unique())
+            if 'Promotion' in df_s.columns:
+                p_list = sorted(df_s['Promotion'].unique())
+                sel_p = st.selectbox("Filtrer par Promotion :", p_list)
                 
-                c1, c2 = st.columns([1, 3])
-                with c1:
-                    p_view = st.radio("Sélectionner Promotion :", promos_dispo)
+                df_filtre = df_s[df_s['Promotion'] == sel_p].copy()
+                st.metric(f"Effectif {sel_p}", len(df_filtre))
+                st.dataframe(df_filtre, use_container_width=True, hide_index=True)
                 
-                with c2:
-                    df_filtered = df_stu[df_stu['Promotion'] == p_view].copy()
-                    st.subheader(f"📜 Liste : {p_view}")
-                    st.metric("Nombre d'étudiants", len(df_filtered))
-                    st.dataframe(df_filtered, use_container_width=True, hide_index=True)
-                    
-                    # Bouton de téléchargement pour la liste filtrée
-                    buffer_stu = io.BytesIO()
-                    with pd.ExcelWriter(buffer_stu, engine='xlsxwriter') as writer:
-                        df_filtered.to_excel(writer, index=False, sheet_name=p_view)
-                    
-                    st.download_button(
-                        label=f"📥 Télécharger la liste {p_view} (.xlsx)",
-                        data=buffer_stu.getvalue(),
-                        file_name=f"Liste_Etudiants_{p_view}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                # Export Excel
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                    df_filtre.to_excel(writer, index=False)
+                st.download_button(f"📥 Télécharger Liste {sel_p}", buf.getvalue(), f"Etudiants_{sel_p}.xlsx")
             else:
-                st.error("La colonne 'Promotion' est manquante dans votre fichier.")
-        else:
-            st.info("Veuillez charger un fichier Excel pour afficher les listes par promotion.")
-
-
-
-
+                st.error("La colonne 'Promotion' est introuvable.")
