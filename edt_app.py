@@ -1,101 +1,111 @@
-# [IMAGE de l'architecture logicielle Streamlit-Supabase-Excel]
-import streamlit as st
-import pandas as pd
-import os
-import hashlib
-import io
-from datetime import datetime
-from supabase import create_client
+ # ================= PORTAIL 3 : GÉNÉRATEUR AUTOMATIQUE (ADMIN) =================
+    elif portail == "🤖 Générateur Automatique":
+        if not is_admin:
+            st.error("Accès réservé à l'administration.")
+        else:
+            st.header("⚙️ Générateur de Surveillances par Promotion")
+            st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-# --- CONFIGURATION ---
-st.set_page_config(page_title="EDT UDL 2026", layout="wide")
+            if "df_genere" not in st.session_state: st.session_state.df_genere = None
+            if "stats_charge" not in st.session_state: st.session_state.stats_charge = {}
 
-# --- CONNEXION SUPABASE ---
-URL = st.secrets["SUPABASE_URL"]
-KEY = st.secrets["SUPABASE_KEY"]
-supabase = create_client(URL, KEY)
+            NOM_SURV_SRC = "surveillances_2026.xlsx"
 
-def hash_pw(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
+            if not os.path.exists(NOM_SURV_SRC):
+                st.error(f"❌ Fichier '{NOM_SURV_SRC}' introuvable.")
+            else:
+                df_src = pd.read_excel(NOM_SURV_SRC)
+                df_src.columns = [str(c).strip() for c in df_src.columns]
+                for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
 
-# --- DATE ET HEURE ---
-now = datetime.now()
-date_str = now.strftime("%d/%m/%Y")
-nom_jour_fr = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][now.weekday()]
+                col_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
+                liste_profs_surv = sorted([p for p in df_src[col_prof].unique() if p not in ["", "Non défini", "nan"]])
+                promo_dispo = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
 
-# --- STYLE CSS (Fidèle à 100%) ---
-st.markdown(f"""
-    <style>
-    .main-title {{ 
-        color: #1E3A8A; text-align: center; font-family: 'serif'; font-weight: bold; 
-        border-bottom: 3px solid #D4AF37; padding-bottom: 15px; font-size: 18px; margin-top: 5px;
-    }}
-    .portal-badge {{ background-color: #D4AF37; color: #1E3A8A; padding: 5px 15px; border-radius: 5px; font-weight: bold; text-align: center; margin-bottom: 20px; }}
-    .date-badge {{ background-color: #1E3A8A; color: white; padding: 5px 15px; border-radius: 20px; font-size: 12px; float: right; }}
-    .metric-card {{ background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 10px; border-radius: 10px; text-align: center; height: 100%; }}
-    .stat-container {{ display: flex; justify-content: space-around; margin: 20px 0; gap: 10px; }}
-    .stat-box {{ flex: 1; padding: 15px; border-radius: 12px; color: white; font-weight: bold; text-align: center; font-size: 16px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); }}
-    .bg-cours {{ background: linear-gradient(135deg, #1E3A8A, #3B82F6); }}
-    .bg-td {{ background: linear-gradient(135deg, #15803d, #22c55e); }}
-    .bg-tp {{ background: linear-gradient(135deg, #b45309, #f59e0b); }}
-    table {{ width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 10px; background-color: white; }}
-    th {{ background-color: #1E3A8A !important; color: white !important; border: 1px solid #000; padding: 6px; text-align: center; font-size: 11px; }}
-    td {{ border: 1px solid #000; padding: 4px !important; vertical-align: top; text-align: center; background-color: white; height: 95px; font-size: 11px; }}
-    .separator {{ border-top: 1px dashed #bbb; margin: 4px 0; }}
-    </style>
-""", unsafe_allow_html=True)
+                # --- CONFIGURATION STRICTE DES QUOTAS ---
+                with st.expander("⚖️ Réglage des Exceptions (Postes Supérieurs / Vacataires)", expanded=True):
+                    c_cfg1, c_cfg2 = st.columns(2)
+                    with c_cfg1:
+                        profs_exception = st.multiselect("👤 Enseignants avec Quota limité :", liste_profs_surv)
+                    with c_cfg2:
+                        max_base = st.number_input("Nombre Max de surveillances (100%)", min_value=1, value=10)
+                    
+                    pourcentage = st.slider("Pourcentage du quota autorisé (%)", 10, 100, 50)
+                    quota_calcule = int(max_base * (pourcentage / 100))
+                    st.warning(f"🎯 Les enseignants sélectionnés seront limités à **{quota_calcule} surveillances** maximum.")
 
-# --- CHARGEMENT DU FICHIER EDT ---
-NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
-df = None
+                col_p, col_d = st.columns(2)
+                with col_p: promo_cible = st.multiselect("🎓 Promotions :", promo_dispo)
+                with col_d: dates_exam = st.multiselect("📅 Dates :", sorted(df_src['Date'].unique()))
 
-def normalize(s):
-    if not s or s == "Non défini": return "vide"
-    return str(s).strip().replace(" ", "").lower().replace("-", "").replace("–", "").replace(":00", "").replace("h00", "h")
+                if st.button("🚀 GÉNÉRER AVEC PLAFONNEMENT"):
+                    if not promo_cible:
+                        st.warning("Sélectionnez au moins une promotion.")
+                    else:
+                        stats = {p: 0 for p in liste_profs_surv}
+                        global_tracking = []
+                        results = []
 
-if os.path.exists(NOM_FICHIER_FIXE):
-    df = pd.read_excel(NOM_FICHIER_FIXE)
-    df.columns = [str(c).strip() for c in df.columns]
-    for col in ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']:
-        if col in df.columns: df[col] = df[col].fillna("Non défini").astype(str).str.strip()
-    df['h_norm'] = df['Horaire'].apply(normalize)
-    df['j_norm'] = df['Jours'].apply(normalize)
+                        for promo in promo_cible:
+                            df_p = df_src[df_src['Promotion'] == promo].copy()
+                            if dates_exam: df_p = df_p[df_p['Date'].isin(dates_exam)]
 
-# --- AUTHENTIFICATION ---
-if "user_data" not in st.session_state: st.session_state["user_data"] = None
+                            for _, row in df_p.iterrows():
+                                binome = []
+                                # On trie les profs par charge actuelle (équité)
+                                prio = sorted(liste_profs_surv, key=lambda p: stats[p])
 
-if not st.session_state["user_data"]:
-    st.markdown("<h1 class='main-title'>🏛️ DÉPARTEMENT D'ÉLECTROTECHNIQUE - UDL SBA</h1>", unsafe_allow_html=True)
-    tab_conn, tab_ins, tab_adm = st.tabs(["🔑 Connexion", "📝 Inscription", "🛡️ Admin"])
-    with tab_conn:
-        em = st.text_input("Email")
-        ps = st.text_input("Mot de passe", type="password")
-        if st.button("Se connecter"):
-            res = supabase.table("enseignants_auth").select("*").eq("email", em).eq("password_hash", hash_pw(ps)).execute()
-            if res.data: st.session_state["user_data"] = res.data[0]; st.rerun()
-            else: st.error("Identifiants incorrects.")
-    with tab_ins:
-        st.subheader("Créer un compte")
-        # Logique d'inscription complète ici (Nom, Email, PWD, Statut, Grade)
-        pass 
-    with tab_adm:
-        if st.text_input("Code Admin", type="password") == "doctorat2026":
-            if st.button("Entrer en tant qu'Admin"):
-                st.session_state["user_data"] = {"nom_officiel": "ADMIN", "role": "admin"}
-                st.rerun()
-    st.stop()
+                                for p in prio:
+                                    if len(binome) < 2:
+                                        # CONDITION 1 : Pas de dépassement de quota pour les exceptions
+                                        if p in profs_exception and stats[p] >= quota_calcule:
+                                            continue
+                                        
+                                        # CONDITION 2 : Disponibilité temporelle
+                                        conflit = any(x for x in global_tracking if x['D']==row['Date'] and x['H']==row['Heure'] and x['N']==p)
+                                        
+                                        if not conflit:
+                                            binome.append(p)
+                                            stats[p] += 1
+                                            global_tracking.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+                                
+                                results.append({
+                                    "Promotion": promo, "Date": row['Date'], "Heure": row['Heure'],
+                                    "Matière": row['Matière'], "Salle": row['Salle'],
+                                    "Binôme": " & ".join(binome) if len(binome)==2 else "MANQUE SURVEILLANT"
+                                })
+                        
+                        st.session_state.stats_charge = stats
+                        st.session_state.df_genere = pd.DataFrame(results)
+                        st.rerun()
 
-# --- ESPACES DE TRAVAIL ---
-user = st.session_state["user_data"]
-is_admin = user.get("role") == "admin"
+                # --- AFFICHAGE DES RÉSULTATS ---
+                if st.session_state.df_genere is not None:
+                    st.divider()
+                    
+                    # Analyse numérique
+                    prof_sel = st.selectbox("📊 Vérifier un quota :", sorted(st.session_state.stats_charge.keys()))
+                    q = st.session_state.stats_charge[prof_sel]
+                    
+                    c1, c2, c3 = st.columns(3)
+                    with c1: st.metric(f"Total {prof_sel}", f"{q} / {quota_calcule if prof_sel in profs_exception else max_base}")
+                    with c2: st.metric("Statut", "Limité" if prof_sel in profs_exception else "Normal")
+                    with c3: 
+                        rempli = (q / quota_calcule * 100) if prof_sel in profs_exception else (q / max_base * 100)
+                        st.metric("Taux d'occupation", f"{int(rempli)}%")
 
-with st.sidebar:
-    st.header(f"👤 {user['nom_officiel']}")
-    portail = st.selectbox("🚀 Espace", ["📖 Emploi du Temps", "📅 Surveillances Examens", "🤖 Générateur Automatique"])
-    if st.button("🚪 Déconnexion"): st.session_state["user_data"] = None; st.rerun()
+                    # Tableau Individuel
+                    df_p_ind = st.session_state.df_genere[st.session_state.df_genere['Binôme'].str.contains(prof_sel, na=False)]
+                    st.dataframe(df_p_ind[["Date", "Heure", "Matière", "Salle"]], use_container_width=True)
 
-st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
-st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
-st.markdown(f"<div class='portal-badge'>MODE : {portail.upper()}</div>", unsafe_allow_html=True)
+                    st.divider()
+                    # Affichage par promo
+                    for p in promo_cible:
+                        st.write(f"### 📋 Planning : {p}")
+                        st.table(st.session_state.df_genere[st.session_state.df_genere['Promotion'] == p].drop(columns=['Promotion']))
 
-# Ici les blocs if portail == "..." contenant votre logique rigoureuse citée plus haut.
+                    buffer = io.BytesIO()
+                    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                        st.session_state.df_genere.to_excel(writer, index=False)
+                    st.download_button("📥 TÉLÉCHARGER (.XLSX)", buffer.getvalue(), "EDT_Surv_S2.xlsx", use_container_width=True)
+
