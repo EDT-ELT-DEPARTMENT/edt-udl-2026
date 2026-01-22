@@ -459,9 +459,9 @@ if df is not None:
                     with cl1: exc_p = st.multiselect("👤 Personnels à quota réduit :", liste_p_gen)
                     with cl2: m_base = st.number_input("Quota Max de base (100%)", min_value=1, value=10)
                     
-                    pct = st.slider("Réduction pour les personnels sélectionnés (%)", 10, 100, 50)
+                    pct = st.slider("Réduction pour les enseignants sélectionnés (%)", 10, 100, 50)
                     quota_limite = int(m_base * (pct / 100))
-                    st.warning(f"🎯 Limite appliquée aux personnels sélectionnés : **{quota_limite} séances**.")
+                    st.warning(f"🎯 Limite appliquée aux enseignants sélectionnés : **{quota_limite} séances**.")
 
                 cp1, cp2 = st.columns(2)
                 with cp1: p_cible = st.multiselect("🎓 Promotions concernées :", promos)
@@ -650,6 +650,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
