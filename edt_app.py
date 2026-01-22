@@ -448,8 +448,7 @@ if df is not None:
                     st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
         else:
             st.error("Fichier source 'surveillances_2026.xlsx' manquant.")
-
-   elif portail == "🤖 Générateur Automatique":
+        elif portail == "🤖 Générateur Automatique":
         # --- 🛡️ VERROUILLAGE ADMIN TOTAL ---
         if not is_admin:
             st.error("🚫 Accès réservé au Bureau des Examens.")
@@ -700,6 +699,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
