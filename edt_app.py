@@ -495,66 +495,113 @@ if df is not None:
                     st.download_button("📥 EXPORTER TOUT LE PLANNING (.XLSX)", xlsx_buf.getvalue(), "EDT_Examens_Complet.xlsx")
 
     elif portail == "👥 Portail Enseignants":
-        st.header("🏢 Répertoire et Contacts des Enseignants")
+        st.header("🏢 Répertoire et Envoi Automatisé des EDTs")
 
-        # 1. Récupération des inscrits depuis Supabase
+        # 1. RÉCUPÉRATION DES DONNÉES (SUPABASE + EXCEL)
         res_auth = supabase.table("enseignants_auth").select("nom_officiel, email").execute()
         
-        # On crée un dictionnaire avec les noms "nettoyés" en clés pour la comparaison
-        # .strip().upper() permet d'ignorer les espaces inutiles et la casse
+        # Nettoyage des noms pour une correspondance parfaite
         dict_emails = {
             str(row['nom_officiel']).strip().upper(): row['email'] 
             for row in res_auth.data
         } if res_auth.data else {}
 
-        # 2. Extraction des noms depuis le fichier Excel source
         noms_excel = sorted([
             e for e in df['Enseignants'].unique() 
             if e not in ["Non défini", "nan", ""]
         ])
 
-        # 3. Construction de la liste finale
+        # 2. CONSTRUCTION DU TABLEAU D'AFFICHAGE
         donnees_finales = []
-        compteur_inscrits = 0
-        
         for nom in noms_excel:
-            # On nettoie le nom de l'Excel de la même manière pour comparer
             nom_nettoye = str(nom).strip().upper()
-            
-            if nom_nettoye in dict_emails:
-                email = dict_emails[nom_nettoye]
-                compteur_inscrits += 1
-            else:
-                email = "⚠️ Non inscrit"
-                
-            donnees_finales.append({
-                "Noms et Prénoms": nom,
-                "Adresse Email": email
-            })
-
+            email = dict_emails.get(nom_nettoye, "⚠️ Non inscrit")
+            donnees_finales.append({"Enseignant": nom, "Email": email})
+        
         df_portail = pd.DataFrame(donnees_finales)
-
-        # Affichage des statistiques (Utilisation du compteur réel pour cohérence)
+        
+        # Statistiques rapides
         c1, c2 = st.columns(2)
         c1.metric("Total Enseignants (Excel)", len(noms_excel))
-        c2.metric("Inscrits Reconnus", compteur_inscrits)
+        inscrits = sum(1 for d in donnees_finales if "@" in d['Email'])
+        c2.metric("Comptes Activés (Emails trouvés)", inscrits)
 
-        # Affichage du tableau
         st.dataframe(df_portail, use_container_width=True, hide_index=True)
-        
-        # --- BLOC DE TÉLÉCHARGEMENT EXCEL ---
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            df_portail.to_excel(writer, index=False, sheet_name='Annuaire')
-        
-        st.divider()
-        st.download_button(
-            label="📥 Télécharger l'annuaire en Excel (.xlsx)",
-            data=buffer.getvalue(),
-            file_name="annuaire_enseignants_2026.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+
+        # 3. ACTIONS : TÉLÉCHARGEMENT & ENVOI
+        col_dl, col_mail = st.columns(2)
+
+        with col_dl:
+            # Export Excel de l'annuaire
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                df_portail.to_excel(writer, index=False, sheet_name='Annuaire')
+            st.download_button(
+                label="📥 Télécharger l'annuaire (Excel)",
+                data=buffer.getvalue(),
+                file_name="annuaire_enseignants_2026.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+
+        with col_mail:
+            # BOUTON D'ENVOI AUTOMATIQUE
+            if st.button("🚀 Envoyer les EDTs individuels par Email", use_container_width=True):
+                import smtplib
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+
+                try:
+                    # Connexion au serveur Gmail avec vos secrets
+                    server = smtplib.SMTP('smtp.gmail.com', 587)
+                    server.starttls()
+                    server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
+
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    success_count = 0
+
+                    for i, row in enumerate(donnees_finales):
+                        nom_prof = row['Enseignant']
+                        email_dest = row['Email']
+
+                        if "@" in email_dest:
+                            # Filtrer l'EDT spécifique à cet enseignant
+                            # Respecte la disposition : Enseignements, Code, Horaire, Jours, Lieu, Promotion
+                            df_perso = df[df["Enseignants"].str.contains(nom_prof, case=False, na=False)]
+                            df_mail = df_perso[['Enseignements', 'Code', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+
+                            # Création de l'Email
+                            msg = MIMEMultipart()
+                            msg['From'] = f"Département Électrotechnique <{st.secrets['EMAIL_USER']}>"
+                            msg['To'] = email_dest
+                            msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {nom_prof}"
+
+                            corps = f"""
+                            <html>
+                            <body style="font-family: Arial, sans-serif;">
+                                <h3>Bonjour M. {nom_prof},</h3>
+                                <p>Veuillez trouver ci-dessous votre emploi du temps pour le Semestre 2 - Année 2026 :</p>
+                                {df_mail.to_html(index=False, border=1, justify='center')}
+                                <p><br>Cordialement,<br><b>L'Administration du Département</b></p>
+                                <hr><small>Ceci est un message automatique, merci de ne pas y répondre.</small>
+                            </body>
+                            </html>
+                            """
+                            msg.attach(MIMEText(corps, 'html'))
+                            server.send_message(msg)
+                            success_count += 1
+
+                        # Mise à jour visuelle
+                        prog = (i + 1) / len(donnees_finales)
+                        progress_bar.progress(prog)
+                        status_text.text(f"Envoi à : {nom_prof}")
+
+                    server.quit()
+                    st.success(f"✅ Terminé ! {success_count} emails envoyés avec succès.")
+                
+                except Exception as e:
+                    st.error(f"Erreur technique : {e}\nVérifiez vos secrets EMAIL_USER et EMAIL_PASS.")
 
     elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
@@ -564,6 +611,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
