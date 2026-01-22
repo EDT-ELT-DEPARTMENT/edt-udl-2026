@@ -432,7 +432,6 @@ if df is not None:
    elif portail == "👥 Enseignants Permanents":
         st.header("🏢 Corps Enseignant Permanent (Inscrits)")
         st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-        
         res = supabase.table("enseignants_auth").select("nom_officiel, grade_prof, email").eq("statut_prof", "Permanent").execute()
         if res.data:
             df_res = pd.DataFrame(res.data)
@@ -453,5 +452,6 @@ if df is not None:
             st.table(df_res)
         else:
             st.info("Aucun vacataire inscrit pour le moment.")
+
 
 
