@@ -49,7 +49,7 @@ NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
 df = None
 
 def normalize(s):
-    if not s or str(s).lower() in ["non défini", "nan", "vide"]: return "vide"
+    if not s or s == "Non défini": return "vide"
     return str(s).strip().replace(" ", "").lower().replace("-", "").replace("–", "").replace(":00", "").replace("h00", "h")
 
 if os.path.exists(NOM_FICHIER_FIXE):
@@ -70,51 +70,36 @@ if "user_data" not in st.session_state: st.session_state["user_data"] = None
 if not st.session_state["user_data"]:
     st.markdown("<h1 class='main-title'>🏛️ DÉPARTEMENT D'ÉLECTROTECHNIQUE - UDL SBA</h1>", unsafe_allow_html=True)
     tab_conn, tab_ins, tab_adm = st.tabs(["🔑 Connexion", "📝 Inscription", "🛡️ Admin"])
-    
     with tab_conn:
-        em = st.text_input("Email Professionnel")
+        em = st.text_input("Email")
         ps = st.text_input("Mot de passe", type="password")
         if st.button("Se connecter"):
             res = supabase.table("enseignants_auth").select("*").eq("email", em).eq("password_hash", hash_pw(ps)).execute()
-            if res.data: 
-                st.session_state["user_data"] = res.data[0]
-                st.rerun()
+            if res.data: st.session_state["user_data"] = res.data[0]; st.rerun()
             else: st.error("Identifiants incorrects.")
-            
+    
     with tab_ins:
-        st.subheader("Créer un compte enseignant")
-        new_nom = st.text_input("Nom Complet (ex: ZIDI)")
-        new_em = st.text_input("Email")
-        new_ps = st.text_input("Mot de passe", type="password")
+        st.subheader("Nouvelle Inscription")
+        n_nom = st.text_input("Nom Complet (ex: ZIDI)")
+        n_em = st.text_input("Email Professionnel")
+        n_ps = st.text_input("Mot de passe", type="password")
+        # Ajout des nouveaux champs demandés
+        n_statut = st.radio("Statut :", ["Permanent", "Vacataire"], horizontal=True)
+        n_grade = st.selectbox("Grade :", ["Professeur émérite", "Professeur", "MCA", "MCB", "MAA", "MAB", "Doctorant", "Mastérant"])
         
-        # --- MODIFICATIONS STATUT ET GRADE ---
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            new_statut = st.radio("Nature du contrat :", ["Permanent", "Vacataire"])
-        with col_s2:
-            new_grade = st.selectbox("Grade / Titre :", [
-                "Professeur émérite", "Professeur", "MCA", "MCB", "MAA", "MAB", "Doctorant", "Mastérant"
-            ])
-            
-        if st.button("Valider l'inscription"):
-            if new_nom and new_em and new_ps:
-                try:
-                    supabase.table("enseignants_auth").insert({
-                        "nom_officiel": new_nom.upper().strip(),
-                        "email": new_em.strip(),
-                        "password_hash": hash_pw(new_ps),
-                        "role": "prof",
-                        "statut_prof": new_statut,
-                        "grade_prof": new_grade
-                    }).execute()
-                    st.success("Compte créé avec succès !")
-                except: st.error("Erreur (Email déjà utilisé ?)")
-            else: st.warning("Veuillez remplir tous les champs.")
+        if st.button("S'inscrire"):
+            try:
+                supabase.table("enseignants_auth").insert({
+                    "nom_officiel": n_nom.upper(), "email": n_em, "password_hash": hash_pw(n_ps), 
+                    "role": "prof", "statut_prof": n_statut, "grade_prof": n_grade
+                }).execute()
+                st.success("Inscription réussie ! Connectez-vous.")
+            except: st.error("Erreur lors de l'inscription.")
 
     with tab_adm:
         if st.text_input("Code Admin", type="password") == "doctorat2026":
             if st.button("Entrer en tant qu'Admin"):
-                st.session_state["user_data"] = {"nom_officiel": "ADMIN", "role": "admin", "grade_prof": "Chef de Département"}
+                st.session_state["user_data"] = {"nom_officiel": "ADMIN", "role": "admin", "statut_prof": "Admin", "grade_prof": "Direction"}
                 st.rerun()
     st.stop()
 
@@ -128,7 +113,7 @@ map_j = {normalize(j): j for j in jours_list}
 
 with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
-    st.info(f"🎓 {user.get('grade_prof', 'Grade non défini')}\n\n💼 {user.get('statut_prof', 'Statut inconnu')}")
+    st.write(f"**{user.get('grade_prof', '')}** ({user.get('statut_prof', '')})")
     portail = st.selectbox("🚀 Espace", [
         "📖 Emploi du Temps", 
         "👨‍🏫 Données Enseignants", 
@@ -142,37 +127,48 @@ with st.sidebar:
     if portail == "📖 Emploi du Temps":
         mode_view = st.radio("Vue :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur"]) if is_admin else "Personnel"
         poste_sup = st.checkbox("Poste Supérieur (Décharge)")
-    if st.button("🚪 Déconnexion"): 
-        st.session_state["user_data"] = None
-        st.rerun()
+    if st.button("🚪 Déconnexion"): st.session_state["user_data"] = None; st.rerun()
 
 st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
 st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
-st.markdown(f"<div class='portal-badge'>PORTAIL : {portail.upper()}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='portal-badge'>MODE : {portail.upper()}</div>", unsafe_allow_html=True)
 
 if df is not None:
-    # --- PORTAIL 1 : EMPLOI DU TEMPS ---
     if portail == "📖 Emploi du Temps":
         if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
             cible = user['nom_officiel'] if mode_view == "Personnel" else st.selectbox("Choisir Enseignant :", sorted(df["Enseignants"].unique()))
             df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
             
+            def get_nature(code):
+                val = str(code).upper()
+                if "COURS" in val: return "📘 COURS"
+                if "TD" in val: return "📗 TD"
+                if "TP" in val: return "📙 TP"
+                return "📑"
+
             if not df_f.empty:
                 df_f['Type'] = df_f['Code'].apply(lambda x: "COURS" if "COURS" in str(x).upper() else ("TD" if "TD" in str(x).upper() else "TP"))
                 df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
                 df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
                 
-                st.markdown(f"### 📊 Bilan Hebdomadaire : {cible}")
+                st.markdown(f"### 📊 Bilan : {cible}")
+                st.markdown(f"""<div class="stat-container">
+                    <div class="stat-box bg-cours">📘 {len(df_u[df_u['Type'] == 'COURS'])} COURS</div>
+                    <div class="stat-box bg-td">📗 {len(df_u[df_u['Type'] == 'TD'])} TD</div>
+                    <div class="stat-box bg-tp">📙 {len(df_u[df_u['Type'] == 'TP'])} TP</div>
+                </div>""", unsafe_allow_html=True)
+
                 c1, c2, c3 = st.columns(3)
                 charge_reelle = df_u['h_val'].sum()
-                charge_reg = 3.0 if poste_sup else (6.0 if user.get('statut_prof') == "Permanent" else 0.0)
+                charge_reg = 3.0 if poste_sup else 6.0
                 c1.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
-                c2.markdown(f"<div class='metric-card'>Base ({user.get('statut_prof')})<br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
+                c2.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
                 h_sup = charge_reelle - charge_reg
-                c3.markdown(f"<div class='metric-card'>Différentiel<br><h2>{h_sup} h</h2></div>", unsafe_allow_html=True)
+                color_sup = "#e74c3c" if h_sup > 0 else "#27ae60"
+                c3.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup<br><h2 style='color:{color_sup};'>{h_sup} h</h2></div>", unsafe_allow_html=True)
 
                 def fmt_e(rows):
-                    items = [f"<b>{r['Code']} : {r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _, r in rows.iterrows()]
+                    items = [f"<b>{get_nature(r['Code'])} : {r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _, r in rows.iterrows()]
                     return "<div class='separator'></div>".join(items)
                 
                 grid = df_f.groupby(['h_norm', 'j_norm']).apply(fmt_e, include_groups=False).unstack('j_norm')
@@ -180,45 +176,82 @@ if df is not None:
                 grid.index = [map_h.get(i, i) for i in grid.index]; grid.columns = [map_j.get(c, c) for c in grid.columns]
                 st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
-    # --- PORTAIL 4 : DONNÉES ENSEIGNANTS (ADMIN) ---
+        elif is_admin and mode_view == "Promotion":
+            p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
+            df_p = df[df["Promotion"] == p_sel]
+            def fmt_p(rows):
+                items = [f"<b>{('📘 COURS' if 'COURS' in str(r['Code']).upper() else '📗 TD' if 'TD' in str(r['Code']).upper() else '📙 TP')} : {r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _, r in rows.iterrows()]
+                return "<div class='separator'></div>".join(items)
+            grid_p = df_p.groupby(['h_norm', 'j_norm']).apply(fmt_p, include_groups=False).unstack('j_norm')
+            grid_p = grid_p.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
+            grid_p.index = horaires_list; grid_p.columns = jours_list
+            st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
+
+        elif is_admin and mode_view == "🏢 Planning Salles":
+            s_sel = st.selectbox("Choisir Salle :", sorted(df["Lieu"].unique()))
+            df_s = df[df["Lieu"] == s_sel]
+            def fmt_s(rows):
+                items = [f"<b>{r['Promotion']}</b><br>{r['Enseignements']}<br><i>{r['Enseignants']}</i>" for _, r in rows.iterrows()]
+                return "<div class='separator'></div>".join(items)
+            grid_s = df_s.groupby(['h_norm', 'j_norm']).apply(fmt_s, include_groups=False).unstack('j_norm')
+            grid_s = grid_s.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
+            grid_s.index = horaires_list; grid_s.columns = jours_list
+            st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
+
+        elif is_admin and mode_view == "🚩 Vérificateur":
+            st.subheader("🚩 Analyse des conflits")
+            errs = []
+            s_c = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu']).filter(lambda x: len(x) > 1)
+            for _, r in s_c.drop_duplicates(['Jours', 'Horaire', 'Lieu']).iterrows():
+                errs.append(f"❌ **SALLE** : {r['Lieu']} occupée en double le {r['Jours']} à {r['Horaire']}")
+            p_c = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants']).filter(lambda x: len(x) > 1)
+            for _, r in p_c.drop_duplicates(['Jours', 'Horaire', 'Enseignants']).iterrows():
+                errs.append(f"⚠️ **CONFLIT** : {r['Enseignants']} a deux cours le {r['Jours']} à {r['Horaire']}")
+            if errs:
+                for e in errs: st.error(e) if "❌" in e else st.warning(e)
+            else: st.success("✅ Aucun conflit détecté.")
+
     elif portail == "👨‍🏫 Données Enseignants":
-        if not is_admin:
-            st.error("Accès réservé à l'administration.")
-        else:
-            st.header("🗂️ Annuaire du Corps Enseignant (S2-2026)")
+        if is_admin:
+            st.header("🗂️ État du Corps Enseignant")
             raw_profs = []
             for entry in df["Enseignants"].dropna().unique():
                 for p in str(entry).split('&'):
                     name = p.strip()
-                    if name and name.lower() not in ["non défini", "nan", "vide"]:
-                        raw_profs.append(name)
+                    if name and name.lower() not in ["non défini", "nan", "vide"]: raw_profs.append(name)
             liste_officielle = sorted(list(set(raw_profs)))
-            
             try:
-                res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, statut_prof, grade_prof").execute()
+                res_auth = supabase.table("enseignants_auth").select("*").execute()
                 dict_auth = {str(row['nom_officiel']).strip().upper(): row for row in res_auth.data} if res_auth.data else {}
             except: dict_auth = {}
-
             tableau_profs = []
             for prof in liste_officielle:
                 nom_maj = prof.upper()
                 info = dict_auth.get(nom_maj)
                 tableau_profs.append({
-                    "Enseignant": prof,
+                    "Nom": prof, 
                     "Grade": info['grade_prof'] if info else "---",
-                    "Statut": info['statut_prof'] if info else "Non inscrit",
-                    "Email": info['email'] if info else "---"
+                    "Statut": info['statut_prof'] if info else "---",
+                    "Email": info['email'] if info else "Non inscrit"
                 })
             st.dataframe(pd.DataFrame(tableau_profs), use_container_width=True, hide_index=True)
+        else: st.error("Accès réservé.")
 
-    # --- PORTAIL 5 : DONNÉES ÉTUDIANTS (ADMIN) ---
     elif portail == "🎓 Données Étudiants":
         if is_admin:
             up_file = st.file_uploader("📂 Charger Excel Étudiants", type=["xlsx"])
             if up_file:
                 df_st = pd.read_excel(up_file)
                 st.dataframe(df_st, use_container_width=True)
-        else: st.error("Accès Admin requis.")
+        else: st.error("Accès réservé.")
 
-else:
-    st.error("Fichier source 'dataEDT-ELT-S2-2026.xlsx' introuvable.")
+    elif portail == "📅 Surveillances Examens":
+        NOM_SURV = "surveillances_2026.xlsx"
+        if os.path.exists(NOM_SURV):
+            df_surv = pd.read_excel(NOM_SURV)
+            st.dataframe(df_surv, use_container_width=True)
+        else: st.error("Fichier surveillances_2026.xlsx manquant.")
+
+    elif portail == "🤖 Générateur Automatique":
+        if is_admin: st.info("Générateur de surveillances en attente de configuration.")
+        else: st.error("Accès réservé.")
