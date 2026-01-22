@@ -202,12 +202,14 @@ map_j = {normalize(j): j for j in jours_list}
 with st.sidebar:
     st.header(f"👤 {user['nom_officiel']}")
     portail = st.selectbox("🚀 Sélectionner Espace", [
-        "📖 Emploi du Temps", 
-        "📅 Surveillances Examens", 
-        "🤖 Générateur Automatique", 
-        "👥 Portail Enseignants", 
-        "🎓 Portail Étudiants"
-    ])
+    portail = st.selectbox("🚀 Sélectionner Espace", [
+    "📖 Emploi du Temps", 
+    "📅 Surveillances Examens", 
+    "🤖 Générateur Automatique", 
+    "👥 Portail Enseignants", 
+    "🎓 Portail Étudiants",
+    "📢 Rattrapages & Absences"  # Assurez-vous d'ajouter cette ligne
+])
     st.divider()
     
     mode_view = "Personnel"
@@ -609,8 +611,65 @@ if df is not None:
         st.success(f"Affichage de l'emploi du temps pour : **{p_etu}**")
         disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
+elif portail == "📢 Rattrapages & Absences":
+        st.header("📅 Gestion des Absences et Rattrapages")
+        
+        # 1. Formulaire pour l'enseignant (ou Admin)
+        with st.expander("📢 Déclarer une absence et un rattrapage", expanded=True):
+            with st.form("form_rattrapage"):
+                st.info(f"Déclarant : {user['nom_officiel']}")
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    d_abs = st.date_input("Date de l'absence")
+                    # On filtre les matières de l'enseignant connecté depuis le fichier Excel
+                    m_ens = df[df['Enseignants'].str.contains(user['nom_officiel'], case=False, na=False)]['Enseignements'].unique()
+                    mat = st.selectbox("Matière", m_ens if len(m_ens)>0 else ["Autre"])
+                
+                with c2:
+                    d_rat = st.date_input("Date du rattrapage")
+                    h_rat = st.selectbox("Heure du rattrapage", horaires_list)
+                
+                l_rat = st.text_input("Lieu (Salle/Labo)")
+                p_rat = st.selectbox("Promotion", sorted(df['Promotion'].unique()))
+                
+                btn_valider = st.form_submit_button("Publier l'avis")
+                
+                if btn_valider:
+                    nouveau_rat = {
+                        "enseignant": user['nom_officiel'],
+                        "matiere": mat,
+                        "date_absence": str(d_abs),
+                        "date_rattrapage": str(d_rat),
+                        "heure_rattrapage": h_rat,
+                        "salle": l_rat,
+                        "promotion": p_rat
+                    }
+                    supabase.table("rattrapages").insert(nouveau_rat).execute()
+                    st.success("✅ Avis publié avec succès !")
 
+        # 2. Affichage de la liste pour tout le monde
+        st.subheader("📋 Liste des rattrapages programmés")
+        query_rat = supabase.table("rattrapages").select("*").order("date_rattrapage").execute()
+        
+        if query_rat.data:
+            df_r = pd.DataFrame(query_rat.data)
+            # Affichage propre des colonnes
+            st.dataframe(
+                df_r[['date_absence', 'enseignant', 'matiere', 'promotion', 'date_rattrapage', 'heure_rattrapage', 'salle']],
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Option de suppression pour l'Admin
+            if is_admin:
+                st.divider()
+                id_del = st.selectbox("ID à supprimer (Admin)", df_r['id'].unique())
+                if st.button("🗑️ Supprimer l'annonce"):
+                    supabase.table("rattrapages").delete().eq("id", id_del).execute()
+                    st.rerun()
 # --- FIN DU CODE ---
+
 
 
 
