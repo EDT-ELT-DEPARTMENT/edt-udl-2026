@@ -998,7 +998,7 @@ if df is not None:
             
             st.divider()
 
-           if not df_u_surv.empty:
+               if not df_u_surv.empty:
                 for _, r in df_u_surv.iterrows():
                     st.markdown(f"""
                     <div style="background:#f9f9f9;padding:12px;border-radius:8px;border-left:5px solid #1E3A8A;margin-bottom:8px;box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
@@ -1168,6 +1168,7 @@ if df is not None:
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
         disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
+
 
 
 
