@@ -391,11 +391,11 @@ if df is not None:
             u_nom = user['nom_officiel']
             u_email = user.get('email', '').lower().strip()
 
-            # --- VÉRIFICATION STRICTE DE L'ADMINISTRATEUR ---
+            # --- VÉRIFICATION MAÎTRE (EMAIL) ---
             is_master_admin = (u_email == "milouafarid@gmail.com")
 
             if is_master_admin:
-                # Seul milouafarid@gmail.com peut voir et choisir les autres
+                # Extraire la liste de tous les enseignants présents dans le fichier
                 all_profs = []
                 for entry in df_surv[c_prof].unique():
                     for p in entry.split('&'):
@@ -404,14 +404,15 @@ if df is not None:
                             all_profs.append(clean_p)
                 liste_profs = sorted(list(set(all_profs)))
                 
-                st.success("✅ Accès Administrateur Maître (milouafarid@gmail.com)")
-                prof_sel = st.selectbox("🔍 Choisir un enseignant à visualiser :", liste_profs)
+                st.success(f"🌟 Bienvenue M. MILOUA (Admin Maître)")
+                # Ici, on donne la main à l'admin pour choisir qui il veut voir
+                prof_sel = st.selectbox("🔍 Visualiser le planning de :", liste_profs)
             else:
-                # Pour tous les autres, accès verrouillé à leur propre nom
+                # L'enseignant normal ne voit que son nom et ne peut pas choisir
                 prof_sel = u_nom
-                st.info(f"👤 Espace Enseignant : **{u_nom}**")
+                st.info(f"👤 Espace Personnel : **{u_nom}**")
 
-            # Filtrage des données basé sur la sélection ou l'identité
+            # Filtrage des données
             df_u_surv = df_surv[df_surv[c_prof].str.contains(prof_sel, case=False, na=False)].sort_values(by='Date_Tri')
             
             st.markdown(f"### 📋 Planning de : {prof_sel}")
@@ -425,30 +426,27 @@ if df is not None:
             
             st.divider()
 
-            # Affichage pour l'utilisateur
             if not df_u_surv.empty:
                 for _, r in df_u_surv.iterrows():
                     st.markdown(f"""
-                    <div style="background:#f9f9f9;padding:12px;border-radius:8px;border-left:5px solid #1E3A8A;margin-bottom:8px;box-shadow: 2px 2px 5px rgba(0,0,0,0.05);">
+                    <div style="background:#f9f9f9;padding:12px;border-radius:8px;border-left:5px solid #1E3A8A;margin-bottom:8px;box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
                         <span style="font-weight:bold;color:#1E3A8A;">📅 {r['Jour']} {r['Date']}</span> | 🕒 {r['Heure']}<br>
                         <b>📖 {r['Matière']}</b><br>
                         <small>📍 {r['Salle']} | 🎓 {r['Promotion']} | 👥 {r[c_prof]}</small>
                     </div>""", unsafe_allow_html=True)
                 
-                # Exportation Excel
                 buf = io.BytesIO()
                 df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
                 st.download_button(f"📥 Exporter le planning de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
             else:
-                st.warning(f"Aucune donnée enregistrée pour {prof_sel}.")
+                st.warning(f"⚠️ Aucune surveillance enregistrée au nom de : {prof_sel}")
 
-            # Vue globale réservée à l'administrateur en bas de page
+            # Option supplémentaire pour l'admin : Vue complète
             if is_master_admin:
-                with st.expander("🌐 Voir le tableau global de toutes les surveillances"):
+                with st.expander("🌐 Voir tout le fichier de surveillance (Admin Only)"):
                     st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
         else:
-            st.error("Le fichier 'surveillances_2026.xlsx' est manquant.")
-
+            st.error("Fichier 'surveillances_2026.xlsx' introuvable.")
     elif portail == "🤖 Générateur Automatique":
         if not is_admin:
             st.error("Accès réservé au Bureau des Examens.")
@@ -665,6 +663,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
