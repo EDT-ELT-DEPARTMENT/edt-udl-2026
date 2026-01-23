@@ -360,14 +360,13 @@ if df is not None:
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
         elif is_admin and mode_view == "🚩 Vérificateur de conflits":
-            st.subheader("🚩 Analyse des Conflits et Doubles Séances")
+            st.subheader("🚩 Analyse détaillée des Conflits et Collisions")
             st.markdown("---")
             
-            # --- INITIALISATION DES LISTES (Indispensable pour éviter le NameError) ---
-            errs_text = []      # Pour l'affichage à l'écran
-            errs_for_df = []    # Pour l'export Excel (Impression)
+            errs_text = []      
+            errs_for_df = []    
             
-            # --- 1. ANALYSE DES ENSEIGNANTS ---
+            # --- 1. ANALYSE DES ENSEIGNANTS (Double vs Conflit) ---
             p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
 
             for (jour, horaire, prof), group in p_groups:
@@ -376,65 +375,67 @@ if df is not None:
                     matieres_uniques = group['Enseignements'].unique()
                     promos_uniques = group['Promotion'].unique()
                     
-                    # CAS A : DOUBLE SÉANCE (Même lieu + Même matière)
                     if len(lieux_uniques) == 1 and len(matieres_uniques) == 1:
                         type_err = "🔵 DOUBLE"
                         msg = f"**{type_err}** : {prof} | {jour} {horaire} | {matieres_uniques[0]} ({', '.join(promos_uniques)})"
                         errs_text.append(("info", msg))
                         detail = "Fusion Groupes/Promotions"
-                    
-                    # CAS B : CONFLIT PHYSIQUE (Lieux différents)
                     elif len(lieux_uniques) > 1:
                         type_err = "❌ CONFLIT LIEU"
                         msg = f"**{type_err}** : {prof} attendu dans plusieurs salles ({', '.join(lieux_uniques)}) à {horaire}"
                         errs_text.append(("error", msg))
                         detail = f"Salles différentes : {', '.join(lieux_uniques)}"
-                    
-                    # CAS C : CONFLIT MATIÈRE (Même lieu mais matières différentes)
                     else:
                         type_err = "⚠️ CONFLIT MATIÈRE"
-                        msg = f"**{type_err}** : {prof} a deux matières différentes à {horaire} ({', '.join(matieres_uniques)})"
+                        msg = f"**{type_err}** : {prof} a deux matières différentes ({', '.join(matieres_uniques)}) à {horaire}"
                         errs_text.append(("warning", msg))
                         detail = "Matières différentes (Même salle)"
 
-                    # Remplissage pour l'impression
                     errs_for_df.append({
-                        "Type": type_err, "Enseignant": prof, "Jour": jour, 
-                        "Horaire": horaire, "Détail": detail, "Salles": ", ".join(lieux_uniques)
+                        "Type": type_err, "Enseignant": prof, "Jour": jour, "Horaire": horaire, 
+                        "Détail": detail, "Lieu": ", ".join(lieux_uniques), 
+                        "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
                     })
 
-            # --- 2. ANALYSE DES SALLES (Collision de profs) ---
+            # --- 2. ANALYSE DES SALLES (Collision de profs différents) ---
             s_groups = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu'])
             for (jour, horaire, salle), group in s_groups:
                 profs_uniques = group['Enseignants'].unique()
                 if len(profs_uniques) > 1:
                     type_err = "🚫 COLLISION SALLE"
-                    msg = f"**{type_err}** : Salle **{salle}** occupée par {', '.join(profs_uniques)} ({jour} à {horaire})"
+                    mats = group['Enseignements'].unique()
+                    proms = group['Promotion'].unique()
+                    msg = f"**{type_err}** : Salle **{salle}** occupée par **{', '.join(profs_uniques)}** ({jour} à {horaire})"
                     errs_text.append(("error", msg))
                     errs_for_df.append({
-                        "Type": type_err, "Enseignant": "/".join(profs_uniques), "Jour": jour, 
-                        "Horaire": horaire, "Détail": f"Collision salle {salle}", "Salles": salle
+                        "Type": type_err, "Enseignant": "/".join(profs_uniques), "Jour": jour, "Horaire": horaire, 
+                        "Détail": f"Collision salle {salle}", "Lieu": salle, 
+                        "Matières": ", ".join(mats), "Promotions": ", ".join(proms)
                     })
 
-            # --- AFFICHAGE À L'ÉCRAN ---
+            # --- AFFICHAGE ET EXPORT ---
             if errs_text:
-                # Affichage des alertes stylisées
                 for style, m in errs_text:
                     if style == "info": st.info(m)
                     elif style == "warning": st.warning(m)
                     else: st.error(m)
                 
-                # --- BOUTON IMPRESSION ---
                 st.divider()
+                # Création du DataFrame pour l'impression
                 df_report = pd.DataFrame(errs_for_df)
+                
+                # Optionnel : Afficher le tableau récapitulatif avant impression
+                with st.expander("👁️ Voir le tableau récapitulatif des erreurs"):
+                    st.dataframe(df_report, use_container_width=True)
+
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                    df_report.to_excel(writer, index=False, sheet_name='Anomalies')
+                    df_report.to_excel(writer, index=False, sheet_name='Anomalies_EDT')
                 
                 st.download_button(
-                    label="📥 Télécharger le Rapport des Conflits pour Impression",
+                    label="📥 Imprimer le Rapport Complet (Matières & Promos inclues)",
                     data=buf.getvalue(),
-                    file_name="Rapport_Conflits_ELT.xlsx",
+                    file_name="Rapport_Conflits_Detaillé_ELT.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
@@ -721,6 +722,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
