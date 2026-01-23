@@ -511,10 +511,11 @@ if df is not None:
             st.error("Accès réservé au Bureau des Examens.")
         else:
             st.header("⚙️ Moteur de Génération de Surveillances")
+            st.info("Ce moteur génère uniquement les surveillances pour les **COURS** (Exclusion automatique des TP/TD).")
             
-            # --- INITIALISATION SÉCURISÉE DES EFFECTIFS ---
+            # --- 1. GESTION DES EFFECTIFS ET DES GROUPES (Tableau Éditable) ---
             if "effectifs_db" not in st.session_state:
-                # Format : "Promotion": [Effectif_Total, Nombre_de_Groupes]
+                # Format initial : "Promotion": [Effectif_Total, Nombre_de_Groupes]
                 st.session_state.effectifs_db = {
                     "L1MCIL": [288, 4], "L2MCIL": [109, 2], "L2ELT": [90, 2], "L3ELT": [70, 2], 
                     "ING1": [50, 1], "ING3EI": [40, 1], "M1MCIL": [34, 1], "MCIL3": [23, 1], 
@@ -522,30 +523,25 @@ if df is not None:
                     "M1ME": [15, 1], "ING4": [15, 1]
                 }
 
-            with st.expander("📦 Configuration des Effectifs & Groupes", expanded=False):
-                st.info("Ajustez l'effectif et le nombre de groupes. Le système divisera l'effectif par le nombre de groupes pour calculer les surveillants requis.")
-                
-                # Conversion sécurisée pour l'affichage dans le tableau (évite l'erreur v[0])
-                data_for_editor = []
+            with st.expander("📦 Configuration des Effectifs & Groupes par Promotion", expanded=False):
+                st.markdown("Modifier l'effectif total ou le nombre de groupes (salles) pour chaque promotion :")
+                # Sécurité de lecture pour éviter les erreurs de type
+                data_eff = []
                 for k, v in st.session_state.effectifs_db.items():
-                    if isinstance(v, list):
-                        data_for_editor.append({"Promotion": k, "Effectif Total": v[0], "Nb de Groupes": v[1]})
-                    else:
-                        data_for_editor.append({"Promotion": k, "Effectif Total": v, "Nb de Groupes": 1})
+                    val = v if isinstance(v, list) else [v, 1]
+                    data_eff.append({"Promotion": k, "Effectif Total": val[0], "Nb de Groupes": val[1]})
                 
-                df_eff = pd.DataFrame(data_for_editor)
-                edited_df = st.data_editor(df_eff, use_container_width=True, num_rows="dynamic", hide_index=True)
+                df_editor = pd.DataFrame(data_eff)
+                edited_eff = st.data_editor(df_editor, use_container_width=True, num_rows="dynamic", hide_index=True)
                 
-                if st.button("💾 Sauvegarder la configuration"):
+                if st.button("💾 Sauvegarder les Effectifs & Groupes"):
                     st.session_state.effectifs_db = {
                         row["Promotion"]: [int(row["Effectif Total"]), int(row["Nb de Groupes"])] 
-                        for _, row in edited_df.iterrows()
+                        for _, row in edited_eff.iterrows()
                     }
-                    st.success("Configuration mise à jour ! Vous pouvez lancer la génération.")
+                    st.success("Base de données des effectifs mise à jour !")
 
-            # --- MOTEUR DE GÉNÉRATION ---
-            if "df_genere" not in st.session_state: st.session_state.df_genere = None
-            
+            # --- 2. CHARGEMENT ET PRÉPARATION DU FICHIER ---
             SRC = "surveillances_2026.xlsx"
             if not os.path.exists(SRC):
                 st.error("Fichier 'surveillances_2026.xlsx' introuvable.")
@@ -554,30 +550,48 @@ if df is not None:
                 df_src.columns = [str(c).strip() for c in df_src.columns]
                 for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
                 
-                c_prof_g = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
-                liste_p_gen = sorted([p for p in df_src[c_prof_g].unique() if p not in ["", "Non défini", "nan"]])
-                promos_dispo = sorted(df_src['Promotion'].unique())
+                c_mat = 'Matière' if 'Matière' in df_src.columns else 'Enseignements'
+                c_prof_resp = 'Enseignants' if 'Enseignants' in df_src.columns else 'Responsable'
+                c_prof_surv = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
 
-                with st.expander("⚖️ Quotas & Ratios de Surveillance", expanded=True):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        ratio_etu = st.number_input("Étudiants par surveillant (Ratio) :", min_value=1, value=25)
-                    with col2:
-                        m_base = st.number_input("Max séances par enseignant", min_value=1, value=10)
+                # --- FILTRAGE STRICT DES COURS ---
+                df_src = df_src[~df_src[c_mat].str.contains(r'\bTP\b|\bTD\b', case=False, na=False)]
+                
+                liste_profs = sorted([p for p in df_src[c_prof_surv].unique() if p not in ["", "nan", "Non défini"]])
+                promos_src = sorted(df_src['Promotion'].unique())
+
+                # --- 3. PARAMÈTRES DE PLAFONNEMENT (QUOTAS) ---
+                with st.expander("⚖️ Plafonnement & Quotas des Enseignants", expanded=True):
+                    col_q1, col_q2 = st.columns(2)
+                    with col_q1:
+                        m_base = st.number_input("Max séances (Standard)", min_value=1, value=10)
+                    with col_q2:
+                        ratio_etu = st.number_input("Étudiants par surveillant", min_value=1, value=25)
                     
-                    exc_p = st.multiselect("👤 Enseignants (Charge réduite) :", liste_p_gen)
-                    pct = st.slider("Réduction de charge (%)", 10, 100, 50)
-                    quota_limite = int(m_base * (pct / 100))
+                    st.markdown("---")
+                    exc_p = st.multiselect("👤 Enseignants à charge plafonnée (ex: Chefs de dépt) :", liste_profs)
+                    pct = st.slider("Pourcentage du quota pour ces enseignants (%)", 10, 100, 50)
+                    quota_reduit = int(m_base * (pct / 100))
+                    st.caption(f"Les sélectionnés seront limités à **{quota_reduit} séances** maximum.")
 
+                # --- 4. SÉLECTION DES PROMOTIONS ---
                 cp1, cp2 = st.columns(2)
-                with cp1: p_cible = st.multiselect("🎓 Choisir les Promotions :", promos_dispo)
-                with cp2: d_exam = st.multiselect("📅 Filtrer par Dates :", sorted(df_src['Date'].unique()))
+                with cp1: p_cible = st.multiselect("🎓 Choisir les Promotions :", promos_src)
+                with cp2: d_exam = st.multiselect("📅 Filtrer par Dates (Optionnel) :", sorted(df_src['Date'].unique()))
 
-                if st.button("🚀 GÉNÉRER LE PLANNING"):
+                # Aperçu dynamique
+                if p_cible:
+                    with st.expander("🔍 Aperçu des Examens détectés", expanded=False):
+                        temp = df_src[df_src['Promotion'].isin(p_cible)]
+                        if d_exam: temp = temp[temp['Date'].isin(d_exam)]
+                        st.dataframe(temp[['Promotion', 'Date', c_mat, c_prof_resp, 'Heure', 'Salle']], use_container_width=True, hide_index=True)
+
+                # --- 5. MOTEUR DE GÉNÉRATION ---
+                if st.button("🚀 LANCER LA GÉNÉRATION DES BINÔMES"):
                     if not p_cible:
                         st.warning("Sélectionnez au moins une promotion.")
                     else:
-                        stats = {p: 0 for p in liste_p_gen}
+                        stats = {p: 0 for p in liste_profs}
                         tracker = []
                         res_list = []
                         
@@ -585,65 +599,61 @@ if df is not None:
                             df_p = df_src[df_src['Promotion'] == p_name].copy()
                             if d_exam: df_p = df_p[df_p['Date'].isin(d_exam)]
                             
-                            # Récupération sécurisée de la config [Effectif, Groupes]
+                            # Récupération config [Effectif, Groupes]
                             config = st.session_state.effectifs_db.get(p_name, [30, 1])
-                            eff_total = config[0]
-                            nb_groupes_p = int(config[1])
+                            eff_total, nb_groupes_p = config[0], int(config[1])
                             
                             for _, row in df_p.iterrows():
+                                # Division en groupes définie dans le tableau
                                 for g_idx in range(1, nb_groupes_p + 1):
-                                    eff_par_salle = eff_total // nb_groupes_p
-                                    # Calcul du besoin : min 2, sinon ratio
-                                    nb_requis = max(2, (eff_par_salle // ratio_etu) + (1 if eff_par_salle % ratio_etu > 0 else 0))
+                                    eff_salle = eff_total // nb_groupes_p
+                                    nb_requis = max(2, (eff_salle // ratio_etu) + (1 if eff_salle % ratio_etu > 0 else 0))
                                     
                                     equipe = []
-                                    # Priorité à ceux qui ont le moins de séances
-                                    tri_prio = sorted(liste_p_gen, key=lambda x: stats[x])
+                                    # Tri par ceux qui ont le MOINS de travail pour l'équité
+                                    tri_prio = sorted(liste_profs, key=lambda x: stats[x])
                                     
                                     for p in tri_prio:
                                         if len(equipe) < nb_requis:
-                                            # Vérification Quotas
-                                            limit = quota_limite if p in exc_p else m_base
-                                            if stats[p] >= limit: continue
+                                            # Vérification PLAFONNEMENT
+                                            limite_actuelle = quota_reduit if p in exc_p else m_base
+                                            if stats[p] >= limite_actuelle: continue
                                             
-                                            # Vérification Collision
-                                            conflit = any(t for t in tracker if t['D']==row['Date'] and t['H']==row['Heure'] and t['N']==p)
-                                            if not conflit:
+                                            # Vérification COLLISION
+                                            collision = any(t for t in tracker if t['D']==row['Date'] and t['H']==row['Heure'] and t['N']==p)
+                                            if not collision:
                                                 equipe.append(p)
                                                 stats[p] += 1
                                                 tracker.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
                                     
-                                    nom_final = f"{p_name} (G{g_idx})" if nb_groupes_p > 1 else p_name
-                                    
-                                    # Disposition : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+                                    # Insertion dans la liste finale
                                     res_list.append({
-                                        "Enseignements": row['Matière'],
-                                        "Code": "N/A",
+                                        "Enseignements": row[c_mat],
+                                        "Code": "S2-2026",
                                         "Enseignants": " & ".join(equipe) if len(equipe) >= 2 else "⚠️ MANQUE EFFECTIF",
                                         "Horaire": row['Heure'],
                                         "Jours": row['Date'],
                                         "Lieu": row['Salle'] if nb_groupes_p == 1 else f"{row['Salle']} (G{g_idx})",
-                                        "Promotion": nom_final
+                                        "Promotion": f"{p_name} (Grp {g_idx})" if nb_groupes_p > 1 else p_name
                                     })
                         
                         st.session_state.df_genere = pd.DataFrame(res_list)
                         st.session_state.stats_charge = stats
                         st.rerun()
 
-                # --- AFFICHAGE ET EXPORT ---
-                if st.session_state.df_genere is not None:
+                # --- 6. RÉSULTATS ET ANALYSE ---
+                if st.session_state.get("df_genere") is not None:
                     st.divider()
-                    st.subheader("📋 Planning de Surveillance")
+                    st.subheader("📋 Planning Final des Surveillances")
                     st.dataframe(st.session_state.df_genere, use_container_width=True, hide_index=True)
                     
-                    # Petit récapitulatif des charges pour l'admin
-                    with st.expander("📊 Récapitulatif des charges (Séances par prof)"):
-                        st.write(st.session_state.stats_charge)
-
+                    with st.expander("📊 Statistiques de charge (Vérification du Plafonnement)"):
+                        st.bar_chart(pd.Series(st.session_state.stats_charge))
+                    
                     xlsx_buf = io.BytesIO()
                     with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
                         st.session_state.df_genere.to_excel(writer, index=False)
-                    st.download_button("📥 TÉLÉCHARGER LE PLANNING (.XLSX)", xlsx_buf.getvalue(), "Planning_Surveillances_Complet.xlsx")
+                    st.download_button("📥 TÉLÉCHARGER LE PLANNING (.XLSX)", xlsx_buf.getvalue(), "Planning_Surveillances_UDL_2026.xlsx")
     elif portail == "👥 Portail Enseignants":
         # --- 🛡️ VERROU DE SÉCURITÉ ADMIN ---
         if not is_admin:
@@ -767,6 +777,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
