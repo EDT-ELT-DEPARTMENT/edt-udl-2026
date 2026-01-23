@@ -330,29 +330,49 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         }
     )
 
-    # 5. AUTOMATISATION DU CODE ET SAUVEGARDE
-    c1, c2 = st.columns(2)
+    # 5. BOUTONS D'ACTION ET EXPORTS
+    st.write("---")
+    c1, c2, c3, c4 = st.columns(4)
+
     with c1:
-        if st.button("💾 Enregistrer les modifications", use_container_width=True):
+        if st.button("💾 Enregistrer (Excel)", use_container_width=True):
             try:
-                # Avant de sauvegarder, on applique le code auto si vide
+                # Automatisation des codes avant sauvegarde
                 for idx, row in edited_df.iterrows():
                     mats = row['Enseignements']
                     if mats in dict_mat_code and (not row['Code'] or str(row['Code']).strip() == ""):
                         edited_df.at[idx, 'Code'] = dict_mat_code[mats]
 
-                if search_q:
-                    df.update(edited_df)
-                else:
-                    df = edited_df
+                if search_q: df.update(edited_df)
+                else: df = edited_df
                 
                 df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Données mises à jour avec codes automatiques !")
+                st.success("✅ Fichier source mis à jour !")
                 st.rerun()
             except Exception as e:
                 st.error(f"Erreur : {e}")
     
     with c2:
+        # Export Excel pour téléchargement
+        import io
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            edited_df.to_excel(writer, index=False, sheet_name='Emploi_du_temps')
+        
+        st.download_button(
+            label="📥 Télécharger XLSX",
+            data=buffer.getvalue(),
+            file_name=f"EDT_Export_{date_str}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+    with c3:
+        # Bouton Imprimer (Lance l'impression du navigateur)
+        if st.button("🖨️ Imprimer la vue", use_container_width=True):
+            st.components.v1.html("<script>window.print();</script>", height=0)
+
+    with c4:
         if st.button("🔄 Annuler", use_container_width=True):
             st.rerun()
 
@@ -980,6 +1000,7 @@ elif portail == "🎓 Portail Étudiants":
 else:
     st.error(f"Fichier {NOM_FICHIER_FIXE} introuvable.")
 # --- FIN DU CODE ---
+
 
 
 
