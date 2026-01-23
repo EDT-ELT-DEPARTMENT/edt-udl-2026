@@ -391,11 +391,11 @@ if df is not None:
             u_nom = user['nom_officiel']
             u_email = user.get('email', '').lower().strip()
 
-            # --- VÉRIFICATION DE DROITS ADMIN PAR EMAIL ---
-            is_super_admin = (u_email == "milouafarid@gmail.com")
+            # --- VÉRIFICATION STRICTE DE L'ADMINISTRATEUR ---
+            is_master_admin = (u_email == "milouafarid@gmail.com")
 
-            if is_super_admin:
-                # L'admin milouafarid@gmail.com peut choisir n'importe quel enseignant
+            if is_master_admin:
+                # Seul milouafarid@gmail.com peut voir et choisir les autres
                 all_profs = []
                 for entry in df_surv[c_prof].unique():
                     for p in entry.split('&'):
@@ -403,56 +403,51 @@ if df is not None:
                         if clean_p and clean_p not in ["nan", "Non défini"]:
                             all_profs.append(clean_p)
                 liste_profs = sorted(list(set(all_profs)))
-                idx_p = liste_profs.index(u_nom) if u_nom in liste_profs else 0
-                prof_sel = st.selectbox("🔍 Mode Administrateur - Consulter :", liste_profs, index=idx_p)
+                
+                st.success("✅ Accès Administrateur Maître (milouafarid@gmail.com)")
+                prof_sel = st.selectbox("🔍 Choisir un enseignant à visualiser :", liste_profs)
             else:
-                # Les autres voient uniquement leur nom (Confidentialité)
+                # Pour tous les autres, accès verrouillé à leur propre nom
                 prof_sel = u_nom
-                st.info(f"🔑 Session sécurisée : **{u_nom}**")
+                st.info(f"👤 Espace Enseignant : **{u_nom}**")
 
-            # Filtrage des données
+            # Filtrage des données basé sur la sélection ou l'identité
             df_u_surv = df_surv[df_surv[c_prof].str.contains(prof_sel, case=False, na=False)].sort_values(by='Date_Tri')
             
-            st.markdown(f"### 📊 Planning de surveillance : {prof_sel}")
+            st.markdown(f"### 📋 Planning de : {prof_sel}")
             
-            # Statistiques rapides
+            # Métriques
             c1, c2, c3 = st.columns(3)
             nb_mat = len(df_u_surv[df_u_surv['Heure'].str.contains("08h|09h|10h", case=False)])
-            c1.metric("Total Séances", f"{len(df_u_surv)}")
-            c2.metric("Matinée", nb_mat)
+            c1.metric("Total Séances", len(df_u_surv))
+            c2.metric("Matin", nb_mat)
             c3.metric("Après-midi", len(df_u_surv) - nb_mat)
             
             st.divider()
 
-            # --- AFFICHAGE ---
-            if is_super_admin:
-                t1, t2 = st.tabs(["📋 Fiche Individuelle", "🌐 Vue d'ensemble Globale"])
+            # Affichage pour l'utilisateur
+            if not df_u_surv.empty:
+                for _, r in df_u_surv.iterrows():
+                    st.markdown(f"""
+                    <div style="background:#f9f9f9;padding:12px;border-radius:8px;border-left:5px solid #1E3A8A;margin-bottom:8px;box-shadow: 2px 2px 5px rgba(0,0,0,0.05);">
+                        <span style="font-weight:bold;color:#1E3A8A;">📅 {r['Jour']} {r['Date']}</span> | 🕒 {r['Heure']}<br>
+                        <b>📖 {r['Matière']}</b><br>
+                        <small>📍 {r['Salle']} | 🎓 {r['Promotion']} | 👥 {r[c_prof]}</small>
+                    </div>""", unsafe_allow_html=True)
+                
+                # Exportation Excel
+                buf = io.BytesIO()
+                df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
+                st.download_button(f"📥 Exporter le planning de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
             else:
-                t1 = st.container()
-                t2 = None
+                st.warning(f"Aucune donnée enregistrée pour {prof_sel}.")
 
-            with t1:
-                if not df_u_surv.empty:
-                    for _, r in df_u_surv.iterrows():
-                        st.markdown(f"""
-                        <div style="background:#f0f2f6;padding:15px;border-radius:10px;border-left:5px solid #1E3A8A;margin-bottom:10px;">
-                            <span style="font-weight:bold;color:#1E3A8A;">📅 {r['Jour']} {r['Date']}</span> | 🕒 {r['Heure']}<br>
-                            <b>📖 {r['Matière']}</b><br>
-                            <small>📍 {r['Salle']} | 🎓 {r['Promotion']} | 👥 {r[c_prof]}</small>
-                        </div>""", unsafe_allow_html=True)
-                    
-                    # Bouton d'exportation
-                    buf = io.BytesIO()
-                    df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
-                    st.download_button(f"📥 Télécharger au format Excel", buf.getvalue(), f"Surveillances_{prof_sel}.xlsx")
-                else:
-                    st.warning(f"Aucune donnée trouvée pour {prof_sel}.")
-
-            if is_super_admin and t2:
-                with t2:
+            # Vue globale réservée à l'administrateur en bas de page
+            if is_master_admin:
+                with st.expander("🌐 Voir le tableau global de toutes les surveillances"):
                     st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
         else:
-            st.error("Le fichier 'surveillances_2026.xlsx' est introuvable sur le serveur.")
+            st.error("Le fichier 'surveillances_2026.xlsx' est manquant.")
 
     elif portail == "🤖 Générateur Automatique":
         if not is_admin:
@@ -670,6 +665,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
