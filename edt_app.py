@@ -496,51 +496,52 @@ if st.button("🚪 Déconnexion du compte"):
 # --- ESPACE ÉDITEUR AVANCÉ (ADMIN UNIQUEMENT) ---
 if is_admin and mode_view == "✍️ Éditeur de données":
     st.divider()
-    # Rappel du titre officiel
     st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-    st.info("Mode Édition : La disposition respecte l'ordre Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion.")
 
-    # 1. PRÉPARATION DES OPTIONS (Pour éviter le NameError)
-    # On extrait les listes uniques de notre DataFrame actuel
-    opts_mat = sorted(df["Enseignements"].dropna().unique().tolist())
-    opts_ens = sorted(df["Enseignants"].dropna().unique().tolist())
-    opts_lieux = sorted(df["Lieu"].dropna().unique().tolist())
-    opts_promos = sorted(df["Promotion"].dropna().unique().tolist())
+    # 1. RÉCUPÉRATION DYNAMIQUE DES OPTIONS (Évite les colonnes vides)
+    def get_options(column_name, defaults=[]):
+        if column_name in df.columns:
+            # On récupère les valeurs uniques, on enlève les vides (nan) et on trie
+            existing = df[column_name].dropna().unique().tolist()
+            return sorted(list(set(existing + defaults)))
+        return sorted(defaults)
+
+    # Définition des listes
+    opts_mat = get_options("Enseignements")
+    opts_ens = get_options("Enseignants")
+    opts_lieux = get_options("Lieu")
+    opts_promos = get_options("Promotion")
     
-    # Listes standards
-    jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-    horaires_std = [
-        "8h - 9h30", "9h30 - 11h", "11h - 12h30", 
-        "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"
-    ]
+    # Pour les horaires et jours, on mélange l'existant + le standard
+    horaires_ref = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
+    opts_horaire = get_options("Horaire", horaires_ref)
+    
+    jours_ref = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+    opts_jours = get_options("Jours", jours_ref)
 
-    # 2. INITIALISATION DU DICTIONNAIRE DE CODES (Pour l'auto-remplissage)
-    dict_mat_code = {}
-    if 'Enseignements' in df.columns and 'Code' in df.columns:
-        valid_pairs = df.dropna(subset=['Enseignements', 'Code'])
-        dict_mat_code = pd.Series(valid_pairs.Code.values, index=valid_pairs.Enseignements).to_dict()
-
-    # 3. RECHERCHE ET FILTRAGE
+    # 2. CONFIGURATION DES COLONNES (Disposition demandée)
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
-    search_query = st.text_input("🔍 Rechercher une ligne :", placeholder="Matière, Enseignant, Salle...")
     
+    # 3. RECHERCHE
+    search_query = st.text_input("🔍 Filtrer le tableau :", placeholder="Rechercher...")
     df_to_edit = df[cols_format].copy()
+    
     if search_query:
         mask = df_to_edit.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
         df_to_edit = df_to_edit[mask]
 
-    # 4. L'ÉDITEUR DE DONNÉES (Interactif)
+    # 4. L'ÉDITEUR AVEC OPTIONS DYNAMIQUES
     edited_df = st.data_editor(
         df_to_edit,
         use_container_width=True,
         num_rows="dynamic",
-        key="admin_editor_2026",
+        key="admin_editor_2026_v2",
         column_config={
-            "Enseignements": st.column_config.SelectboxColumn("📚 Matière", options=opts_mat, required=True),
-            "Code": st.column_config.TextColumn("🔑 Code", help="Saisir ou laisser vide pour auto-remplissage"),
+            "Enseignements": st.column_config.SelectboxColumn("📚 Matière", options=opts_mat),
+            "Code": st.column_config.TextColumn("🔑 Code"),
             "Enseignants": st.column_config.SelectboxColumn("👤 Enseignants", options=opts_ens),
-            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=horaires_std),
-            "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
+            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=opts_horaire), # Utilise la liste mixée
+            "Jours": st.column_config.SelectboxColumn("📅 Jours", options=opts_jours),
             "Lieu": st.column_config.SelectboxColumn("📍 Lieu", options=opts_lieux),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
         }
@@ -929,4 +930,5 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
