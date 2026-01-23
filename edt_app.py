@@ -626,12 +626,12 @@ if df is not None:
                             st.session_state.df_genere.to_excel(writer, index=False)
                         st.download_button("📥 EXPORTER LE PLANNING", xlsx_buf.getvalue(), "Planning_Surveillances_2026.xlsx")
                     elif portail == "👥 Portail Enseignants":
-            # --- 🛡️ VERROU DE SÉCURITÉ ADMIN ---
+            # --- 🛡️ VERROU DE SÉCURITÉ ADMIN (Indentation 12 espaces) ---
             if not is_admin:
+                # (Indentation 16 espaces)
                 st.error("🚫 ACCÈS RESTREINT : Seule l'administration peut accéder à l'envoi des EDTs.")
                 st.stop()
-            
-            # Si is_admin est vrai, le code continue ici au même niveau que le IF
+
             st.header("🏢 Répertoire et Envoi Automatisé des EDTs")
 
             # 1. RÉCUPÉRATION DES DONNÉES (SUPABASE + EXCEL)
@@ -711,7 +711,7 @@ if df is not None:
                                 <body style="font-family: Arial, sans-serif;">
                                     <h3>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h3>
                                     <p>Bonjour M. <b>{nom_prof}</b>,</p>
-                                    <p>Voici votre emploi du temps pour le second semestre 2026 :</p>
+                                    <p>Voici votre emploi du temps personnalisé pour le second semestre 2026 :</p>
                                     {df_mail.to_html(index=False, border=1, justify='center')}
                                     <p><br>Cordialement,<br>L'Administration</p>
                                 </body>
@@ -739,12 +739,6 @@ if df is not None:
             p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
             st.info(f"Emploi du temps : **{p_etu}**")
             
-            # Disposition spécifique pour les étudiants (sans la colonne promo répétée)
+            # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu
             disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
             st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
-
-# --- FIN DU SCRIPT ---
-
-
-
-
