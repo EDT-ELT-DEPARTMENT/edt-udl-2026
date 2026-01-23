@@ -217,32 +217,28 @@ if not st.session_state["user_data"]:
                 st.rerun()
             else:
                 st.error("Code admin incorrect.")
-# --- VARIABLES GLOBALES ---
-user = st.session_state["user_data"]
+# --- SOLUTIONS AUX ERREURS (Remplace le bloc supprimé) ---
+user = st.session_state.get("user_data")
+
+# Le st.stop() est le gardien : si pas de login, on n'affiche pas la suite
+if user is None:
+    st.stop() 
+
 is_admin = user.get("role") == "admin"
 
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-horaires_list = [
-    "8h - 9h30", 
-    "9h30 - 11h", 
-    "11h - 12h30", 
-    "12h30 - 14h", 
-    "14h - 15h30", 
-    "15h30 - 17h"
-]
+horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
 
 map_h = {normalize(h): h for h in horaires_list}
 map_j = {normalize(j): j for j in jours_list}
 
 # --- BARRE LATÉRALE ---
 with st.sidebar:
-    st.header(f"👤 {user['nom_officiel']}")
+    # On utilise .get() pour éviter le crash si la donnée est corrompue
+    st.header(f"👤 {user.get('nom_officiel', 'Utilisateur')}")
     portail = st.selectbox("🚀 Sélectionner Espace", [
-        "📖 Emploi du Temps", 
-        "📅 Surveillances Examens", 
-        "🤖 Générateur Automatique", 
-        "👥 Portail Enseignants", 
-        "🎓 Portail Étudiants"
+        "📖 Emploi du Temps", "📅 Surveillances Examens", 
+        "🤖 Générateur Automatique", "👥 Portail Enseignants", "🎓 Portail Étudiants"
     ])
     st.divider()
     
@@ -251,12 +247,7 @@ with st.sidebar:
     
     if portail == "📖 Emploi du Temps":
         if is_admin:
-            mode_view = st.radio("Vue Administration :", [
-                "Promotion", 
-                "Enseignant", 
-                "🏢 Planning Salles", 
-                "🚩 Vérificateur de conflits"
-            ])
+            mode_view = st.radio("Vue Administration :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur de conflits"])
         else:
             mode_view = "Personnel"
         poste_sup = st.checkbox("Poste Supérieur (Décharge 3h)")
@@ -264,7 +255,6 @@ with st.sidebar:
     if st.button("🚪 Déconnexion du compte"):
         st.session_state["user_data"] = None
         st.rerun()
-
 # --- EN-TÊTE ---
 st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
 st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
@@ -769,6 +759,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
