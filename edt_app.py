@@ -496,88 +496,58 @@ if st.button("🚪 Déconnexion du compte"):
 # --- ESPACE ÉDITEUR AVANCÉ (ADMIN UNIQUEMENT) ---
 if is_admin and mode_view == "✍️ Éditeur de données":
     st.divider()
-    # Rappel du titre officiel
     st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-    st.info("💡 Note : Vous pouvez maintenant taper librement de nouveaux noms pour les matières, enseignants et salles.")
 
-    # 1. NORMALISATION ET NETTOYAGE (Évite les doublons 08h/8h)
+    # 1. NORMALISATION (Nettoyage des données pour l'affichage)
     if "Horaire" in df.columns:
+        # On uniformise : on enlève les espaces en trop et on transforme "08h" en "8h"
         df["Horaire"] = df["Horaire"].astype(str).str.replace(r'^08h', '8h', regex=True).str.strip()
 
-    # 2. DICTIONNAIRE DE CODES (Pour l'auto-remplissage lors de la sauvegarde)
-    dict_mat_code = {}
-    if 'Enseignements' in df.columns and 'Code' in df.columns:
-        valid_pairs = df[['Enseignements', 'Code']].dropna().drop_duplicates()
-        dict_mat_code = dict(zip(valid_pairs['Enseignements'], valid_pairs['Code']))
+    # 2. RÉCUPÉRATION DYNAMIQUE DES HORAIRES (Crucial pour l'affichage)
+    # On prend les horaires standards ET ceux qui existent déjà dans le fichier
+    horaires_ref = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
+    if "Horaire" in df.columns:
+        existants = df["Horaire"].dropna().unique().tolist()
+        # On fusionne sans doublons
+        liste_horaires_finale = sorted(list(set(existants + horaires_ref)))
+    else:
+        liste_horaires_finale = horaires_ref
 
-    # 3. RÉCUPÉRATION DES OPTIONS STANDARDS
-    horaires_std = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
-    jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-    
-    # On récupère les promotions existantes pour la liste déroulante
+    # 3. OPTIONS POUR LES AUTRES COLONNES
     opts_promos = sorted(df["Promotion"].dropna().unique().tolist()) if "Promotion" in df.columns else []
+    jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
 
-    # 4. CONFIGURATION DES COLONNES ET FILTRAGE
+    # 4. PRÉPARATION DU TABLEAU
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
-    
-    search_query = st.text_input("🔍 Filtrer ou rechercher une ligne :", placeholder="Saisissez un nom, une salle...")
-    
     df_to_edit = df[cols_format].copy()
-    if search_query:
-        mask = df_to_edit.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
-        df_to_edit = df_to_edit[mask]
 
-    # 5. L'ÉDITEUR (Matières, Enseignants et Lieux sont désormais en saisie libre)
+    # 5. L'ÉDITEUR AVEC LA LISTE MISE À JOUR
     edited_df = st.data_editor(
         df_to_edit,
         use_container_width=True,
         num_rows="dynamic",
-        key="admin_editor_2026_libre",
+        key="admin_editor_2026_fix",
         column_config={
-            "Enseignements": st.column_config.TextColumn("📚 Matière (Saisie libre)", help="Tapez le nom de la matière"),
-            "Code": st.column_config.TextColumn("🔑 Code", help="Laisser vide pour auto-remplir"),
-            "Enseignants": st.column_config.TextColumn("👤 Enseignants (Saisie libre)"),
-            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=horaires_std),
+            "Enseignements": st.column_config.TextColumn("📚 Matière"),
+            "Code": st.column_config.TextColumn("🔑 Code"),
+            "Enseignants": st.column_config.TextColumn("👤 Enseignants"),
+            # On utilise la liste fusionnée ici pour que les valeurs existantes s'affichent
+            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
-            "Lieu": st.column_config.TextColumn("📍 Lieu (Saisie libre)"),
+            "Lieu": st.column_config.TextColumn("📍 Lieu"),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
         }
     )
 
-    # 6. BOUTONS D'ACTION
+    # 6. SAUVEGARDE (Inchangée)
     st.write("---")
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-        if st.button("💾 Enregistrer (Excel)", type="primary", use_container_width=True):
-            try:
-                # Auto-remplissage des codes
-                for idx in edited_df.index:
-                    mats = edited_df.at[idx, 'Enseignements']
-                    current_code = str(edited_df.at[idx, 'Code']).strip()
-                    if mats in dict_mat_code and (not current_code or current_code == "nan"):
-                        edited_df.at[idx, 'Code'] = dict_mat_code[mats]
-
-                # Sauvegarde avec disposition officielle : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
-                edited_df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Modifications enregistrées avec succès !")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Erreur lors de la sauvegarde : {e}")
-
-    with c2:
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            edited_df[cols_format].to_excel(writer, index=False)
-        st.download_button("📥 Télécharger XLSX", buffer.getvalue(), "EDT_S2_2026.xlsx", use_container_width=True)
-
-    with c3:
-        if st.button("🖨️ Imprimer", use_container_width=True):
-            st.components.v1.html("<script>window.print();</script>", height=0)
-
-    with c4:
-        if st.button("🔄 Annuler", use_container_width=True):
+    if st.button("💾 Enregistrer (Excel)", type="primary", use_container_width=True):
+        try:
+            edited_df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
+            st.success("✅ Modifications enregistrées !")
             st.rerun()
+        except Exception as e:
+            st.error(f"Erreur : {e}")
 
     st.stop() 
 
@@ -927,6 +897,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
