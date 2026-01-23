@@ -627,7 +627,7 @@ if df is not None:
                         st.download_button("📥 EXPORTER LE PLANNING", xlsx_buf.getvalue(), "Planning_Surveillances_2026.xlsx")
                     elif portail == "👥 Portail Enseignants":
             # --- 🛡️ VERROU DE SÉCURITÉ ADMIN ---
-            if not is_admin:
+                        if not is_admin:
                 st.error("🚫 ACCÈS RESTREINT : Seule l'administration peut accéder à l'envoi des EDTs.")
                 st.stop()
 
@@ -743,5 +743,6 @@ if df is not None:
             st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU SCRIPT ---
+
 
 
