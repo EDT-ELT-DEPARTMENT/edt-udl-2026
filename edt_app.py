@@ -512,16 +512,30 @@ if df is not None:
         else:
             st.header("⚙️ Moteur de Génération de Surveillances")
             
-            # Base de données des effectifs fournie
-            EFFECTIFS_PROMOS = {
-                "L1MCIL": 288, "L2MCIL": 109, "L2ELT": 90, "L3ELT": 70, 
-                "ING1": 50, "ING3EI": 40, "M1MCIL": 34, "MCIL3": 23, 
-                "ING2": 16, "ING3RSE": 16, "M1ER": 16, "M1RE": 15, 
-                "M1ME": 15, "ING4": 15
-            }
+            # --- INITIALISATION ET GESTION DES EFFECTIFS ---
+            # On initialise les effectifs dans la session s'ils n'existent pas
+            if "effectifs_db" not in st.session_state:
+                st.session_state.effectifs_db = {
+                    "L1MCIL": 288, "L2MCIL": 109, "L2ELT": 90, "L3ELT": 70, 
+                    "ING1": 50, "ING3EI": 40, "M1MCIL": 34, "MCIL3": 23, 
+                    "ING2": 16, "ING3RSE": 16, "M1ER": 16, "M1RE": 15, 
+                    "M1ME": 15, "ING4": 15
+                }
 
+            with st.expander("📦 Configuration des Effectifs par Promotion", expanded=False):
+                st.info("Modifiez les valeurs dans le tableau ci-dessous pour mettre à jour les besoins en surveillance.")
+                # Transformation du dictionnaire en DataFrame pour l'édition
+                df_eff = pd.DataFrame(list(st.session_state.effectifs_db.items()), columns=["Promotion", "Nombre d'étudiants"])
+                
+                # Éditeur de tableau interactif
+                edited_df = st.data_editor(df_eff, use_container_width=True, num_rows="dynamic", hide_index=True)
+                
+                if st.button("💾 Sauvegarder les nouveaux effectifs"):
+                    st.session_state.effectifs_db = dict(zip(edited_df["Promotion"], edited_df["Nombre d'étudiants"]))
+                    st.success("Base des effectifs mise à jour !")
+
+            # --- LOGIQUE DE GÉNÉRATION ---
             if "df_genere" not in st.session_state: st.session_state.df_genere = None
-            if "stats_charge" not in st.session_state: st.session_state.stats_charge = {}
             
             SRC = "surveillances_2026.xlsx"
             if not os.path.exists(SRC):
@@ -540,8 +554,7 @@ if df is not None:
                     with col1:
                         ratio_etu = st.number_input("Étudiants par surveillant (Ratio) :", min_value=1, value=25)
                     with col2:
-                        nb_groupes = st.number_input("Nombre de salles/groupes par promotion :", min_value=1, value=1)
-                    st.info("💡 Le système calculera automatiquement le besoin selon les effectifs mémorisés.")
+                        nb_groupes = st.number_input("Nombre de salles par promotion :", min_value=1, value=1)
 
                 with st.expander("⚖️ Quotas & Plafonnement", expanded=False):
                     cl1, cl2 = st.columns(2)
@@ -566,12 +579,12 @@ if df is not None:
                             df_p = df_src[df_src['Promotion'] == p_name].copy()
                             if d_exam: df_p = df_p[df_p['Date'].isin(d_exam)]
                             
-                            eff_total = EFFECTIFS_PROMOS.get(p_name, 30)
+                            # Utilisation des effectifs modifiables (valeur par défaut 30 si supprimé par erreur)
+                            eff_total = st.session_state.effectifs_db.get(p_name, 30)
                             
                             for _, row in df_p.iterrows():
                                 for g_idx in range(1, int(nb_groupes) + 1):
                                     eff_salle = eff_total // nb_groupes
-                                    # Règle : minimum 2 surveillants, sinon selon ratio
                                     nb_requis = max(2, (eff_salle // ratio_etu) + (1 if eff_salle % ratio_etu > 0 else 0))
                                     
                                     equipe = []
@@ -589,8 +602,6 @@ if df is not None:
                                                 tracker.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
                                     
                                     nom_final = f"{p_name} (S{g_idx})" if nb_groupes > 1 else p_name
-                                    
-                                    # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
                                     res_list.append({
                                         "Enseignements": row['Matière'],
                                         "Code": "N/A",
@@ -601,26 +612,18 @@ if df is not None:
                                         "Promotion": nom_final
                                     })
                         
-                        st.session_state.stats_charge = stats
                         st.session_state.df_genere = pd.DataFrame(res_list)
                         st.rerun()
 
                 # --- AFFICHAGE ET EXPORT ---
                 if st.session_state.df_genere is not None:
                     st.divider()
-                    st.subheader("📋 Planning Généré")
                     st.dataframe(st.session_state.df_genere, use_container_width=True, hide_index=True)
                     
                     xlsx_buf = io.BytesIO()
                     with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
-                        st.session_state.df_genere.to_excel(writer, index=False, sheet_name='Surveillances')
-                    
-                    st.download_button(
-                        label="📥 EXPORTER LE PLANNING (.XLSX)",
-                        data=xlsx_buf.getvalue(),
-                        file_name="Planning_Surveillances_Généré.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                        st.session_state.df_genere.to_excel(writer, index=False)
+                    st.download_button("📥 EXPORTER (.XLSX)", xlsx_buf.getvalue(), "Planning_Surveillances.xlsx")
     elif portail == "👥 Portail Enseignants":
         # --- 🛡️ VERROU DE SÉCURITÉ ADMIN ---
         if not is_admin:
@@ -744,6 +747,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
