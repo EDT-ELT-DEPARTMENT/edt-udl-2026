@@ -266,54 +266,80 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.header("✍️ Éditeur de Données Source")
     st.info(f"Fichier : {NOM_FICHIER_FIXE}")
 
-    # 1. Recherche
-    search_q = st.text_input("🔍 Rechercher (Enseignant, Salle, Promotion...)", placeholder="Filtrer avant de modifier...")
+    # 1. Préparation des listes déroulantes (Options)
+    # Vous pouvez personnaliser ces listes selon vos besoins exacts
+    liste_jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+    liste_horaires = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
+    liste_promos = sorted(list(df["Promotion"].unique())) if df is not None else []
+    liste_lieux = sorted(list(df["Lieu"].unique())) if df is not None else []
 
-    # 2. Colonnes à gérer
-    cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
-    
-    # On s'assure que le DF contient ces colonnes
+    # 2. Recherche
+    search_q = st.text_input("🔍 Rechercher une ligne :", placeholder="Filtrer avant de modifier...")
+
+    # 3. Colonnes et Sécurité
+    cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
+    for col in cols_format:
+        if col not in df.columns: df[col] = ""
+
     df_to_edit = df[cols_format].copy()
-
-    # 3. Filtrage
     if search_q:
         mask = df_to_edit.apply(lambda row: row.astype(str).str.contains(search_q, case=False).any(), axis=1)
         df_edit_filtered = df_to_edit[mask]
     else:
         df_edit_filtered = df_to_edit
 
-    # 4. L'éditeur visuel
+    # 4. CONFIGURATION DES LISTES DÉROULANTES DANS LE TABLEAU
     edited_df = st.data_editor(
-        df_edit_filtered, 
-        use_container_width=True, 
-        num_rows="dynamic",
-        key="admin_editor_main"
+        df_edit_filtered,
+        use_container_width=True,
+        num_rows="dynamic", # Permet d'ajouter/supprimer des lignes
+        key="admin_editor_select_v4",
+        column_config={
+            "Jours": st.column_config.SelectboxColumn(
+                "📅 Jours",
+                options=liste_jours,
+                required=True,
+            ),
+            "Horaire": st.column_config.SelectboxColumn(
+                "🕒 Horaire",
+                options=liste_horaires,
+                required=True,
+            ),
+            "Lieu": st.column_config.SelectboxColumn(
+                "📍 Lieu",
+                options=liste_lieux,
+            ),
+            "Promotion": st.column_config.SelectboxColumn(
+                "🎓 Promotion",
+                options=liste_promos,
+            ),
+            "Chevauchement": st.column_config.SelectboxColumn(
+                "⚠️ État",
+                options=["", "CONFLIT SALLE", "CONFLIT ENSEIGNANT", "DOUBLE"],
+            )
+        }
     )
 
-    # 5. Boutons de sauvegarde
+    # 5. Sauvegarde
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("💾 Sauvegarder dans l'Excel", use_container_width=True):
+        if st.button("💾 Enregistrer les modifications", use_container_width=True):
             try:
-                # Mise à jour du DataFrame original
                 if search_q:
                     df.update(edited_df)
                 else:
                     df = edited_df
                 
-                # Sauvegarde physique
                 df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Modifications enregistrées avec succès !")
-                st.balloons()
+                st.success("✅ Fichier Excel mis à jour !")
                 st.rerun()
             except Exception as e:
-                st.error(f"Erreur de sauvegarde : {e}")
+                st.error(f"Erreur : {e}")
     
     with c2:
         if st.button("🔄 Annuler", use_container_width=True):
             st.rerun()
 
-    # TRÈS IMPORTANT : Le stop empêche l'affichage de l'en-tête et du reste
     st.stop() 
 
 # --- EN-TÊTE --- (Le reste de votre code existant...)
@@ -938,6 +964,7 @@ elif portail == "🎓 Portail Étudiants":
 else:
     st.error(f"Fichier {NOM_FICHIER_FIXE} introuvable.")
 # --- FIN DU CODE ---
+
 
 
 
