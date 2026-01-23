@@ -266,24 +266,33 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.header("✍️ Éditeur de Données Source")
     st.info(f"Fichier : {NOM_FICHIER_FIXE}")
 
-    # 1. RÉCUPÉRATION DYNAMIQUE DES OPTIONS (Pour éviter les colonnes vides)
-    # On prend ce qui existe dans le fichier + nos options par défaut
-    def get_options(column_name, default_list):
+    # 1. RÉCUPÉRATION DES OPTIONS ET DICTIONNAIRE MATIÈRE-CODE
+    # On crée une correspondance basée sur ce qui existe déjà dans le fichier
+    if "Enseignements" in df.columns and "Code" in df.columns:
+        dict_mat_code = df.dropna(subset=['Enseignements', 'Code']).set_index('Enseignements')['Code'].to_dict()
+    else:
+        dict_mat_code = {}
+
+    def get_clean_options(column_name, default_list):
         if column_name in df.columns:
-            existing = df[column_name].dropna().unique().tolist()
-            return sorted(list(set(existing + default_list)))
+            existing = df[column_name].dropna().astype(str).unique().tolist()
+            return sorted(list(set([x.strip() for x in existing if x.strip()] + default_list)))
         return default_list
 
-    opts_jours = get_options("Jours", ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"])
-    opts_horaires = get_options("Horaire", ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"])
-    opts_lieux = get_options("Lieu", [])
-    opts_promos = get_options("Promotion", [])
-    opts_enseignants = get_options("Enseignants", [])
+    horaires_standards = ["8h-9h30", "9h30-11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30-17h"]
+    jours_standards = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+
+    opts_matieres = get_clean_options("Enseignements", [])
+    opts_jours = get_clean_options("Jours", jours_standards)
+    opts_horaires = get_clean_options("Horaire", horaires_standards)
+    opts_lieux = get_clean_options("Lieu", [])
+    opts_promos = get_clean_options("Promotion", [])
+    opts_enseignants = get_clean_options("Enseignants", [])
 
     # 2. Recherche
-    search_q = st.text_input("🔍 Rechercher une ligne :", placeholder="Tapez un nom, une salle...")
+    search_q = st.text_input("🔍 Rechercher une ligne :", placeholder="Nom, Salle, Promo...")
 
-    # 3. Colonnes et Sécurité
+    # 3. Préparation du DataFrame avec styles pour les conflits
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
     for col in cols_format:
         if col not in df.columns: df[col] = ""
@@ -295,34 +304,50 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     else:
         df_edit_filtered = df_to_edit
 
-    # 4. CONFIGURATION DE L'ÉDITEUR (SelectboxColumn corrigé)
+    # --- LOGIQUE DE COULEURS POUR LES CONFLITS ---
+    def color_conflict(val):
+        if val and str(val).strip() != "":
+            return 'background-color: #ffcccc; color: #990000; font-weight: bold' # Rouge clair pour conflit
+        return ''
+
+    styled_df = df_edit_filtered.style.applymap(color_conflict, subset=['Chevauchement'])
+
+    # 4. ÉDITEUR AVEC LISTE DÉROULANTE MATIÈRE
     edited_df = st.data_editor(
-        df_edit_filtered,
+        styled_df,
         use_container_width=True,
         num_rows="dynamic",
-        key="admin_editor_v5_dynamic",
+        key="admin_editor_v7_final",
         column_config={
+            "Enseignements": st.column_config.SelectboxColumn("📚 Matière", options=opts_matieres),
+            "Code": st.column_config.TextColumn("🔑 Code (Auto)", help="Se remplit selon la matière"),
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=opts_jours),
             "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=opts_horaires),
             "Lieu": st.column_config.SelectboxColumn("📍 Lieu", options=opts_lieux),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
             "Enseignants": st.column_config.SelectboxColumn("👤 Enseignants", options=opts_enseignants),
-            "Chevauchement": st.column_config.SelectboxColumn("⚠️ État", options=["", "CONFLIT SALLE", "CONFLIT ENSEIGNANT", "DOUBLE"])
+            "Chevauchement": st.column_config.TextColumn("⚠️ Conflit Detecté", disabled=True)
         }
     )
 
-    # 5. Sauvegarde
+    # 5. AUTOMATISATION DU CODE ET SAUVEGARDE
     c1, c2 = st.columns(2)
     with c1:
         if st.button("💾 Enregistrer les modifications", use_container_width=True):
             try:
+                # Avant de sauvegarder, on applique le code auto si vide
+                for idx, row in edited_df.iterrows():
+                    mats = row['Enseignements']
+                    if mats in dict_mat_code and (not row['Code'] or str(row['Code']).strip() == ""):
+                        edited_df.at[idx, 'Code'] = dict_mat_code[mats]
+
                 if search_q:
                     df.update(edited_df)
                 else:
                     df = edited_df
                 
                 df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Modifications enregistrées !")
+                st.success("✅ Données mises à jour avec codes automatiques !")
                 st.rerun()
             except Exception as e:
                 st.error(f"Erreur : {e}")
@@ -955,6 +980,7 @@ elif portail == "🎓 Portail Étudiants":
 else:
     st.error(f"Fichier {NOM_FICHIER_FIXE} introuvable.")
 # --- FIN DU CODE ---
+
 
 
 
