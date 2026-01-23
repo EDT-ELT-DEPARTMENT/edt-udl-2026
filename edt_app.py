@@ -266,15 +266,22 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.header("✍️ Éditeur de Données Source")
     st.info(f"Fichier : {NOM_FICHIER_FIXE}")
 
-    # 1. Préparation des listes déroulantes (Options)
-    # Vous pouvez personnaliser ces listes selon vos besoins exacts
-    liste_jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-    liste_horaires = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
-    liste_promos = sorted(list(df["Promotion"].unique())) if df is not None else []
-    liste_lieux = sorted(list(df["Lieu"].unique())) if df is not None else []
+    # 1. RÉCUPÉRATION DYNAMIQUE DES OPTIONS (Pour éviter les colonnes vides)
+    # On prend ce qui existe dans le fichier + nos options par défaut
+    def get_options(column_name, default_list):
+        if column_name in df.columns:
+            existing = df[column_name].dropna().unique().tolist()
+            return sorted(list(set(existing + default_list)))
+        return default_list
+
+    opts_jours = get_options("Jours", ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"])
+    opts_horaires = get_options("Horaire", ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"])
+    opts_lieux = get_options("Lieu", [])
+    opts_promos = get_options("Promotion", [])
+    opts_enseignants = get_options("Enseignants", [])
 
     # 2. Recherche
-    search_q = st.text_input("🔍 Rechercher une ligne :", placeholder="Filtrer avant de modifier...")
+    search_q = st.text_input("🔍 Rechercher une ligne :", placeholder="Tapez un nom, une salle...")
 
     # 3. Colonnes et Sécurité
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
@@ -288,35 +295,19 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     else:
         df_edit_filtered = df_to_edit
 
-    # 4. CONFIGURATION DES LISTES DÉROULANTES DANS LE TABLEAU
+    # 4. CONFIGURATION DE L'ÉDITEUR (SelectboxColumn corrigé)
     edited_df = st.data_editor(
         df_edit_filtered,
         use_container_width=True,
-        num_rows="dynamic", # Permet d'ajouter/supprimer des lignes
-        key="admin_editor_select_v4",
+        num_rows="dynamic",
+        key="admin_editor_v5_dynamic",
         column_config={
-            "Jours": st.column_config.SelectboxColumn(
-                "📅 Jours",
-                options=liste_jours,
-                required=True,
-            ),
-            "Horaire": st.column_config.SelectboxColumn(
-                "🕒 Horaire",
-                options=liste_horaires,
-                required=True,
-            ),
-            "Lieu": st.column_config.SelectboxColumn(
-                "📍 Lieu",
-                options=liste_lieux,
-            ),
-            "Promotion": st.column_config.SelectboxColumn(
-                "🎓 Promotion",
-                options=liste_promos,
-            ),
-            "Chevauchement": st.column_config.SelectboxColumn(
-                "⚠️ État",
-                options=["", "CONFLIT SALLE", "CONFLIT ENSEIGNANT", "DOUBLE"],
-            )
+            "Jours": st.column_config.SelectboxColumn("📅 Jours", options=opts_jours),
+            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=opts_horaires),
+            "Lieu": st.column_config.SelectboxColumn("📍 Lieu", options=opts_lieux),
+            "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
+            "Enseignants": st.column_config.SelectboxColumn("👤 Enseignants", options=opts_enseignants),
+            "Chevauchement": st.column_config.SelectboxColumn("⚠️ État", options=["", "CONFLIT SALLE", "CONFLIT ENSEIGNANT", "DOUBLE"])
         }
     )
 
@@ -331,7 +322,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
                     df = edited_df
                 
                 df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Fichier Excel mis à jour !")
+                st.success("✅ Modifications enregistrées !")
                 st.rerun()
             except Exception as e:
                 st.error(f"Erreur : {e}")
@@ -964,6 +955,7 @@ elif portail == "🎓 Portail Étudiants":
 else:
     st.error(f"Fichier {NOM_FICHIER_FIXE} introuvable.")
 # --- FIN DU CODE ---
+
 
 
 
