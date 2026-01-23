@@ -892,113 +892,137 @@ elif portail == "🎓 Portail Étudiants":
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
         # --- ESPACE ÉDITEUR AVANCÉ (ADMIN UNIQUEMENT) ---
-        if is_admin:
-            st.divider()
-            st.subheader("✍️ Espace Éditeur de Données (Admin)")
-            
-            # 1. Recherche et Filtre
-            search_query = st.text_input("🔍 Rechercher une ligne à modifier :", placeholder="Tapez un nom d'enseignant, une salle ou un code...")
+if is_admin:
+    st.divider()
+    st.subheader("✍️ Espace Éditeur de Données (Admin)")
 
-            # Définition de la structure stricte
-            cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
-            
-            # Initialisation de la colonne Chevauchement si elle n'existe pas
-            for col in cols_format:
-                if col not in df.columns:
-                    df[col] = ""
+    # 1. INITIALISATION SÉCURISÉE (Correction de l'erreur dict_mat_code)
+    dict_mat_code = {} 
+    if 'Enseignements' in df.columns and 'Code' in df.columns:
+        valid_pairs = df.dropna(subset=['Enseignements', 'Code'])
+        if not valid_pairs.empty:
+            dict_mat_code = pd.Series(valid_pairs.Code.values, index=valid_pairs.Enseignements).to_dict()
 
-            # Filtrage dynamique pour l'éditeur
-            if search_query:
-                mask = df[cols_format].apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
-                df_to_edit = df[mask].copy()
-            else:
-                df_to_edit = df[cols_format].copy()
+    # 2. PRÉPARATION DES LISTES DÉROULANTES
+    def get_clean_options(column_name, default_list):
+        if column_name in df.columns:
+            existing = df[column_name].dropna().astype(str).unique().tolist()
+            return sorted(list(set([x.strip() for x in existing if x.strip()] + default_list)))
+        return default_list
 
-            st.info(f"💡 Edition de {len(df_to_edit)} ligne(s). Pour ajouter un cours, utilisez la ligne '*' en bas.")
+    opts_mat = get_clean_options("Enseignements", [])
+    opts_ens = get_clean_options("Enseignants", [])
+    opts_lieux = get_clean_options("Lieu", [])
+    opts_promos = get_clean_options("Promotion", [])
+    horaires_std = ["8h-9h30", "9h30-11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30-17h"]
+    jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
 
-            # 2. L'Éditeur de données
-            edited_df = st.data_editor(
-                df_to_edit, 
-                use_container_width=True, 
-                num_rows="dynamic",
-                key="admin_master_editor"
-            )
+    # 3. RECHERCHE ET FILTRAGE
+    search_query = st.text_input("🔍 Rechercher une ligne :", placeholder="Tapez un nom, une salle ou un code...")
+    cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
+    
+    # Création de la vue éditable
+    if search_query:
+        mask = df[cols_format].apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
+        df_to_edit = df[mask].copy()
+    else:
+        df_to_edit = df[cols_format].copy()
 
-            # 3. Validation des champs obligatoires
-            champs_requis = ['Enseignements', 'Horaire', 'Jours', 'Lieu', 'Promotion']
-            lignes_invalides = edited_df[edited_df[champs_requis].isnull().any(axis=1) | (edited_df[champs_requis] == "").any(axis=1)]
+    st.info(f"💡 Edition de {len(df_to_edit)} ligne(s).")
 
-            if not lignes_invalides.empty:
-                st.warning(f"⚠️ {len(lignes_invalides)} ligne(s) incomplètes. La sauvegarde est bloquée jusqu'à correction.")
+    # 4. L'ÉDITEUR DE DONNÉES (Avec colonnes intelligentes)
+    edited_df = st.data_editor(
+        df_to_edit,
+        use_container_width=True,
+        num_rows="dynamic",
+        key="admin_master_editor_v2026",
+        column_config={
+            "Enseignements": st.column_config.SelectboxColumn("📚 Matière", options=opts_mat),
+            "Code": st.column_config.TextColumn("🔑 Code (Auto)"),
+            "Enseignants": st.column_config.SelectboxColumn("👤 Enseignants", options=opts_ens),
+            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=horaires_std),
+            "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
+            "Lieu": st.column_config.SelectboxColumn("📍 Lieu", options=opts_lieux),
+            "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
+            "Chevauchement": st.column_config.TextColumn("🚨 État", disabled=True)
+        }
+    )
 
-            # 4. Boutons d'Action
-            col_save, col_reset = st.columns(2)
-            
-            with col_save:
-                save_disabled = not lignes_invalides.empty
-                if st.button("💾 Sauvegarder les modifications", use_container_width=True, disabled=save_disabled):
-                    try:
-                        # Gestion Backup
-                        if not os.path.exists("backups"): os.makedirs("backups")
-                        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        backup_path = f"backups/backup_EDT_{ts}.xlsx"
-                        if os.path.exists(NOM_FICHIER_FIXE):
-                            import shutil
-                            shutil.copy(NOM_FICHIER_FIXE, backup_path)
+    # 5. BOUTONS D'ACTION (Alignés sur 4 colonnes)
+    st.write("---")
+    c1, c2, c3, c4 = st.columns(4)
 
-                        # Mise à jour du DataFrame Global
-                        if search_query:
-                            df.update(edited_df)
-                        else:
-                            df = edited_df
+    with c1:
+        if st.button("💾 Sauvegarder", use_container_width=True):
+            try:
+                # GESTION BACKUP (Votre logique conservée)
+                if not os.path.exists("backups"): os.makedirs("backups")
+                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                import shutil
+                shutil.copy(NOM_FICHIER_FIXE, f"backups/backup_EDT_{ts}.xlsx")
 
-                        # Sauvegarde Excel
-                        df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
+                # AUTO-REMPLISSAGE DES CODES
+                for idx, row in edited_df.iterrows():
+                    mats = row['Enseignements']
+                    if mats in dict_mat_code and (not str(row['Code']).strip()):
+                        edited_df.at[idx, 'Code'] = dict_mat_code[mats]
 
-                        # Log de l'opération
-                        log_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                        with open("log_modifications.txt", "a", encoding="utf-8") as f:
-                            f.write(f"[{log_time}] - MAJ par {user_email} | Backup: {ts}\n")
+                # MISE À JOUR DU DATAFRAME GLOBAL
+                if search_query: df.update(edited_df)
+                else: df = edited_df
 
-                        st.success("✅ Modifications enregistrées et synchronisées !")
-                        st.balloons()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Erreur : {e}")
+                # SAUVEGARDE EXCEL
+                df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
 
-            with col_reset:
-                if st.button("🔄 Annuler / Rafraîchir", use_container_width=True):
-                    st.rerun()
+                # JOURNALISATION (Log)
+                log_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                with open("log_modifications.txt", "a", encoding="utf-8") as f:
+                    f.write(f"[{log_time}] - MAJ par {user_email} | Backup: {ts}\n")
 
-            # --- OUTILS DE MAINTENANCE ---
-            st.divider()
-            col_log, col_back = st.columns(2)
+                st.success("✅ Modifications enregistrées et synchronisées !")
+                st.balloons()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erreur : {e}")
 
-            with col_log:
-                with st.expander("📜 Journal des modifications"):
-                    if os.path.exists("log_modifications.txt"):
-                        with open("log_modifications.txt", "r") as f:
-                            logs = f.readlines()
-                            for l in reversed(logs[-5:]): st.text(l.strip())
-                    else: st.write("Aucun log.")
+    with c2:
+        # EXPORT EXCEL POUR L'UTILISATEUR
+        import io
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            edited_df.to_excel(writer, index=False, sheet_name='EDT_Export')
+        st.download_button("📥 Télécharger XLSX", buffer.getvalue(), f"EDT_ELT_S2_{datetime.now().strftime('%d_%m')}.xlsx", use_container_width=True)
 
-            with col_back:
-                with st.expander("📂 Restauration & Nettoyage"):
-                    if os.path.exists("backups"):
-                        backups = sorted(os.listdir("backups"), reverse=True)
-                        selected_b = st.selectbox("Fichiers disponibles :", backups)
-                        if st.button("🧹 Nettoyer les backups > 30 jours"):
-                            import time
-                            now = time.time()
-                            for f in os.listdir("backups"):
-                                if os.stat(f"backups/{f}").st_mtime < now - (30*86400):
-                                    os.remove(f"backups/{f}")
-                            st.success("Nettoyage effectué.")
-                    else: st.write("Dossier backup vide.")
+    with c3:
+        # IMPRESSION
+        if st.button("🖨️ Imprimer la vue", use_container_width=True):
+            st.components.v1.html("<script>window.print();</script>", height=0)
+
+    with c4:
+        # ANNULATION / REFRESH
+        if st.button("🔄 Annuler", use_container_width=True):
+            st.rerun()
+
+    # --- JOURNAL ET MAINTENANCE (En bas de page) ---
+    st.divider()
+    col_log, col_back = st.columns(2)
+    with col_log:
+        with st.expander("📜 Journal des modifications"):
+            if os.path.exists("log_modifications.txt"):
+                with open("log_modifications.txt", "r") as f:
+                    logs = f.readlines()
+                    for l in reversed(logs[-5:]): st.text(l.strip())
+    with col_back:
+        with st.expander("📂 Restauration des Backups"):
+            if os.path.exists("backups"):
+                backups = sorted(os.listdir("backups"), reverse=True)
+                st.selectbox("Derniers backups :", backups[:10])
+                st.caption("Pour restaurer, contactez le support ou remplacez le fichier manuellement.")
+
+    st.stop() # Empêche l'affichage du reste de la page pour l'admin
 
 else:
-    st.error(f"Fichier {NOM_FICHIER_FIXE} introuvable.")
-# --- FIN DU CODE ---
+    st.error(f"Accès refusé ou fichier {NOM_FICHIER_FIXE} introuvable.")
 
 
 
