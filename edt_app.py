@@ -219,8 +219,7 @@ if not st.session_state["user_data"]:
                 st.error("Code admin incorrect.")
 # --- VARIABLES GLOBALES ---
 user = st.session_state["user_data"]
-# Correction sécurisée
-is_admin = user is not None and user.get("role") == "admin"
+is_admin = user.get("role") == "admin"
 
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
 horaires_list = [
@@ -237,11 +236,7 @@ map_j = {normalize(j): j for j in jours_list}
 
 # --- BARRE LATÉRALE ---
 with st.sidebar:
-    # Correction sécurisée de l'affichage du profil
-if user and "nom_officiel" in user:
     st.header(f"👤 {user['nom_officiel']}")
-else:
-    st.header("👤 Profil invité")
     portail = st.selectbox("🚀 Sélectionner Espace", [
         "📖 Emploi du Temps", 
         "📅 Surveillances Examens", 
@@ -774,8 +769,6 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
-
-
 
 
 
