@@ -507,238 +507,246 @@ if df is not None:
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
     elif portail == "🤖 Générateur Automatique":
-            if not is_admin:
-                st.error("Accès réservé au Bureau des Examens.")
+        if not is_admin:
+            st.error("Accès réservé au Bureau des Examens.")
+        else:
+            st.header("⚙️ Moteur de Génération de Surveillances")
+            if "df_genere" not in st.session_state: st.session_state.df_genere = None
+            if "stats_charge" not in st.session_state: st.session_state.stats_charge = {}
+            
+            SRC = "surveillances_2026.xlsx"
+            if not os.path.exists(SRC):
+                st.error("Impossible de générer : Fichier source introuvable.")
             else:
-                st.header("⚙️ Moteur de Génération de Surveillances")
+                df_src = pd.read_excel(SRC)
+                df_src.columns = [str(c).strip() for c in df_src.columns]
+                for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
                 
-                # 1. BASE DE DONNÉES DES EFFECTIFS RÉELS
-                EFFECTIFS_PROMOS = {
-                    "L1MCIL": 288, "L2MCIL": 109, "L2ELT": 90, "L3ELT": 70, 
-                    "ING1": 50, "ING3EI": 40, "M1MCIL": 34, "MCIL3": 23, 
-                    "ING2": 16, "ING3RSE": 16, "M1ER": 16, "M1RE": 15, 
-                    "M1ME": 15, "ING4": 15
-                }
+                c_prof_g = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
+                liste_p_gen = sorted([p for p in df_src[c_prof_g].unique() if p not in ["", "Non défini", "nan"]])
+                promos = sorted(df_src['Promotion'].unique()) if 'Promotion' in df_src.columns else []
 
-                if "df_genere" not in st.session_state: st.session_state.df_genere = None
-                if "stats_charge" not in st.session_state: st.session_state.stats_charge = {}
-                
-                SRC = "surveillances_2026.xlsx"
-                if not os.path.exists(SRC):
-                    st.error("Fichier 'surveillances_2026.xlsx' introuvable.")
-                else:
-                    df_src = pd.read_excel(SRC)
-                    df_src.columns = [str(c).strip() for c in df_src.columns]
-                    for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
+                with st.expander("⚖️ Paramètres de Distribution & Plafonnement", expanded=True):
+                    cl1, cl2 = st.columns(2)
+                    with cl1: exc_p = st.multiselect("👤 Enseignants à nombre de surveillances réduit :", liste_p_gen)
+                    with cl2: m_base = st.number_input("Nombre de surveillances Max de base (100%)", min_value=1, value=10)
                     
-                    c_prof_g = 'Surveillant(s)' if 'Surveillant(s)' in df_src.columns else 'Enseignants'
-                    liste_p_gen = sorted([p for p in df_src[c_prof_g].unique() if p not in ["", "Non défini", "nan"]])
-                    promos_dispo = sorted(df_src['Promotion'].unique())
+                    pct = st.slider("Réduction pour les enseignants sélectionnés (%)", 10, 100, 50)
+                    quota_limite = int(m_base * (pct / 100))
+                    st.warning(f"🎯 Limite appliquée aux enseignants sélectionnés : **{quota_limite} séances**.")
 
-                    # --- INTERFACE DE CONFIGURATION ---
-                    with st.expander("📏 Configuration des Capacités & Groupes", expanded=True):
-                        col1, col2, col3 = st.columns(3)
-                        with col1: r_salle = st.number_input("Ratio SALLE :", min_value=1, value=25)
-                        with col2: r_amphi = st.number_input("Ratio AMPHI :", min_value=1, value=40)
-                        with col3: nb_groupes = st.number_input("Nb de Salles/Groupes :", min_value=1, value=1)
+                cp1, cp2 = st.columns(2)
+                with cp1: p_cible = st.multiselect("🎓 Promotions concernées :", promos)
+                with cp2: d_exam = st.multiselect("📅 Filtrer par Dates :", sorted(df_src['Date'].unique()))
 
-                    with st.expander("⚖️ Gestion des Plafonds & Urgence", expanded=True):
-                        cl1, cl2, cl3 = st.columns(3)
-                        with cl1: exc_p = st.multiselect("👤 Enseignants réduits :", liste_p_gen)
-                        with cl2: m_base = st.number_input("Plafond Standard", min_value=1, value=10)
-                        with cl3: tolerance = st.number_input("Dépassement d'urgence (+x)", min_value=0, value=2)
+                if st.button("🚀 LANCER LA GÉNÉRATION DES SURVEILLANTS BINÔMES"):
+                    if not p_cible:
+                        st.warning("Veuillez sélectionner au moins une promotion.")
+                    else:
+                        stats = {p: 0 for p in liste_p_gen}
+                        tracker = []
+                        res_list = []
                         
-                        pct = st.slider("Taux de réduction pour les sélectionnés (%)", 10, 100, 50)
-                        quota_limite = int(m_base * (pct / 100))
-                        st.info(f"Plafond Réduit : {quota_limite} | Plafond Standard : {m_base} | Max Urgence : {m_base + tolerance}")
-
-                    cp1, cp2 = st.columns(2)
-                    with cp1: p_cible = st.multiselect("🎓 Promotions concernées :", promos_dispo)
-                    with cp2: d_exam = st.multiselect("📅 Filtrer par Dates :", sorted(df_src['Date'].unique()))
-
-                    # --- LOGIQUE DE GÉNÉRATION ---
-                    if st.button("🚀 LANCER LA GÉNÉRATION"):
-                        if not p_cible:
-                            st.warning("Sélectionnez au moins une promotion.")
-                        else:
-                            stats = {p: 0 for p in liste_p_gen}
-                            tracker = [] 
-                            res_list = []
+                        for p_name in p_cible:
+                            df_p = df_src[df_src['Promotion'] == p_name].copy()
+                            if d_exam: df_p = df_p[df_p['Date'].isin(d_exam)]
                             
-                            for p_name in p_cible:
-                                df_p = df_src[df_src['Promotion'] == p_name].copy()
-                                if d_exam: df_p = df_p[df_p['Date'].isin(d_exam)]
-                                eff_total = EFFECTIFS_PROMOS.get(p_name, 30)
+                            for _, row in df_p.iterrows():
+                                pair = []
+                                tri_prio = sorted(liste_p_gen, key=lambda x: stats[x])
                                 
-                                for _, row in df_p.iterrows():
-                                    for g_idx in range(1, int(nb_groupes) + 1):
-                                        lieu = row['Salle'].upper()
-                                        est_amphi = any(k in lieu for k in ["AMPHI", "A-", "AMPHITHÉÂTRE"])
-                                        ratio = r_amphi if est_amphi else r_salle
-                                        
-                                        eff_salle = eff_total // nb_groupes
-                                        nb_requis = max(2, (eff_salle // ratio) + (1 if eff_salle % ratio > 0 else 0))
-                                        
-                                        equipe = []
-                                        # Tri par charge actuelle (Priorité aux moins occupés)
-                                        tri_prio = sorted(liste_p_gen, key=lambda x: stats[x])
-                                        
-                                        for p in tri_prio:
-                                            if len(equipe) < nb_requis:
-                                                # 1. Vérification Anti-Conflit
-                                                conflit = any(t for t in tracker if t['D']==row['Date'] and t['H']==row['Heure'] and t['N']==p)
-                                                if conflit: continue
-
-                                                # 2. Vérification des Plafonds avec Tolérance d'urgence
-                                                limit = (quota_limite + tolerance) if p in exc_p else (m_base + tolerance)
-                                                if stats[p] >= limit:
-                                                    continue
-                                                
-                                                equipe.append(p)
-                                                stats[p] += 1
-                                                tracker.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
-                                        
-                                        nom_final = f"{p_name} (G{g_idx})" if nb_groupes > 1 else p_name
-                                        res_list.append({
-                                            "Promotion": nom_final, "Lieu": lieu, "Effectif": eff_salle,
-                                            "Date": row['Date'], "Heure": row['Heure'], "Matière": row['Matière'],
-                                            "Surveillants": " & ".join(equipe) if len(equipe) >= 2 else "⚠️ MANQUE PERSONNEL"
-                                        })
-                            
-                            st.session_state.stats_charge = stats
-                            st.session_state.df_genere = pd.DataFrame(res_list)
-                            st.rerun()
-
-                    # --- AFFICHAGE ET EXPORT ---
-                    if st.session_state.df_genere is not None:
-                        st.divider()
-                        st.subheader("📊 État des Plafonds après Génération")
-                        p_check = st.selectbox("Vérifier un enseignant :", liste_p_gen)
-                        c_actuelle = st.session_state.stats_charge[p_check]
-                        c_max = (quota_limite + tolerance) if p_check in exc_p else (m_base + tolerance)
-                        st.progress(min(c_actuelle / c_max, 1.0))
-                        st.write(f"Charge : {c_actuelle} / {c_max} (Tolérance incluse)")
-
-                        st.dataframe(st.session_state.df_genere, use_container_width=True)
-                        
-                        xlsx_buf = io.BytesIO()
-                        with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
-                            st.session_state.df_genere.to_excel(writer, index=False)
-                        st.download_button("📥 EXPORTER LE PLANNING", xlsx_buf.getvalue(), "Planning_Surveillances_2026.xlsx")
-                    elif portail == "👥 Portail Enseignants":
-            # --- 🛡️ VERROU DE SÉCURITÉ ADMIN (Indentation 12 espaces) ---
-            if not is_admin:
-                # (Indentation 16 espaces)
-                st.error("🚫 ACCÈS RESTREINT : Seule l'administration peut accéder à l'envoi des EDTs.")
-                st.stop()
-
-            st.header("🏢 Répertoire et Envoi Automatisé des EDTs")
-
-            # 1. RÉCUPÉRATION DES DONNÉES (SUPABASE + EXCEL)
-            res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, last_sent").execute()
-            
-            dict_info = {
-                str(row['nom_officiel']).strip().upper(): {
-                    "email": row['email'], 
-                    "statut": "✅ Envoyé" if row['last_sent'] else "⏳ En attente"
-                } for row in res_auth.data
-            } if res_auth.data else {}
-
-            # 2. CONSTRUCTION DU TABLEAU D'AFFICHAGE
-            noms_excel = sorted([e for e in df['Enseignants'].unique() if str(e) not in ["Non défini", "nan", ""]])
-            donnees_finales = []
-            
-            for nom in noms_excel:
-                nom_nettoye = str(nom).strip().upper()
-                info = dict_info.get(nom_nettoye, {"email": "⚠️ Non inscrit", "statut": "❌ Absent"})
-                donnees_finales.append({
-                    "Enseignant": nom, 
-                    "Email": info["email"], 
-                    "État d'envoi": info["statut"]
-                })
-            
-            df_portail = pd.DataFrame(donnees_finales)
-            
-            c1, c2 = st.columns(2)
-            c1.metric("Total Enseignants (Excel)", len(noms_excel))
-            en_attente = sum(1 for d in donnees_finales if d["État d'envoi"] == "⏳ En attente")
-            c2.metric("EDTs à envoyer", en_attente)
-
-            st.dataframe(df_portail, use_container_width=True, hide_index=True)
-
-            # 3. ACTIONS : RÉINITIALISATION & ENVOI
-            col_reset, col_mail = st.columns(2)
-
-            with col_reset:
-                if st.button("🔄 Réinitialiser tous les témoins", use_container_width=True):
-                    supabase.table("enseignants_auth").update({"last_sent": None}).neq("email", "").execute()
-                    st.success("Statuts réinitialisés !")
-                    st.rerun()
-
-            with col_mail:
-                if st.button("🚀 Lancer l'envoi (Uniquement 'En attente')", use_container_width=True):
-                    import smtplib
-                    from email.mime.text import MIMEText
-                    from email.mime.multipart import MIMEMultipart
-
-                    try:
-                        server = smtplib.SMTP('smtp.gmail.com', 587)
-                        server.starttls()
-                        server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
-
-                        progress_bar = st.progress(0)
-                        status_msg = st.empty()
-                        success_count = 0
-
-                        for i, row in enumerate(donnees_finales):
-                            if row["État d'envoi"] == "⏳ En attente" and "@" in row["Email"]:
-                                nom_prof = row['Enseignant']
-                                status_msg.text(f"Envoi vers : {nom_prof}...")
-
-                                # Filtrage selon la DISPOSITION DEMANDÉE
-                                df_perso = df[df["Enseignants"].str.contains(nom_prof, case=False, na=False)]
-                                cols_ordre = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
-                                df_mail = df_perso[cols_ordre]
-
-                                # Construction de l'Email
-                                msg = MIMEMultipart()
-                                msg['From'] = f"Département Électrotechnique <{st.secrets['EMAIL_USER']}>"
-                                msg['To'] = row["Email"]
-                                msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {nom_prof}"
-
-                                corps_html = f"""
-                                <html>
-                                <body style="font-family: Arial, sans-serif;">
-                                    <h3>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h3>
-                                    <p>Bonjour M. <b>{nom_prof}</b>,</p>
-                                    <p>Voici votre emploi du temps personnalisé pour le second semestre 2026 :</p>
-                                    {df_mail.to_html(index=False, border=1, justify='center')}
-                                    <p><br>Cordialement,<br>L'Administration</p>
-                                </body>
-                                </html>
-                                """
-                                msg.attach(MIMEText(corps_html, 'html'))
-                                server.send_message(msg)
+                                for p in tri_prio:
+                                    if len(pair) < 2:
+                                        if p in exc_p and stats[p] >= quota_limite: continue
+                                        conflit = any(t for t in tracker if t['D']==row['Date'] and t['H']==row['Heure'] and t['N']==p)
+                                        if not conflit:
+                                            pair.append(p)
+                                            stats[p] += 1
+                                            tracker.append({'D': row['Date'], 'H': row['Heure'], 'N': p})
+                                            
+                                res_list.append({
+                                    "Promotion": p_name,
+                                    "Date": row['Date'],
+                                    "Heure": row['Heure'],
+                                    "Matière": row['Matière'],
+                                    "Salle": row['Salle'],
+                                    "Binôme": " & ".join(pair) if len(pair)==2 else "⚠️ MANQUE"
+                                })
                                 
-                                # Marquer comme envoyé
-                                supabase.table("enseignants_auth").update({"last_sent": "now()"}).eq("email", row["Email"]).execute()
-                                success_count += 1
-
-                            progress_bar.progress((i + 1) / len(donnees_finales))
-
-                        server.quit()
-                        st.success(f"✅ {success_count} emails envoyés avec succès.")
-                        st.balloons()
+                        st.session_state.stats_charge = stats
+                        st.session_state.df_genere = pd.DataFrame(res_list)
                         st.rerun()
 
-                    except Exception as e:
-                        st.error(f"Erreur SMTP : {e}")
+                if st.session_state.df_genere is not None:
+                    st.divider()
+                    p_verif = st.selectbox("📊 Voir occupation :", sorted(st.session_state.stats_charge.keys()))
+                    val_q = st.session_state.stats_charge[p_verif]
+                    
+                    v1, v2, v3 = st.columns(3)
+                    with v1: st.metric(f"Total {p_verif}", f"{val_q} séances")
+                    with v2: st.metric("Type de quota", "Limité" if p_verif in exc_p else "Standard")
+                    with v3: 
+                        occup = (val_q / quota_limite * 100) if p_verif in exc_p else (val_q / m_base * 100)
+                        st.progress(min(int(occup), 100))
 
-        elif portail == "🎓 Portail Étudiants":
-            st.header("📚 Espace Étudiants")
-            p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
-            st.info(f"Emploi du temps : **{p_etu}**")
-            
-            # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu
-            disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
-            st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
+                    for p_title in p_cible:
+                        st.write(f"### 📋 Planning : {p_title}")
+                        disp = st.session_state.df_genere[st.session_state.df_genere['Promotion'] == p_title]
+                        st.table(disp.drop(columns=['Promotion']))
+                    
+                    xlsx_buf = io.BytesIO()
+                    with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
+                        st.session_state.df_genere.to_excel(writer, index=False)
+                    st.download_button("📥 EXPORTER TOUT LE PLANNING (.XLSX)", xlsx_buf.getvalue(), "EDT_Examens_Complet.xlsx")
+
+    elif portail == "👥 Portail Enseignants":
+        # --- 🛡️ VERROU DE SÉCURITÉ ADMIN ---
+        if not is_admin:
+            st.error("🚫 ACCÈS RESTREINT : Seule l'administration peut accéder à l'envoi des EDTs.")
+            st.stop()
+
+        st.header("🏢 Répertoire et Envoi Automatisé des EDTs")
+
+        # 1. RÉCUPÉRATION DES DONNÉES (SUPABASE + EXCEL)
+        # On récupère l'email ET le témoin last_sent
+        res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, last_sent").execute()
+        
+        # Création du dictionnaire de suivi
+        dict_info = {
+            str(row['nom_officiel']).strip().upper(): {
+                "email": row['email'], 
+                "statut": "✅ Envoyé" if row['last_sent'] else "⏳ En attente"
+            } for row in res_auth.data
+        } if res_auth.data else {}
+
+        # 2. CONSTRUCTION DU TABLEAU D'AFFICHAGE POUR L'ADMIN
+        noms_excel = sorted([e for e in df['Enseignants'].unique() if str(e) not in ["Non défini", "nan", ""]])
+        donnees_finales = []
+        
+        for nom in noms_excel:
+            nom_nettoye = str(nom).strip().upper()
+            info = dict_info.get(nom_nettoye, {"email": "⚠️ Non inscrit", "statut": "❌ Absent"})
+            donnees_finales.append({
+                "Enseignant": nom, 
+                "Email": info["email"], 
+                "État d'envoi": info["statut"]
+            })
+        
+        df_portail = pd.DataFrame(donnees_finales)
+        
+        # Statistiques rapides
+        c1, c2 = st.columns(2)
+        c1.metric("Total Enseignants (Excel)", len(noms_excel))
+        en_attente = sum(1 for d in donnees_finales if d["État d'envoi"] == "⏳ En attente")
+        c2.metric("EDTs à envoyer (En attente)", en_attente)
+
+        st.dataframe(df_portail, use_container_width=True, hide_index=True)
+
+        # 3. ACTIONS : RÉINITIALISATION & ENVOI
+        col_reset, col_mail = st.columns(2)
+
+        with col_reset:
+            if st.button("🔄 Réinitialiser tous les témoins", use_container_width=True):
+                # Remet à zéro la colonne last_sent pour recommencer un envoi général
+                supabase.table("enseignants_auth").update({"last_sent": None}).neq("email", "").execute()
+                st.success("Prêt pour un nouvel envoi général ! Le statut est repassé en 'En attente'.")
+                st.rerun()
+
+        with col_mail:
+            if st.button("🚀 Lancer l'envoi (Uniquement 'En attente')", use_container_width=True):
+                import smtplib
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+
+                try:
+                    # Connexion SMTP
+                    server = smtplib.SMTP('smtp.gmail.com', 587)
+                    server.starttls()
+                    server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
+
+                    progress_bar = st.progress(0)
+                    status_msg = st.empty()
+                    success_count = 0
+
+                    for i, row in enumerate(donnees_finales):
+                        # FILTRE : On n'envoie que si le statut est "En attente"
+                        if row["État d'envoi"] == "⏳ En attente" and "@" in row["Email"]:
+                            nom_prof = row['Enseignant']
+                            status_msg.text(f"Envoi en cours vers : {nom_prof}...")
+
+                            # Préparation de l'EDT avec la DISPOSITION DEMANDÉE
+                            df_perso = df[df["Enseignants"].str.contains(nom_prof, case=False, na=False)]
+                            # Ordre : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+                            df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+
+                            # Construction de l'Email
+                            msg = MIMEMultipart()
+                            msg['From'] = f"Département Électrotechnique <{st.secrets['EMAIL_USER']}>"
+                            msg['To'] = row["Email"]
+                            msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {nom_prof}"
+
+                            corps_html = f"""
+                            <html>
+                            <body style="font-family: Arial, sans-serif;">
+                                <h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                                <p>Bonjour M. <b>{nom_prof}</b>,</p>
+                                <p>Voici votre emploi du temps personnalisé pour le second semestre 2026 :</p>
+                                {df_mail.to_html(index=False, border=1, justify='center')}
+                                <p><br>Cordialement,<br>L'Administration</p>
+                            </body>
+                            </html>
+                            """
+                            msg.attach(MIMEText(corps_html, 'html'))
+                            server.send_message(msg)
+                            
+                            # MISE À JOUR SUPABASE : Marquer comme envoyé
+                            supabase.table("enseignants_auth").update({"last_sent": "now()"}).eq("email", row["Email"]).execute()
+                            success_count += 1
+
+                        # Barre de progression
+                        progress_bar.progress((i + 1) / len(donnees_finales))
+
+                    server.quit()
+                    st.success(f"✅ Mission accomplie ! {success_count} emails envoyés.")
+                    st.balloons()
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Erreur lors de l'envoi : {e}")
+
+    elif portail == "🎓 Portail Étudiants":
+        st.header("📚 Espace Étudiants")
+        p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
+        st.success(f"Affichage de l'emploi du temps pour : **{p_etu}**")
+        disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
+        st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
+
+# --- FIN DU CODE ---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
