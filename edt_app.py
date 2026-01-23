@@ -751,7 +751,7 @@ with st.sidebar:
         "🤖 Générateur Automatique", 
         "👥 Portail Enseignants", 
         "🎓 Portail Étudiants"
-    ])
+    ], key="sidebar_navigation_unique_2026") # Ajout de la clé unique ici
     st.divider()
     
     mode_view = "Personnel"
@@ -1015,125 +1015,118 @@ if df is not None:
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
     elif portail == "🤖 Générateur Automatique":
-        if not is_admin:
-            st.error("Accès réservé au Bureau des Examens.")
+    if not is_admin:
+        st.error("Accès réservé au Bureau des Examens.")
+    else:
+        st.header("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+        st.subheader("⚙️ Moteur de Génération Automatique")
+
+        # --- 1. LECTURE DU FICHIER SOURCE ---
+        FILE_SOURCE = "dataEDT-ELT-S2-2026.xlsx"
+        
+        if not os.path.exists(FILE_SOURCE):
+            st.error(f"Fichier '{FILE_SOURCE}' introuvable.")
         else:
-            st.header("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-            st.subheader("⚙️ Moteur de Génération Automatique")
-
-            # --- 1. CHARGEMENT ET FILTRAGE UNIQUE ---
-            FILE_SOURCE = "dataEDT-ELT-S2-2026.xlsx"
+            df_source = pd.read_excel(FILE_SOURCE)
+            df_source.columns = [str(c).strip() for c in df_source.columns]
             
-            if not os.path.exists(FILE_SOURCE):
-                st.error(f"Fichier '{FILE_SOURCE}' introuvable.")
-            else:
-                df_data = pd.read_excel(FILE_SOURCE)
-                df_data.columns = [str(c).strip() for c in df_data.columns]
+            # FILTRAGE : Uniquement 'Cours' et une seule fois par binôme Prof/Matière
+            df_unique = df_source[df_source["Enseignements"].str.contains("Cours", case=False, na=False)].copy()
+            df_unique = df_unique.drop_duplicates(subset=["Enseignements", "Enseignants", "Promotion"])
+            
+            liste_profs_reels = sorted(df_unique["Enseignants"].dropna().unique().tolist())
+
+            # --- 2. CONFIGURATION DES EFFECTIFS ---
+            if "db_promos" not in st.session_state:
+                promos_fich = df_unique["Promotion"].unique()
+                st.session_state.db_promos = {p: [40, 1] for p in promos_fich}
+
+            with st.expander("📦 Config Effectifs & Groupes", expanded=False):
+                data_prep = [{"Promotion": k, "Effectif": v[0], "Nb de Salles": v[1]} for k, v in st.session_state.db_promos.items()]
+                edited_df = st.data_editor(pd.DataFrame(data_prep), use_container_width=True, hide_index=True, key="editor_gen_auto")
                 
-                # Identification des colonnes
-                C_MAT = "Enseignements"
-                C_ENS = "Enseignants"
-                C_PROMO = "Promotion"
+                if st.button("💾 Sauvegarder Config", key="btn_save_gen_auto"):
+                    st.session_state.db_promos = {r["Promotion"]: [r["Effectif"], r["Nb de Salles"]] for _, r in edited_df.iterrows()}
+                    st.success("Configuration enregistrée.")
 
-                # Filtrage strict : Uniquement les COURS (Unique par enseignant)
-                df_cours = df_data[df_data[C_MAT].str.contains("Cours", case=False, na=False)].copy()
-                df_unique_cours = df_cours.drop_duplicates(subset=[C_MAT, C_ENS, C_PROMO])
+            # --- 3. PARAMÈTRES DE SURVEILLANCE ---
+            with st.expander("⚖️ Plafonnement & Calendrier", expanded=True):
+                c1, c2 = st.columns(2)
+                with c1:
+                    date_debut = st.date_input("Début des examens", datetime(2026, 5, 17), key="date_gen_auto")
+                    m_base = st.number_input("Max séances par prof", 1, 25, 10, key="max_s_gen_auto")
+                with c2:
+                    ratio_etu = st.number_input("Ratio Étudiants/Surv.", 10, 50, 25, key="ratio_gen_auto")
+                    exc_p = st.multiselect("👤 Profs Plafonnés :", liste_profs_reels, key="profs_excl_gen_auto")
+                    reduc = st.slider("Réduction charge (%)", 10, 100, 50, key="slider_reduc_gen_auto")
+                    quota_reduit = int(m_base * (reduc / 100))
+
+            # --- 4. EXÉCUTION ---
+            promos_cibles = st.multiselect("🎓 Choisir les promotions :", list(st.session_state.db_promos.keys()), key="select_target_gen_auto")
+
+            if st.button("🚀 GÉNÉRER LE PLANNING", key="btn_run_gen_auto"):
+                if not promos_cibles:
+                    st.warning("Sélectionnez au moins une promotion.")
+                else:
+                    stats_charge = {p: 0 for p in liste_profs_reels}
+                    resultats = []
+                    collision_map = [] 
+                    creneaux = ["08:30 - 10:30", "11:00 - 13:00", "13:30 - 15:30"]
+
+                    for p_name in promos_cibles:
+                        config = st.session_state.db_promos[p_name]
+                        eff_total, nb_salles = config[0], config[1]
+                        
+                        cours_promo = df_unique[df_unique["Promotion"] == p_name].to_dict('records')
+                        exam_date = date_debut
+                        
+                        for i, row in enumerate(cours_promo):
+                            while exam_date.weekday() in [4, 5]: # Sauter vendredi et samedi
+                                exam_date += timedelta(days=1)
+                            
+                            horaire = creneaux[i % 3]
+                            
+                            for s_idx in range(1, nb_salles + 1):
+                                cap_salle = eff_total // nb_salles
+                                nb_req = max(2, (cap_salle // ratio_etu) + (1 if cap_salle % ratio_etu > 0 else 0))
+                                equipe = []
+                                profs_dispos = sorted(liste_profs_reels, key=lambda x: stats_charge[x])
+                                
+                                for p in profs_dispos:
+                                    if len(equipe) < nb_req:
+                                        limit = quota_reduit if p in exc_p else m_base
+                                        if stats_charge[p] >= limit: continue
+                                        if (exam_date, horaire, p) not in collision_map:
+                                            equipe.append(p)
+                                            stats_charge[p] += 1
+                                            collision_map.append((exam_date, horaire, p))
+
+                                resultats.append({
+                                    "Enseignements": row["Enseignements"],
+                                    "Code": "S2-2026",
+                                    "Enseignants": " & ".join(equipe) if len(equipe) >= 2 else "⚠️ BESOIN RENFORT",
+                                    "Horaire": horaire,
+                                    "Jours": exam_date.strftime("%A %d/%m/%Y"),
+                                    "Lieu": f"Salle {s_idx} ({p_name})",
+                                    "Promotion": p_name
+                                })
+                            
+                            if (i + 1) % 3 == 0: # Passer au jour suivant après 3 examens
+                                exam_date += timedelta(days=1)
+
+                    st.session_state.df_genere = pd.DataFrame(resultats)
+                    st.session_state.stats_charge = stats_charge
+                    st.rerun()
+
+            # --- 5. RÉSULTATS ---
+            if st.session_state.get("df_genere") is not None:
+                st.divider()
+                st.dataframe(st.session_state.df_genere, use_container_width=True, hide_index=True)
                 
-                liste_profs_reels = sorted(df_unique_cours[C_ENS].dropna().unique().tolist())
-
-                # --- 2. CONFIGURATION DES EFFECTIFS (AVEC KEY UNIQUE) ---
-                if "db_promos" not in st.session_state:
-                    promos_detectees = df_unique_cours[C_PROMO].unique()
-                    st.session_state.db_promos = {p: [40, 1] for p in promos_detectees}
-
-                with st.expander("📦 Config Effectifs & Groupes", expanded=False):
-                    df_eff = [{"Promotion": k, "Effectif": v[0], "Nb de Salles": v[1]} 
-                              for k, v in st.session_state.db_promos.items()]
-                    # Utilisation d'une key unique pour l'éditeur
-                    edited_df = st.data_editor(pd.DataFrame(df_eff), use_container_width=True, hide_index=True, key="editor_promos_gen")
-                    
-                    if st.button("💾 Sauvegarder Config", key="btn_save_config_gen"):
-                        st.session_state.db_promos = {r["Promotion"]: [r["Effectif"], r["Nb de Salles"]] for _, r in edited_df.iterrows()}
-                        st.success("Config enregistrée.")
-
-                # --- 3. PLAFONNEMENT (AVEC KEYS UNIQUES) ---
-                with st.expander("⚖️ Quotas & Calendrier", expanded=True):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        date_debut = st.date_input("Début des examens", datetime(2026, 5, 17), key="date_start_gen")
-                        m_base = st.number_input("Max séances par enseignant", 1, 20, 10, key="max_seance_gen")
-                    with c2:
-                        ratio_etu = st.number_input("Ratio Étudiants/Surveillant", 5, 50, 25, key="ratio_gen")
-                        exc_p = st.multiselect("👤 Enseignants plafonnés :", liste_profs_reels, key="profs_excl_gen")
-                        reduction = st.slider("Réduction (%)", 10, 100, 50, key="slider_reduc_gen")
-                        quota_reduit = int(m_base * (reduction / 100))
-
-                # --- 4. GÉNÉRATION ---
-                promos_cibles = st.multiselect("🎓 Promotions à planifier :", list(st.session_state.db_promos.keys()), key="select_promos_gen")
-
-                if st.button("🚀 GÉNÉRER LE PLANNING", key="btn_run_generation"):
-                    if not promos_cibles:
-                        st.warning("Veuillez sélectionner au moins une promotion.")
-                    else:
-                        stats_charge = {p: 0 for p in liste_profs_reels}
-                        resultats = []
-                        collision_tracker = [] 
-                        creneaux = ["08:30 - 10:30", "11:00 - 13:00", "13:30 - 15:30"]
-
-                        for p_name in promos_cibles:
-                            config = st.session_state.db_promos[p_name]
-                            eff_tot, nb_salles = config[0], config[1]
-                            
-                            matieres_promo = df_unique_cours[df_unique_cours[C_PROMO] == p_name].to_dict('records')
-                            current_date = date_debut
-                            
-                            for i, row_mat in enumerate(matieres_promo):
-                                while current_date.weekday() in [4, 5]: # Sauter vendredi/samedi
-                                    current_date += timedelta(days=1)
-                                
-                                horaire = creneaux[i % 3]
-                                
-                                for s_idx in range(1, nb_salles + 1):
-                                    besoin = max(2, (eff_tot // nb_salles // ratio_etu) + (1 if (eff_tot // nb_salles) % ratio_etu > 0 else 0))
-                                    equipe = []
-                                    profs_dispos = sorted(liste_profs_reels, key=lambda x: stats_charge[x])
-                                    
-                                    for p in profs_dispos:
-                                        if len(equipe) < besoin:
-                                            limit = quota_reduit if p in exc_p else m_base
-                                            if stats_charge[p] >= limit: continue
-                                            if (current_date, horaire, p) not in collision_tracker:
-                                                equipe.append(p)
-                                                stats_charge[p] += 1
-                                                collision_tracker.append((current_date, horaire, p))
-
-                                    resultats.append({
-                                        "Enseignements": row_mat[C_MAT],
-                                        "Code": "S2-2026",
-                                        "Enseignants": " & ".join(equipe) if len(equipe) >= 2 else "⚠️ RENFORT",
-                                        "Horaire": horaire,
-                                        "Jours": current_date.strftime("%A %d/%m/%Y"),
-                                        "Lieu": f"Salle {s_idx} ({p_name})",
-                                        "Promotion": p_name
-                                    })
-                                
-                                if (i + 1) % 3 == 0:
-                                    current_date += timedelta(days=1)
-
-                        st.session_state.df_genere = pd.DataFrame(resultats)
-                        st.session_state.stats_charge = stats_charge
-                        st.rerun()
-
-                # --- 5. AFFICHAGE ET EXPORT ---
-                if st.session_state.get("df_genere") is not None:
-                    st.divider()
-                    st.subheader("📋 Planning de Surveillance")
-                    st.dataframe(st.session_state.df_genere, use_container_width=True, hide_index=True)
-                    
-                    xlsx_buf = io.BytesIO()
-                    with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
-                        st.session_state.df_genere.to_excel(writer, index=False)
-                    st.download_button("📥 TÉLÉCHARGER (.XLSX)", xlsx_buf.getvalue(), "Planning_S2_2026.xlsx", key="btn_dl_final_gen")
+                xlsx_buf = io.BytesIO()
+                with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
+                    st.session_state.df_genere.to_excel(writer, index=False)
+                st.download_button("📥 TÉLÉCHARGER (.XLSX)", xlsx_buf.getvalue(), "Planning_S2_2026.xlsx", key="btn_dl_gen_auto")
     elif portail == "👥 Portail Enseignants":
         # --- 🛡️ VERROU DE SÉCURITÉ ADMIN ---
         if not is_admin:
@@ -1416,6 +1409,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
