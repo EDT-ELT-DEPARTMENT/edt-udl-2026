@@ -360,19 +360,98 @@ if df is not None:
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
         elif is_admin and mode_view == "🚩 Vérificateur de conflits":
-            st.subheader("🚩 Analyse des Conflits Potentiels")
+            st.subheader("🚩 Analyse des Conflits et Doubles Séances")
+            st.markdown("---")
             
-            # Listes pour l'affichage et pour l'exportation
-            errs_text = []
+            # Liste pour stocker les données du rapport d'impression
             errs_for_df = [] 
             
-            # --- 1. Conflit Salles ---
-            s_c = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu']).filter(lambda x: len(x) > 1)
-            for _, r in s_c.drop_duplicates(['Jours', 'Horaire', 'Lieu']).iterrows():
-                msg = f"❌ **SALLE** : {r['Lieu']} occupée en double le {r['Jours']} à {r['Horaire']}"
-                errs_text.append(msg)
-                errs_for_df.append({"Type": "SALLE", "Détail": r['Lieu'], "Jour": r['Jours'], "Horaire": r['Horaire'], "Statut": "Double occupation"})
-            
+            # --- 1. ANALYSE DES ENSEIGNANTS ---
+            # On groupe par Jour, Heure et Enseignant pour détecter les chevauchements
+            p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
+
+            for (jour, horaire, prof), group in p_groups:
+                if len(group) > 1:
+                    lieux_uniques = group['Lieu'].unique()
+                    matieres_uniques = group['Enseignements'].unique()
+                    promos_uniques = group['Promotion'].unique()
+                    
+                    # CAS A : DOUBLE SÉANCE (Même lieu + Même matière) -> Valide
+                    if len(lieux_uniques) == 1 and len(matieres_uniques) == 1:
+                        type_err = "🔵 DOUBLE"
+                        detail = f"Fusion Groupes/Promos ({', '.join(promos_uniques)})"
+                        st.info(f"**{type_err}** : {prof} | {jour} à {horaire} | {matieres_uniques[0]} en {lieux_uniques[0]} ({detail})")
+                    
+                    # CAS B : CONFLIT PHYSIQUE (Lieux différents) -> Erreur Critique
+                    elif len(lieux_uniques) > 1:
+                        type_err = "❌ CONFLIT LIEU"
+                        detail = f"Salles différentes : {', '.join(lieux_uniques)}"
+                        st.error(f"**{type_err}** : {prof} est attendu dans plusieurs salles le {jour} à {horaire} ({detail})")
+                    
+                    # CAS C : CONFLIT MATIÈRE (Même lieu mais matières différentes) -> Avertissement
+                    else:
+                        type_err = "⚠️ CONFLIT MATIÈRE"
+                        detail = f"Matières différentes : {', '.join(matieres_uniques)}"
+                        st.warning(f"**{type_err}** : {prof} a deux matières différentes dans la même salle ({lieux_uniques[0]}) le {jour} à {horaire}")
+
+                    # Ajouter au rapport Excel
+                    errs_for_df.append({
+                        "Type": type_err,
+                        "Enseignant": prof,
+                        "Jour": jour,
+                        "Horaire": horaire,
+                        "Détail": detail,
+                        "Salles": ", ".join(lieux_uniques),
+                        "Matières": ", ".join(matieres_uniques)
+                    })
+
+            # --- 2. ANALYSE DES SALLES (Plusieurs profs différents au même moment) ---
+            s_groups = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu'])
+            for (jour, horaire, salle), group in s_groups:
+                profs_uniques = group['Enseignants'].unique()
+                if len(profs_uniques) > 1:
+                    type_err = "🚫 COLLISION SALLE"
+                    list_profs = ", ".join(profs_uniques)
+                    st.error(f"**{type_err}** : La salle **{salle}** est occupée simultanément par : {list_profs} ({jour} à {horaire})")
+                    
+                    errs_for_df.append({
+                        "Type": type_err,
+                        "Enseignant": list_profs,
+                        "Jour": jour,
+                        "Horaire": horaire,
+                        "Détail": f"Collision de profs dans la salle {salle}",
+                        "Salles": salle,
+                        "Matières": ", ".join(group['Enseignements'].unique())
+                    })
+
+            # --- SECTION IMPRESSION ---
+            if errs_for_df:
+                st.divider()
+                st.write("### 🖨️ Options d'impression")
+                
+                # Conversion en DataFrame pour l'export
+                df_report = pd.DataFrame(errs_for_df)
+                
+                # Création du fichier Excel
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                    df_report.to_excel(writer, index=False, sheet_name='Anomalies_EDT')
+                    # Ajustement automatique des colonnes (optionnel)
+                    worksheet = writer.sheets['Anomalies_EDT']
+                    for i, col in enumerate(df_report.columns):
+                        column_len = max(df_report[col].astype(str).map(len).max(), len(col)) + 2
+                        worksheet.set_column(i, i, column_len)
+                
+                # Bouton de téléchargement
+                st.download_button(
+                    label="📥 Télécharger le Rapport des Conflits pour Impression (Excel)",
+                    data=buf.getvalue(),
+                    file_name=f"Rapport_Conflits_Electrotech_2026.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            else:
+                st.success("✅ Félicitations ! Aucun conflit détecté. L'emploi du temps est parfaitement cohérent.")            
             # --- 2. Conflit Enseignants ---
             p_c = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants']).filter(lambda x: len(x) > 1)
             for _, r in p_c.drop_duplicates(['Jours', 'Horaire', 'Enseignants']).iterrows():
@@ -686,6 +765,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
