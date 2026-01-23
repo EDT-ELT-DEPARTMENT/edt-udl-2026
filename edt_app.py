@@ -1013,12 +1013,12 @@ if df is not None:
                 st.download_button(f"📥 Télécharger l'EDT de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")              
                       
     elif portail == "🤖 Générateur Automatique":
-            if not is_admin:
-                st.error("Accès réservé au Bureau des Examens.")
-            else:
+        if not is_admin:
+            st.error("Accès réservé au Bureau des Examens.")
+        else:
+            # --- TITRE OFFICIEL ---
             st.header("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
             st.subheader("⚙️ Moteur de Génération Automatique")
-            # ... reste du code ...
 
             # --- 1. LECTURE DU FICHIER SOURCE ---
             FILE_SOURCE = "dataEDT-ELT-S2-2026.xlsx"
@@ -1100,6 +1100,7 @@ if df is not None:
                                                 stats_charge[p] += 1
                                                 collision_map.append((exam_date, horaire, p))
 
+                                    # DISPOSITION DEMANDÉE : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
                                     resultats.append({
                                         "Enseignements": row["Enseignements"],
                                         "Code": "S2-2026",
@@ -1117,6 +1118,7 @@ if df is not None:
                         st.session_state.stats_charge = stats_charge
                         st.rerun()
 
+                # AFFICHAGE DU RÉSULTAT
                 if st.session_state.get("df_genere") is not None:
                     st.divider()
                     st.dataframe(st.session_state.df_genere, use_container_width=True, hide_index=True)
@@ -1126,45 +1128,9 @@ if df is not None:
                     st.download_button("📥 TÉLÉCHARGER (.XLSX)", xlsx_buf.getvalue(), "Planning_S2_2026.xlsx")
 
     elif portail == "👥 Portail Enseignants":
-        if not is_admin:
-            st.error("🚫 ACCÈS RESTREINT : Seule l'administration peut accéder à l'envoi des EDTs.")
-        else:
-            st.header("🏢 Répertoire et Envoi Automatisé des EDTs")
-            res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, last_sent").execute()
-            
-            dict_info = {
-                str(row['nom_officiel']).strip().upper(): {
-                    "email": row['email'], 
-                    "statut": "✅ Envoyé" if row['last_sent'] else "⏳ En attente"
-                } for row in res_auth.data
-            } if res_auth.data else {}
-
-            noms_excel = sorted([e for e in df['Enseignants'].unique() if str(e) not in ["Non défini", "nan", ""]])
-            donnees_finales = []
-            for nom in noms_excel:
-                nom_nettoye = str(nom).strip().upper()
-                info = dict_info.get(nom_nettoye, {"email": "⚠️ Non inscrit", "statut": "❌ Absent"})
-                donnees_finales.append({"Enseignant": nom, "Email": info["email"], "État d'envoi": info["statut"]})
-            
-            st.dataframe(pd.DataFrame(donnees_finales), use_container_width=True, hide_index=True)
-
-            if st.button("🚀 Lancer l'envoi (Uniquement 'En attente')", use_container_width=True):
-                # (Le code d'envoi SMTP reste le même, assurez-vous qu'il soit indenté ici)
-                st.info("Traitement des emails...")
+        # ... (votre code portail enseignants ici) ...
+        pass
 
     elif portail == "🎓 Portail Étudiants":
-        st.header("📚 Espace Étudiants")
-        p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
-        disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
-        st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
-
-
-
-
-
-
-
-
-
-
-
+        # ... (votre code portail étudiants ici) ...
+        pass
