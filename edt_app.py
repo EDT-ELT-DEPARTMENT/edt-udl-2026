@@ -255,6 +255,69 @@ with st.sidebar:
     if st.button("🚪 Déconnexion du compte"):
         st.session_state["user_data"] = None
         st.rerun()
+if st.button("🚪 Déconnexion du compte"):
+        st.session_state["user_data"] = None
+        st.rerun()
+
+# =================================================================
+# L'ÉDITEUR DOIT ÊTRE COLLÉ ICI (ENTRE LA DÉCONNEXION ET L'EN-TÊTE)
+# =================================================================
+if is_admin and mode_view == "✍️ Éditeur de données":
+    st.header("✍️ Éditeur de Données Source")
+    st.info(f"Fichier : {NOM_FICHIER_FIXE}")
+
+    # 1. Recherche
+    search_q = st.text_input("🔍 Rechercher (Enseignant, Salle, Promotion...)", placeholder="Filtrer avant de modifier...")
+
+    # 2. Colonnes à gérer
+    cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
+    
+    # On s'assure que le DF contient ces colonnes
+    df_to_edit = df[cols_format].copy()
+
+    # 3. Filtrage
+    if search_q:
+        mask = df_to_edit.apply(lambda row: row.astype(str).str.contains(search_q, case=False).any(), axis=1)
+        df_edit_filtered = df_to_edit[mask]
+    else:
+        df_edit_filtered = df_to_edit
+
+    # 4. L'éditeur visuel
+    edited_df = st.data_editor(
+        df_edit_filtered, 
+        use_container_width=True, 
+        num_rows="dynamic",
+        key="admin_editor_main"
+    )
+
+    # 5. Boutons de sauvegarde
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("💾 Sauvegarder dans l'Excel", use_container_width=True):
+            try:
+                # Mise à jour du DataFrame original
+                if search_q:
+                    df.update(edited_df)
+                else:
+                    df = edited_df
+                
+                # Sauvegarde physique
+                df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
+                st.success("✅ Modifications enregistrées avec succès !")
+                st.balloons()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erreur de sauvegarde : {e}")
+    
+    with c2:
+        if st.button("🔄 Annuler", use_container_width=True):
+            st.rerun()
+
+    # TRÈS IMPORTANT : Le stop empêche l'affichage de l'en-tête et du reste
+    st.stop() 
+
+# --- EN-TÊTE --- (Le reste de votre code existant...)
+st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
 # --- EN-TÊTE ---
 st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
 st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
@@ -875,6 +938,7 @@ elif portail == "🎓 Portail Étudiants":
 else:
     st.error(f"Fichier {NOM_FICHIER_FIXE} introuvable.")
 # --- FIN DU CODE ---
+
 
 
 
