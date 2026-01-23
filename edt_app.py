@@ -361,25 +361,50 @@ if df is not None:
 
         elif is_admin and mode_view == "🚩 Vérificateur":
             st.subheader("🚩 Analyse des Conflits Potentiels")
-            errs = []
             
-            # Conflit Salles
+            # Listes pour l'affichage et pour l'exportation
+            errs_text = []
+            errs_for_df = [] 
+            
+            # --- 1. Conflit Salles ---
             s_c = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu']).filter(lambda x: len(x) > 1)
             for _, r in s_c.drop_duplicates(['Jours', 'Horaire', 'Lieu']).iterrows():
-                errs.append(f"❌ **SALLE** : {r['Lieu']} occupée en double le {r['Jours']} à {r['Horaire']}")
+                msg = f"❌ **SALLE** : {r['Lieu']} occupée en double le {r['Jours']} à {r['Horaire']}"
+                errs_text.append(msg)
+                errs_for_df.append({"Type": "SALLE", "Détail": r['Lieu'], "Jour": r['Jours'], "Horaire": r['Horaire'], "Statut": "Double occupation"})
             
-            # Conflit Enseignants
+            # --- 2. Conflit Enseignants ---
             p_c = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants']).filter(lambda x: len(x) > 1)
             for _, r in p_c.drop_duplicates(['Jours', 'Horaire', 'Enseignants']).iterrows():
-                errs.append(f"⚠️ **CONFLIT** : {r['Enseignants']} a deux cours simultanés le {r['Jours']} à {r['Horaire']}")
+                msg = f"⚠️ **CONFLIT** : {r['Enseignants']} a deux cours simultanés le {r['Jours']} à {r['Horaire']}"
+                errs_text.append(msg)
+                errs_for_df.append({"Type": "ENSEIGNANT", "Détail": r['Enseignants'], "Jour": r['Jours'], "Horaire": r['Horaire'], "Statut": "Chevauchement"})
+            
+            # --- LOGIQUE D'IMPRESSION / EXPORT ---
+            if errs_for_df:
+                # Création du fichier Excel en mémoire
+                df_errors = pd.DataFrame(errs_for_df)
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df_errors.to_excel(writer, index=False, sheet_name='Conflits_Detectes')
                 
-            if errs:
-                for e in errs:
+                # Bouton d'exportation stylisé (fait office de fonction "Imprimer")
+                st.download_button(
+                    label="🖨️ Imprimer / Télécharger le Rapport des Conflits",
+                    data=output.getvalue(),
+                    file_name=f"Rapport_Conflits_{date_str.replace('/','-')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                
+                st.divider()
+                
+                # Affichage à l'écran
+                for e in errs_text:
                     if "❌" in e: st.error(e)
                     else: st.warning(e)
             else:
                 st.success("✅ Aucun conflit de salle ou d'enseignant détecté.")
-
     elif portail == "📅 Surveillances Examens":
         FILE_S = "surveillances_2026.xlsx"
         if os.path.exists(FILE_S):
@@ -661,6 +686,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
