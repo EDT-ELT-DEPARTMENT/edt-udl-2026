@@ -237,7 +237,11 @@ map_j = {normalize(j): j for j in jours_list}
 
 # --- BARRE LATÉRALE ---
 with st.sidebar:
+    # Correction sécurisée de l'affichage du profil
+if user and "nom_officiel" in user:
     st.header(f"👤 {user['nom_officiel']}")
+else:
+    st.header("👤 Profil invité")
     portail = st.selectbox("🚀 Sélectionner Espace", [
         "📖 Emploi du Temps", 
         "📅 Surveillances Examens", 
@@ -770,6 +774,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
