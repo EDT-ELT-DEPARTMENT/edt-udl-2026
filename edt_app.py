@@ -1011,10 +1011,7 @@ if df is not None:
                 cols_to_drop = [c for c in ['Date_Tri'] if c in df_u_surv.columns]
                 df_u_surv.drop(columns=cols_to_drop).to_excel(buf, index=False)
                 st.download_button(f"📥 Télécharger l'EDT de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
-            
-                            else: # Ce ELSE est aligné avec "if not df_u_surv.empty"
-                                st.warning(f"⚠️ Aucune surveillance trouvée pour : {prof_sel}")
-                
+                            
                         else: # Ce ELSE est aligné avec "if os.path.exists('surveillances_2026.xlsx')"
                             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
                 
@@ -1167,6 +1164,7 @@ if df is not None:
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
         disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
+
 
 
 
