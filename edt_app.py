@@ -241,7 +241,12 @@ map_j = {normalize(j): j for j in jours_list}
 
 # --- BARRE LATÉRALE ---
 with st.sidebar:
-    st.header(f"👤 {user['nom_officiel']}")
+    # Vérification si l'utilisateur existe avant d'afficher son nom
+if st.session_state.get("authenticated") and st.session_state.get("user"):
+    nom_utilisateur = st.session_state.user.get("nom_officiel", "Utilisateur")
+    st.header(f"👤 {nom_utilisateur}")
+else:
+    st.header("👤 Non connecté")
     portail = st.selectbox("🚀 Sélectionner Espace", [
         "📖 Emploi du Temps", 
         "📅 Surveillances Examens", 
@@ -768,6 +773,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
