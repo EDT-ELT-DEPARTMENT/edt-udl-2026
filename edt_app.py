@@ -266,13 +266,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.header("✍️ Éditeur de Données Source")
     st.info(f"Fichier : {NOM_FICHIER_FIXE}")
 
-    # 1. RÉCUPÉRATION DES OPTIONS ET DICTIONNAIRE MATIÈRE-CODE
-    # On crée une correspondance basée sur ce qui existe déjà dans le fichier
-    if "Enseignements" in df.columns and "Code" in df.columns:
-        dict_mat_code = df.dropna(subset=['Enseignements', 'Code']).set_index('Enseignements')['Code'].to_dict()
-    else:
-        dict_mat_code = {}
-
+    # 1. RÉCUPÉRATION DES OPTIONS
     def get_clean_options(column_name, default_list):
         if column_name in df.columns:
             existing = df[column_name].dropna().astype(str).unique().tolist()
@@ -289,44 +283,49 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     opts_promos = get_clean_options("Promotion", [])
     opts_enseignants = get_clean_options("Enseignants", [])
 
-    # 2. Recherche
+    # 2. LOGIQUE DE DÉTECTION DE CONFLITS (ACTIVE)
+    # On crée une copie pour travailler
+    df_check = df.copy()
+    
+    # On identifie les doublons (Jour + Horaire + Lieu) OU (Jour + Horaire + Enseignant)
+    conflic_mask_lieu = df_check.duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False) & (df_check['Lieu'] != "")
+    conflic_mask_ens = df_check.duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False) & (df_check['Enseignants'] != "")
+    
+    df_check['Chevauchement'] = ""
+    df_check.loc[conflic_mask_lieu, 'Chevauchement'] = "⚠️ CONFLIT SALLE"
+    df_check.loc[conflic_mask_ens, 'Chevauchement'] = "⚠️ CONFLIT ENSEIGNANT"
+    df_check.loc[conflic_mask_lieu & conflic_mask_ens, 'Chevauchement'] = "🚫 DOUBLE CONFLIT"
+
+    # 3. Filtrage pour l'affichage
     search_q = st.text_input("🔍 Rechercher une ligne :", placeholder="Nom, Salle, Promo...")
-
-    # 3. Préparation du DataFrame avec styles pour les conflits
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
-    for col in cols_format:
-        if col not in df.columns: df[col] = ""
-
-    df_to_edit = df[cols_format].copy()
+    
+    df_to_edit = df_check[cols_format].copy()
     if search_q:
         mask = df_to_edit.apply(lambda row: row.astype(str).str.contains(search_q, case=False).any(), axis=1)
         df_edit_filtered = df_to_edit[mask]
     else:
         df_edit_filtered = df_to_edit
 
-    # --- LOGIQUE DE COULEURS POUR LES CONFLITS ---
+    # 4. ÉDITEUR AVEC STYLE CONDITIONNEL
     def color_conflict(val):
-        if val and str(val).strip() != "":
-            return 'background-color: #ffcccc; color: #990000; font-weight: bold' # Rouge clair pour conflit
+        if "⚠️" in str(val) or "🚫" in str(val):
+            return 'background-color: #ffcccc; color: #990000; font-weight: bold'
         return ''
 
-    styled_df = df_edit_filtered.style.applymap(color_conflict, subset=['Chevauchement'])
-
-    # 4. ÉDITEUR AVEC LISTE DÉROULANTE MATIÈRE
     edited_df = st.data_editor(
-        styled_df,
+        df_edit_filtered.style.applymap(color_conflict, subset=['Chevauchement']),
         use_container_width=True,
         num_rows="dynamic",
-        key="admin_editor_v7_final",
+        key="admin_editor_active_v8",
         column_config={
             "Enseignements": st.column_config.SelectboxColumn("📚 Matière", options=opts_matieres),
-            "Code": st.column_config.TextColumn("🔑 Code (Auto)", help="Se remplit selon la matière"),
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=opts_jours),
             "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=opts_horaires),
             "Lieu": st.column_config.SelectboxColumn("📍 Lieu", options=opts_lieux),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
             "Enseignants": st.column_config.SelectboxColumn("👤 Enseignants", options=opts_enseignants),
-            "Chevauchement": st.column_config.TextColumn("⚠️ Conflit Detecté", disabled=True)
+            "Chevauchement": st.column_config.TextColumn("🚨 État du Conflit", disabled=True)
         }
     )
 
@@ -1000,6 +999,7 @@ elif portail == "🎓 Portail Étudiants":
 else:
     st.error(f"Fichier {NOM_FICHIER_FIXE} introuvable.")
 # --- FIN DU CODE ---
+
 
 
 
