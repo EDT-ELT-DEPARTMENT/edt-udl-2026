@@ -496,19 +496,32 @@ if st.button("🚪 Déconnexion du compte"):
 # --- ESPACE ÉDITEUR AVANCÉ (ADMIN UNIQUEMENT) ---
 if is_admin and mode_view == "✍️ Éditeur de données":
     st.divider()
-    st.subheader("✍️ Espace Éditeur de Données (Admin)")
-    st.info("Titre Actif : Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+    # Rappel du titre officiel
+    st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+    st.info("Mode Édition : La disposition respecte l'ordre Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion.")
 
-    # 1. INITIALISATION DU DICTIONNAIRE DE CODES
+    # 1. PRÉPARATION DES OPTIONS (Pour éviter le NameError)
+    # On extrait les listes uniques de notre DataFrame actuel
+    opts_mat = sorted(df["Enseignements"].dropna().unique().tolist())
+    opts_ens = sorted(df["Enseignants"].dropna().unique().tolist())
+    opts_lieux = sorted(df["Lieu"].dropna().unique().tolist())
+    opts_promos = sorted(df["Promotion"].dropna().unique().tolist())
+    
+    # Listes standards
+    jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+    horaires_std = [
+        "8h - 9h30", "9h30 - 11h", "11h - 12h30", 
+        "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"
+    ]
+
+    # 2. INITIALISATION DU DICTIONNAIRE DE CODES (Pour l'auto-remplissage)
     dict_mat_code = {}
     if 'Enseignements' in df.columns and 'Code' in df.columns:
         valid_pairs = df.dropna(subset=['Enseignements', 'Code'])
         dict_mat_code = pd.Series(valid_pairs.Code.values, index=valid_pairs.Enseignements).to_dict()
 
-    # 2. PRÉPARATION DES COLONNES (Disposition demandée)
+    # 3. RECHERCHE ET FILTRAGE
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
-    
-    # 3. RECHERCHE
     search_query = st.text_input("🔍 Rechercher une ligne :", placeholder="Matière, Enseignant, Salle...")
     
     df_to_edit = df[cols_format].copy()
@@ -516,20 +529,20 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         mask = df_to_edit.apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
         df_to_edit = df_to_edit[mask]
 
-    # 4. L'ÉDITEUR DE DONNÉES
+    # 4. L'ÉDITEUR DE DONNÉES (Interactif)
     edited_df = st.data_editor(
         df_to_edit,
         use_container_width=True,
         num_rows="dynamic",
         key="admin_editor_2026",
         column_config={
-            "Enseignements": st.column_config.SelectboxColumn("📚 Matière", options=opts_mat),
+            "Enseignements": st.column_config.SelectboxColumn("📚 Matière", options=opts_mat, required=True),
             "Code": st.column_config.TextColumn("🔑 Code", help="Saisir ou laisser vide pour auto-remplissage"),
+            "Enseignants": st.column_config.SelectboxColumn("👤 Enseignants", options=opts_ens),
             "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=horaires_std),
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
             "Lieu": st.column_config.SelectboxColumn("📍 Lieu", options=opts_lieux),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
-            "Enseignants": st.column_config.SelectboxColumn("👤 Enseignants", options=opts_ens)
         }
     )
 
@@ -538,41 +551,29 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
-        if st.button("💾 Enregistrer (Excel)", color="primary", use_container_width=True):
+        if st.button("💾 Enregistrer (Excel)", type="primary", use_container_width=True):
             try:
-                # Auto-remplissage des codes manquants
+                # Auto-remplissage des codes basés sur la matière
                 for idx, row in edited_df.iterrows():
                     mats = row['Enseignements']
                     if mats in dict_mat_code and (not str(row['Code']).strip() or str(row['Code']) == "nan"):
                         edited_df.at[idx, 'Code'] = dict_mat_code[mats]
 
-                # Mise à jour du DataFrame principal et sauvegarde
-                df = edited_df[cols_format] 
-                df.to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Modifications enregistrées avec la disposition officielle !")
+                # Sauvegarde du fichier avec la disposition stricte
+                edited_df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
+                st.success("✅ Modifications enregistrées !")
                 st.rerun()
             except Exception as e:
-                st.error(f"Erreur : {e}")
+                st.error(f"Erreur lors de la sauvegarde : {e}")
 
     with c2:
-        # Téléchargement XLSX
+        # Préparation du téléchargement
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             edited_df[cols_format].to_excel(writer, index=False)
         st.download_button("📥 Télécharger XLSX", buffer.getvalue(), "EDT_S2_2026.xlsx", use_container_width=True)
 
     with c3:
-        if st.button("🖨️ Imprimer", use_container_width=True):
-            st.components.v1.html("<script>window.print();</script>", height=0)
-
-    with c4:
-        if st.button("🔄 Annuler", use_container_width=True):
-            st.rerun()
-
-    st.stop() # Empêche l'affichage du reste de la page en mode édition
-
-    with c3:
-        # Bouton Imprimer (Lance l'impression du navigateur)
         if st.button("🖨️ Imprimer la vue", use_container_width=True):
             st.components.v1.html("<script>window.print();</script>", height=0)
 
@@ -928,3 +929,4 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
