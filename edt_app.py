@@ -219,7 +219,12 @@ if not st.session_state["user_data"]:
                 st.error("Code admin incorrect.")
 # --- VARIABLES GLOBALES ---
 user = st.session_state["user_data"]
-is_admin = user.get("role") == "admin"
+if st.session_state.get("authenticated") and st.session_state.get("user"):
+    user = st.session_state.user
+    is_admin = user.get("role") == "admin"
+else:
+    is_admin = False
+    user = None
 
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
 horaires_list = [
@@ -763,6 +768,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
