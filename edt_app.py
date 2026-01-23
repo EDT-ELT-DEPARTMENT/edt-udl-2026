@@ -1011,15 +1011,16 @@ if df is not None:
                 df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
                 st.download_button(f"📥 Télécharger l'EDT de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
             else:
-                st.warning(f"⚠️ Aucune surveillance trouvée dans le fichier Excel pour : {prof_sel}")
-        else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
-        elif portail == "🤖 Générateur Automatique":
+
+    # --- CET ALIGNEMENT EST CRUCIAL ---
+    elif portail == "🤖 Générateur Automatique":
         if not is_admin:
             st.error("Accès réservé au Bureau des Examens.")
         else:
             st.header("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
             st.subheader("⚙️ Moteur de Génération Automatique")
+            # ... reste du code ...
 
             # --- 1. LECTURE DU FICHIER SOURCE ---
             FILE_SOURCE = "dataEDT-ELT-S2-2026.xlsx"
@@ -1158,3 +1159,4 @@ if df is not None:
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
         disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
+
