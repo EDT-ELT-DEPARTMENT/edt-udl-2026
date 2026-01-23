@@ -255,7 +255,7 @@ with st.sidebar:
                 "Promotion", 
                 "Enseignant", 
                 "🏢 Planning Salles", 
-                "🚩 Vérificateur"
+                "🚩 Vérificateur de conflits"
             ])
         else:
             mode_view = "Personnel"
@@ -359,7 +359,7 @@ if df is not None:
             grid_s.columns = jours_list
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
-        elif is_admin and mode_view == "🚩 Vérificateur":
+        elif is_admin and mode_view == "🚩 Vérificateur de conflits":
             st.subheader("🚩 Analyse des Conflits Potentiels")
             
             # Listes pour l'affichage et pour l'exportation
@@ -686,6 +686,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
