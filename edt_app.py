@@ -208,11 +208,15 @@ if not st.session_state["user_data"]:
         code_admin = st.text_input("Code de sécurité Administration", type="password", key="admin_code")
         if st.button("Accès Administration"):
             if code_admin == "doctorat2026":
-                st.session_state["user_data"] = {"nom_officiel": "ADMINISTRATEUR", "role": "admin"}
+                # AJOUT DE L'EMAIL ICI POUR LE RECONNAÎTRE PLUS TARD
+                st.session_state["user_data"] = {
+                    "nom_officiel": "ADMINISTRATEUR", 
+                    "role": "admin",
+                    "email": "milouafarid@gmail.com"  # <--- CRUCIAL
+                }
                 st.rerun()
             else:
                 st.error("Code admin incorrect.")
-    st.stop()
 
 # --- VARIABLES GLOBALES ---
 user = st.session_state["user_data"]
@@ -663,6 +667,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
