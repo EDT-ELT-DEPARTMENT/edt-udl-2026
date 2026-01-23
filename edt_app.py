@@ -208,16 +208,15 @@ if not st.session_state["user_data"]:
         code_admin = st.text_input("Code de sécurité Administration", type="password", key="admin_code")
         if st.button("Accès Administration"):
             if code_admin == "doctorat2026":
-                # AJOUT DE L'EMAIL ICI POUR LE RECONNAÎTRE PLUS TARD
+                # On force l'email ici pour activer vos droits maître
                 st.session_state["user_data"] = {
                     "nom_officiel": "ADMINISTRATEUR", 
                     "role": "admin",
-                    "email": "milouafarid@gmail.com"  # <--- CRUCIAL
+                    "email": "milouafarid@gmail.com"  # <--- AJOUTER CETTE LIGNE
                 }
                 st.rerun()
             else:
                 st.error("Code admin incorrect.")
-
 # --- VARIABLES GLOBALES ---
 user = st.session_state["user_data"]
 is_admin = user.get("role") == "admin"
@@ -395,36 +394,36 @@ if df is not None:
             u_nom = user['nom_officiel']
             u_email = user.get('email', '').lower().strip()
 
-            # --- VÉRIFICATION MAÎTRE (EMAIL) ---
+            # --- DÉTECTION DU SUPER-ADMIN ---
             is_master_admin = (u_email == "milouafarid@gmail.com")
 
             if is_master_admin:
-                # Extraire la liste de tous les enseignants présents dans le fichier
-                all_profs = []
+                # On extrait tous les noms d'enseignants du fichier Excel
+                tous_les_profs = []
                 for entry in df_surv[c_prof].unique():
                     for p in entry.split('&'):
                         clean_p = p.strip()
-                        if clean_p and clean_p not in ["nan", "Non défini"]:
-                            all_profs.append(clean_p)
-                liste_profs = sorted(list(set(all_profs)))
+                        if clean_p and clean_p not in ["nan", "Non défini", ""]:
+                            tous_les_profs.append(clean_p)
+                liste_profs = sorted(list(set(tous_les_profs)))
                 
-                st.success(f"🌟 Bienvenue M. MILOUA (Admin Maître)")
-                # Ici, on donne la main à l'admin pour choisir qui il veut voir
-                prof_sel = st.selectbox("🔍 Visualiser le planning de :", liste_profs)
+                st.success("🔓 Accès Maître : milouafarid@gmail.com")
+                # L'admin peut choisir n'importe quel nom de la liste
+                prof_sel = st.selectbox("🔍 Choisir un enseignant pour voir son planning :", liste_profs)
             else:
-                # L'enseignant normal ne voit que son nom et ne peut pas choisir
+                # Un enseignant normal est limité à son nom
                 prof_sel = u_nom
                 st.info(f"👤 Espace Personnel : **{u_nom}**")
 
-            # Filtrage des données
+            # Filtrage final
             df_u_surv = df_surv[df_surv[c_prof].str.contains(prof_sel, case=False, na=False)].sort_values(by='Date_Tri')
             
             st.markdown(f"### 📋 Planning de : {prof_sel}")
             
-            # Métriques
+            # Statistiques
             c1, c2, c3 = st.columns(3)
             nb_mat = len(df_u_surv[df_u_surv['Heure'].str.contains("08h|09h|10h", case=False)])
-            c1.metric("Total Séances", len(df_u_surv))
+            c1.metric("Séances Total", len(df_u_surv))
             c2.metric("Matin", nb_mat)
             c3.metric("Après-midi", len(df_u_surv) - nb_mat)
             
@@ -441,16 +440,11 @@ if df is not None:
                 
                 buf = io.BytesIO()
                 df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
-                st.download_button(f"📥 Exporter le planning de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
+                st.download_button(f"📥 Télécharger l'EDT de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
             else:
-                st.warning(f"⚠️ Aucune surveillance enregistrée au nom de : {prof_sel}")
-
-            # Option supplémentaire pour l'admin : Vue complète
-            if is_master_admin:
-                with st.expander("🌐 Voir tout le fichier de surveillance (Admin Only)"):
-                    st.dataframe(df_surv.drop(columns=['Date_Tri']), use_container_width=True, hide_index=True)
+                st.warning(f"⚠️ Aucune surveillance trouvée dans le fichier Excel pour : {prof_sel}")
         else:
-            st.error("Fichier 'surveillances_2026.xlsx' introuvable.")
+            st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
     elif portail == "🤖 Générateur Automatique":
         if not is_admin:
             st.error("Accès réservé au Bureau des Examens.")
@@ -667,6 +661,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
