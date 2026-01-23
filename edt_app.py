@@ -624,7 +624,8 @@ if df is not None:
                         xlsx_buf = io.BytesIO()
                         with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
                             st.session_state.df_genere.to_excel(writer, index=False)
-                        st.download_button("📥 EXPORTER LE PLANNING", xlsx_buf.getvalue(), "Planning_Surveillances_2026.xlsx")    elif portail == "👥 Portail Enseignants":
+                        st.download_button("📥 EXPORTER LE PLANNING", xlsx_buf.getvalue(), "Planning_Surveillances_2026.xlsx")    
+                    elif portail == "👥 Portail Enseignants":
         # --- 🛡️ VERROU DE SÉCURITÉ ADMIN ---
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT : Seule l'administration peut accéder à l'envoi des EDTs.")
@@ -747,6 +748,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
 # --- FIN DU CODE ---
+
 
 
 
