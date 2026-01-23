@@ -997,7 +997,6 @@ if df is not None:
             c3.metric("Après-midi", len(df_u_surv) - nb_mat)
             
             st.divider()
-
                if not df_u_surv.empty:
                 for _, r in df_u_surv.iterrows():
                     st.markdown(f"""
@@ -1168,6 +1167,7 @@ if df is not None:
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
         disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
+
 
 
 
