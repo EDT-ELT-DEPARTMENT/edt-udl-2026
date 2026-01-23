@@ -259,115 +259,94 @@ if st.button("🚪 Déconnexion du compte"):
         st.session_state["user_data"] = None
         st.rerun()
 
-# =================================================================
-# L'ÉDITEUR DOIT ÊTRE COLLÉ ICI (ENTRE LA DÉCONNEXION ET L'EN-TÊTE)
-# =================================================================
-if is_admin and mode_view == "✍️ Éditeur de données":
-    st.header("✍️ Éditeur de Données Source")
-    st.info(f"Fichier : {NOM_FICHIER_FIXE}")
+# --- ESPACE ÉDITEUR AVANCÉ (ADMIN UNIQUEMENT) ---
+if is_admin:
+    st.divider()
+    st.subheader("✍️ Espace Éditeur de Données (Admin)")
 
-    # 1. RÉCUPÉRATION DES OPTIONS
+    # ==========================================================
+    # 🛠️ ÉTAPE 1 : INITIALISATION SÉCURISÉE (Règle votre erreur)
+    # ==========================================================
+    dict_mat_code = {} # On le crée vide d'abord
+    if 'Enseignements' in df.columns and 'Code' in df.columns:
+        valid_pairs = df.dropna(subset=['Enseignements', 'Code'])
+        # On crée le dictionnaire de correspondance
+        dict_mat_code = pd.Series(valid_pairs.Code.values, index=valid_pairs.Enseignements).to_dict()
+
+    # 2. RÉCUPÉRATION DES OPTIONS (Listes déroulantes)
     def get_clean_options(column_name, default_list):
         if column_name in df.columns:
             existing = df[column_name].dropna().astype(str).unique().tolist()
             return sorted(list(set([x.strip() for x in existing if x.strip()] + default_list)))
         return default_list
 
-    horaires_standards = ["8h-9h30", "9h30-11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30-17h"]
-    jours_standards = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-
-    opts_matieres = get_clean_options("Enseignements", [])
-    opts_jours = get_clean_options("Jours", jours_standards)
-    opts_horaires = get_clean_options("Horaire", horaires_standards)
+    opts_mat = get_clean_options("Enseignements", [])
+    opts_ens = get_clean_options("Enseignants", [])
     opts_lieux = get_clean_options("Lieu", [])
     opts_promos = get_clean_options("Promotion", [])
-    opts_enseignants = get_clean_options("Enseignants", [])
+    horaires_std = ["8h-9h30", "9h30-11h", "11h-12h30", "12h30-14h", "14h-15h30", "15h30-17h"]
+    jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
 
-    # 2. LOGIQUE DE DÉTECTION DE CONFLITS (ACTIVE)
-    # On crée une copie pour travailler
-    df_check = df.copy()
-    
-    # On identifie les doublons (Jour + Horaire + Lieu) OU (Jour + Horaire + Enseignant)
-    conflic_mask_lieu = df_check.duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False) & (df_check['Lieu'] != "")
-    conflic_mask_ens = df_check.duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False) & (df_check['Enseignants'] != "")
-    
-    df_check['Chevauchement'] = ""
-    df_check.loc[conflic_mask_lieu, 'Chevauchement'] = "⚠️ CONFLIT SALLE"
-    df_check.loc[conflic_mask_ens, 'Chevauchement'] = "⚠️ CONFLIT ENSEIGNANT"
-    df_check.loc[conflic_mask_lieu & conflic_mask_ens, 'Chevauchement'] = "🚫 DOUBLE CONFLIT"
-
-    # 3. Filtrage pour l'affichage
-    search_q = st.text_input("🔍 Rechercher une ligne :", placeholder="Nom, Salle, Promo...")
+    # 3. RECHERCHE ET FILTRAGE
+    search_query = st.text_input("🔍 Rechercher une ligne :", placeholder="Tapez un nom, une salle...")
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
     
-    df_to_edit = df_check[cols_format].copy()
-    if search_q:
-        mask = df_to_edit.apply(lambda row: row.astype(str).str.contains(search_q, case=False).any(), axis=1)
-        df_edit_filtered = df_to_edit[mask]
+    if search_query:
+        mask = df[cols_format].apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
+        df_to_edit = df[mask].copy()
     else:
-        df_edit_filtered = df_to_edit
+        df_to_edit = df[cols_format].copy()
 
-    # 4. ÉDITEUR AVEC STYLE CONDITIONNEL
-    def color_conflict(val):
-        if "⚠️" in str(val) or "🚫" in str(val):
-            return 'background-color: #ffcccc; color: #990000; font-weight: bold'
-        return ''
-
+    # 4. L'ÉDITEUR
     edited_df = st.data_editor(
-        df_edit_filtered.style.applymap(color_conflict, subset=['Chevauchement']),
+        df_to_edit,
         use_container_width=True,
         num_rows="dynamic",
-        key="admin_editor_active_v8",
+        key="admin_editor_stable_v2",
         column_config={
-            "Enseignements": st.column_config.SelectboxColumn("📚 Matière", options=opts_matieres),
-            "Jours": st.column_config.SelectboxColumn("📅 Jours", options=opts_jours),
-            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=opts_horaires),
+            "Enseignements": st.column_config.SelectboxColumn("📚 Matière", options=opts_mat),
+            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=horaires_std),
+            "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
             "Lieu": st.column_config.SelectboxColumn("📍 Lieu", options=opts_lieux),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
-            "Enseignants": st.column_config.SelectboxColumn("👤 Enseignants", options=opts_enseignants),
-            "Chevauchement": st.column_config.TextColumn("🚨 État du Conflit", disabled=True)
+            "Enseignants": st.column_config.SelectboxColumn("👤 Enseignants", options=opts_ens),
+            "Chevauchement": st.column_config.TextColumn("🚨 État", disabled=True)
         }
     )
 
-    # 5. BOUTONS D'ACTION ET EXPORTS
+    # 5. LES BOUTONS (Sauvegarde, Télécharger, Imprimer, Annuler)
     st.write("---")
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
         if st.button("💾 Enregistrer (Excel)", use_container_width=True):
             try:
-                # Automatisation des codes avant sauvegarde
+                # AUTOMATISATION DU CODE SANS ERREUR
                 for idx, row in edited_df.iterrows():
                     mats = row['Enseignements']
-                    if mats in dict_mat_code and (not row['Code'] or str(row['Code']).strip() == ""):
+                    # On vérifie si la matière est connue dans dict_mat_code
+                    if mats in dict_mat_code and (not str(row['Code']).strip()):
                         edited_df.at[idx, 'Code'] = dict_mat_code[mats]
 
-                if search_q: df.update(edited_df)
+                # Mise à jour globale
+                if search_query: df.update(edited_df)
                 else: df = edited_df
                 
+                # Sauvegarde physique
                 df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Fichier source mis à jour !")
+                st.success("✅ Modifications enregistrées !")
                 st.rerun()
             except Exception as e:
-                st.error(f"Erreur : {e}")
-    
+                st.error(f"Erreur de sauvegarde : {e}")
+
     with c2:
-        # Export Excel pour téléchargement
         import io
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            edited_df.to_excel(writer, index=False, sheet_name='Emploi_du_temps')
-        
-        st.download_button(
-            label="📥 Télécharger XLSX",
-            data=buffer.getvalue(),
-            file_name=f"EDT_Export_{date_str}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+            edited_df.to_excel(writer, index=False)
+        st.download_button("📥 Télécharger XLSX", buffer.getvalue(), "EDT_Export.xlsx", use_container_width=True)
 
     with c3:
-        # Bouton Imprimer (Lance l'impression du navigateur)
         if st.button("🖨️ Imprimer la vue", use_container_width=True):
             st.components.v1.html("<script>window.print();</script>", height=0)
 
@@ -1023,6 +1002,7 @@ if is_admin:
 
 else:
     st.error(f"Accès refusé ou fichier {NOM_FICHIER_FIXE} introuvable.")
+
 
 
 
