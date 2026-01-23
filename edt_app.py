@@ -247,7 +247,7 @@ with st.sidebar:
     
     if portail == "📖 Emploi du Temps":
         if is_admin:
-            mode_view = st.radio("Vue Administration :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur de conflits"])
+            mode_view = st.radio("Vue Administration :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur de conflits","✍️ Éditeur de données"])
         else:
             mode_view = "Personnel"
         poste_sup = st.checkbox("Poste Supérieur (Décharge 3h)")
@@ -757,8 +757,125 @@ if df is not None:
         st.success(f"Affichage de l'emploi du temps pour : **{p_etu}**")
         disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
+elif portail == "🎓 Portail Étudiants":
+        st.header("📚 Espace Étudiants")
+        
+        # --- VUE ÉTUDIANTE CLASSIQUE ---
+        p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
+        st.success(f"Affichage de l'emploi du temps pour : **{p_etu}**")
+        
+        disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
+        st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
+        # --- ESPACE ÉDITEUR AVANCÉ (ADMIN UNIQUEMENT) ---
+        if is_admin:
+            st.divider()
+            st.subheader("✍️ Espace Éditeur de Données (Admin)")
+            
+            # 1. Recherche et Filtre
+            search_query = st.text_input("🔍 Rechercher une ligne à modifier :", placeholder="Tapez un nom d'enseignant, une salle ou un code...")
+
+            # Définition de la structure stricte
+            cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
+            
+            # Initialisation de la colonne Chevauchement si elle n'existe pas
+            for col in cols_format:
+                if col not in df.columns:
+                    df[col] = ""
+
+            # Filtrage dynamique pour l'éditeur
+            if search_query:
+                mask = df[cols_format].apply(lambda row: row.astype(str).str.contains(search_query, case=False).any(), axis=1)
+                df_to_edit = df[mask].copy()
+            else:
+                df_to_edit = df[cols_format].copy()
+
+            st.info(f"💡 Edition de {len(df_to_edit)} ligne(s). Pour ajouter un cours, utilisez la ligne '*' en bas.")
+
+            # 2. L'Éditeur de données
+            edited_df = st.data_editor(
+                df_to_edit, 
+                use_container_width=True, 
+                num_rows="dynamic",
+                key="admin_master_editor"
+            )
+
+            # 3. Validation des champs obligatoires
+            champs_requis = ['Enseignements', 'Horaire', 'Jours', 'Lieu', 'Promotion']
+            lignes_invalides = edited_df[edited_df[champs_requis].isnull().any(axis=1) | (edited_df[champs_requis] == "").any(axis=1)]
+
+            if not lignes_invalides.empty:
+                st.warning(f"⚠️ {len(lignes_invalides)} ligne(s) incomplètes. La sauvegarde est bloquée jusqu'à correction.")
+
+            # 4. Boutons d'Action
+            col_save, col_reset = st.columns(2)
+            
+            with col_save:
+                save_disabled = not lignes_invalides.empty
+                if st.button("💾 Sauvegarder les modifications", use_container_width=True, disabled=save_disabled):
+                    try:
+                        # Gestion Backup
+                        if not os.path.exists("backups"): os.makedirs("backups")
+                        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        backup_path = f"backups/backup_EDT_{ts}.xlsx"
+                        if os.path.exists(NOM_FICHIER_FIXE):
+                            import shutil
+                            shutil.copy(NOM_FICHIER_FIXE, backup_path)
+
+                        # Mise à jour du DataFrame Global
+                        if search_query:
+                            df.update(edited_df)
+                        else:
+                            df = edited_df
+
+                        # Sauvegarde Excel
+                        df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
+
+                        # Log de l'opération
+                        log_time = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                        with open("log_modifications.txt", "a", encoding="utf-8") as f:
+                            f.write(f"[{log_time}] - MAJ par {user_email} | Backup: {ts}\n")
+
+                        st.success("✅ Modifications enregistrées et synchronisées !")
+                        st.balloons()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur : {e}")
+
+            with col_reset:
+                if st.button("🔄 Annuler / Rafraîchir", use_container_width=True):
+                    st.rerun()
+
+            # --- OUTILS DE MAINTENANCE ---
+            st.divider()
+            col_log, col_back = st.columns(2)
+
+            with col_log:
+                with st.expander("📜 Journal des modifications"):
+                    if os.path.exists("log_modifications.txt"):
+                        with open("log_modifications.txt", "r") as f:
+                            logs = f.readlines()
+                            for l in reversed(logs[-5:]): st.text(l.strip())
+                    else: st.write("Aucun log.")
+
+            with col_back:
+                with st.expander("📂 Restauration & Nettoyage"):
+                    if os.path.exists("backups"):
+                        backups = sorted(os.listdir("backups"), reverse=True)
+                        selected_b = st.selectbox("Fichiers disponibles :", backups)
+                        if st.button("🧹 Nettoyer les backups > 30 jours"):
+                            import time
+                            now = time.time()
+                            for f in os.listdir("backups"):
+                                if os.stat(f"backups/{f}").st_mtime < now - (30*86400):
+                                    os.remove(f"backups/{f}")
+                            st.success("Nettoyage effectué.")
+                    else: st.write("Dossier backup vide.")
+
+else:
+    st.error(f"Fichier {NOM_FICHIER_FIXE} introuvable.")
 # --- FIN DU CODE ---
+
 
 
 
