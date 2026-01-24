@@ -498,45 +498,46 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.divider()
     st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-    # 1. DÉFINITION DES COLONNES
+    # 1. STRUCTURE ET NETTOYAGE
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
 
-    # 2. INITIALISATION ROBUSTE
-    if 'df_admin' not in st.session_state or not all(c in st.session_state.df_admin.columns for c in cols_format):
+    if 'df_admin' not in st.session_state:
         temp_df = df.copy()
         
-        # On s'assure que toutes les colonnes existent et sont au format texte pour éviter les erreurs de type
+        # On force la création des colonnes et on convertit TOUT en String
         for col in cols_format:
             if col not in temp_df.columns:
                 temp_df[col] = ""
-            temp_df[col] = temp_df[col].astype(str).replace("nan", "").replace("None", "")
+            # Nettoyage des types : remplace les NaN par du vide et force le format texte
+            temp_df[col] = temp_df[col].astype(str).replace(['nan', 'None', '<NA>'], '')
         
         if "Horaire" in temp_df.columns:
             temp_df["Horaire"] = temp_df["Horaire"].str.replace(r'^08h', '8h', regex=True).str.strip()
-            
+        
         st.session_state.df_admin = temp_df
 
-    # 3. RÉCUPÉRATION DES OPTIONS (Sécurisée)
+    # 2. PRÉPARATION DES OPTIONS (Sécurisée contre les valeurs vides)
     horaires_ref = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
-    existants = st.session_state.df_admin["Horaire"].unique().tolist()
-    liste_horaires_finale = sorted(list(set([h for h in existants if h] + horaires_ref)))
+    h_existants = [h for h in st.session_state.df_admin["Horaire"].unique() if h and h.strip() != ""]
+    liste_horaires = sorted(list(set(h_existants + horaires_ref)))
     
     jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-    opts_promos = sorted([p for p in st.session_state.df_admin["Promotion"].unique().tolist() if p])
+    promos_existantes = [p for p in st.session_state.df_admin["Promotion"].unique() if p and p.strip() != ""]
 
-    # 4. TABLEAU GLOBAL
+    # 3. TABLEAU GLOBAL (ÉDITION SÉCURISÉE)
     st.markdown("### 🌍 Tableau Global")
     
-    # On utilise une configuration minimale pour éviter les conflits de types
+    # On passe une copie propre à l'éditeur
     edited_df = st.data_editor(
         st.session_state.df_admin[cols_format],
         use_container_width=True,
         num_rows="dynamic",
-        key="editor_v2026_stable",
+        key="editor_final_stable_2026",
         column_config={
-            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
+            "Enseignements": st.column_config.TextColumn("📚 Matière"),
+            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires),
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
-            "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos if opts_promos else ["M2RE"]),
+            "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=promos_existantes if promos_existantes else ["M2RE"]),
             "Chevauchement": st.column_config.TextColumn("⚠️ Chevauchement"),
         }
     )
@@ -544,28 +545,30 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     if edited_df is not None:
         st.session_state.df_admin = edited_df
 
-    # 5. SAUVEGARDE
+    # 4. SAUVEGARDE ET EXPORT
     st.write("---")
     c1, c2, c3 = st.columns(3)
+    
     with c1:
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
                 st.session_state.df_admin[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Données enregistrées !")
+                st.success("✅ Serveur mis à jour avec succès !")
                 st.balloons()
             except Exception as e:
-                st.error(f"Erreur : {e}")
-                
+                st.error(f"Erreur d'écriture : {e}")
+
     with c2:
-        if st.button("🔄 Réinitialiser", use_container_width=True):
-            if 'df_admin' in st.session_state: del st.session_state.df_admin
+        if st.button("🔄 Réinitialiser l'éditeur", use_container_width=True):
+            if 'df_admin' in st.session_state:
+                del st.session_state.df_admin
             st.rerun()
 
     with c3:
         import io
         buffer = io.BytesIO()
         st.session_state.df_admin[cols_format].to_excel(buffer, index=False, engine='xlsxwriter')
-        st.download_button("📥 Télécharger Excel", buffer.getvalue(), "EDT_S2_2026.xlsx", use_container_width=True)
+        st.download_button("📥 Télécharger Excel", buffer.getvalue(), f"EDT_S2_2026.xlsx", use_container_width=True)
 
     st.stop() 
 
@@ -915,6 +918,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
