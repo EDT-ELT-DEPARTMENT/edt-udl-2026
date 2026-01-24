@@ -498,11 +498,13 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.divider()
     st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-    # 1. INITIALISATION DE LA MÉMOIRE (SESSION STATE)
-    # Cela permet de garder les modifs entre les filtrages
+    # 1. INITIALISATION DE LA MÉMOIRE
     if 'df_admin' not in st.session_state:
-        # Normalisation au premier chargement
         temp_df = df.copy()
+        # On s'assure que la colonne Chevauchement existe
+        if "Chevauchement" not in temp_df.columns:
+            temp_df["Chevauchement"] = ""
+        
         if "Horaire" in temp_df.columns:
             temp_df["Horaire"] = temp_df["Horaire"].astype(str).str.replace(r'^08h', '8h', regex=True).str.strip()
         st.session_state.df_admin = temp_df
@@ -512,34 +514,44 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     existants = st.session_state.df_admin["Horaire"].dropna().unique().tolist() if "Horaire" in st.session_state.df_admin.columns else []
     liste_horaires_finale = sorted(list(set(existants + horaires_ref)))
     
-    opts_promos = sorted(st.session_state.df_admin["Promotion"].dropna().unique().tolist()) if "Promotion" in st.session_state.df_admin.columns else []
+    opts_promos = sorted(st.session_state.df_admin["Promotion"].dropna().unique().tolist()) if "Promotion" in st.session_state.df_admin.columns else ["M2RE"]
     jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-    cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
+    
+    # Disposition demandée incluant Chevauchement
+    cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
 
-    # 3. TABLEAU GLOBAL (ÉDITION GÉNÉRALE)
+    # 3. TABLEAU GLOBAL (Correction du blocage)
     st.markdown("### 🌍 Tableau Global")
-    st.session_state.df_admin = st.data_editor(
-        st.session_state.df_admin[cols_format],
+    
+    # IMPORTANT : On ne filtre pas avec [cols_format] à l'intérieur de st.data_editor
+    # On utilise column_order pour définir l'ordre et la visibilité
+    edited_df = st.data_editor(
+        st.session_state.df_admin,
+        column_order=cols_format, 
         use_container_width=True,
         num_rows="dynamic",
-        key="global_editor_v3",
+        key="global_editor_v2026_fix",
         column_config={
-            "Enseignements": st.column_config.TextColumn("📚 Matière"),
+            "Enseignements": st.column_config.TextColumn("📚 Matière", required=True),
             "Code": st.column_config.TextColumn("🔑 Code"),
             "Enseignants": st.column_config.TextColumn("👤 Enseignants"),
             "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
             "Lieu": st.column_config.TextColumn("📍 Lieu"),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
+            "Chevauchement": st.column_config.TextColumn("⚠️ Chevauchement"),
         }
     )
 
-    # 4. GESTION CIBLÉE PAR ENSEIGNANT (AVEC MODIFICATION)
+    if edited_df is not None:
+        st.session_state.df_admin = edited_df
+
+    # 4. GESTION CIBLÉE PAR ENSEIGNANT
     st.write("---")
     st.subheader("🔍 Gestion Directe par Enseignant")
     
     liste_profs = sorted(st.session_state.df_admin["Enseignants"].dropna().unique().tolist())
-    prof_sel = st.selectbox("Sélectionner un enseignant pour modifier, ajouter ou supprimer ses cours :", ["---"] + liste_profs)
+    prof_sel = st.selectbox("Sélectionner un enseignant :", ["---"] + liste_profs)
 
     if prof_sel != "---":
         mask = st.session_state.df_admin["Enseignants"] == prof_sel
@@ -547,9 +559,9 @@ if is_admin and mode_view == "✍️ Éditeur de données":
 
         st.warning(f"🛠️ Modification du planning de : **{prof_sel}**")
         
-        # Éditeur spécifique pour l'enseignant (Permet Ajout/Suppression)
         edited_prof_df = st.data_editor(
             df_filtre,
+            column_order=cols_format,
             use_container_width=True,
             num_rows="dynamic",
             key=f"editor_prof_{prof_sel}",
@@ -560,13 +572,11 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             }
         )
 
-        # Bouton pour injecter les changements dans le tableau global
         if st.button(f"🔄 Appliquer les modifications pour {prof_sel}", use_container_width=True):
-            # Retirer les anciennes lignes et ajouter les nouvelles
             df_others = st.session_state.df_admin[~mask]
-            edited_prof_df["Enseignants"] = prof_sel # Force le nom pour les nouvelles lignes
+            edited_prof_df["Enseignants"] = prof_sel
             st.session_state.df_admin = pd.concat([df_others, edited_prof_df], ignore_index=True)
-            st.success(f"✅ Modifications de {prof_sel} synchronisées au tableau global !")
+            st.success(f"✅ Modifications de {prof_sel} synchronisées !")
             st.rerun()
 
     # 5. SAUVEGARDE ET ACTIONS FINALES
@@ -576,6 +586,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     with c1:
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
+                # Sauvegarde du DF complet (8 colonnes)
                 st.session_state.df_admin[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                 st.success("✅ Fichier mis à jour !")
                 st.balloons()
@@ -602,9 +613,6 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             use_container_width=True
         )
 
-    st.stop()
-
-    st.info("💡 **Astuce Admin :** Les vues filtrées ci-dessus se mettent à jour en temps réel dès que vous modifiez le tableau principal.")
     st.stop() 
 
 # --- EN-TÊTE --- (Le reste de votre code existant...)
@@ -953,6 +961,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
