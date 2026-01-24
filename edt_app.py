@@ -496,115 +496,108 @@ if st.button("🚪 Déconnexion du compte"):
 # --- ESPACE ÉDITEUR AVANCÉ (ADMIN UNIQUEMENT) ---
 if is_admin and mode_view == "✍️ Éditeur de données":
     st.divider()
-    st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+    st.header("✍️ Console d'Administration des EDTs")
 
-    # 1. INITIALISATION DE LA MÉMOIRE (SESSION STATE)
-    # Cela permet de garder les modifs entre les filtrages
+    # 1. INITIALISATION DE LA MÉMOIRE CENTRALE (SESSION STATE)
     if 'df_admin' not in st.session_state:
-        # Normalisation au premier chargement
+        # Nettoyage initial des horaires
         temp_df = df.copy()
         if "Horaire" in temp_df.columns:
             temp_df["Horaire"] = temp_df["Horaire"].astype(str).str.replace(r'^08h', '8h', regex=True).str.strip()
-        st.session_state.df_admin = temp_df
+        st.session_state.df_admin = temp_df[cols_format]
 
-    # 2. RÉCUPÉRATION DES OPTIONS
+    # 2. RÉCUPÉRATION DYNAMIQUE DES OPTIONS
     horaires_ref = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
-    existants = st.session_state.df_admin["Horaire"].dropna().unique().tolist() if "Horaire" in st.session_state.df_admin.columns else []
+    existants = st.session_state.df_admin["Horaire"].dropna().unique().tolist()
     liste_horaires_finale = sorted(list(set(existants + horaires_ref)))
-    
-    opts_promos = sorted(st.session_state.df_admin["Promotion"].dropna().unique().tolist()) if "Promotion" in st.session_state.df_admin.columns else []
+    opts_promos = sorted(st.session_state.df_admin["Promotion"].dropna().unique().tolist())
     jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-    cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
 
-    # 3. TABLEAU GLOBAL (ÉDITION GÉNÉRALE)
-    st.markdown("### 🌍 Tableau Global")
-    st.session_state.df_admin = st.data_editor(
-        st.session_state.df_admin[cols_format],
-        use_container_width=True,
-        num_rows="dynamic",
-        key="global_editor_v3",
-        column_config={
-            "Enseignements": st.column_config.TextColumn("📚 Matière"),
-            "Code": st.column_config.TextColumn("🔑 Code"),
-            "Enseignants": st.column_config.TextColumn("👤 Enseignants"),
-            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
-            "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
-            "Lieu": st.column_config.TextColumn("📍 Lieu"),
-            "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
-        }
-    )
-
-    # 4. GESTION CIBLÉE PAR ENSEIGNANT (AVEC SYNCHRONISATION FORCÉE)
-    st.write("---")
-    st.subheader("🔍 Gestion Directe par Enseignant")
+    # ---------------------------------------------------------
+    # 3. ZONE DE MODIFICATION CIBLÉE (PLACÉE EN HAUT)
+    # ---------------------------------------------------------
+    st.subheader("1️⃣ Modifier ou Ajouter des cours par Enseignant")
     
     liste_profs = sorted(st.session_state.df_admin["Enseignants"].dropna().unique().tolist())
-    prof_sel = st.selectbox(
-        "Sélectionner un enseignant pour modifier, ajouter ou supprimer ses cours :", 
-        ["---"] + liste_profs,
-        key="selectbox_admin_prof"
-    )
+    prof_sel = st.selectbox("👤 Choisir l'enseignant à gérer :", ["---"] + liste_profs, key="sel_prof_admin")
 
     if prof_sel != "---":
-        # 1. Isolation des données du prof
+        # Filtrage des données pour ce prof
         mask = st.session_state.df_admin["Enseignants"] == prof_sel
         df_filtre = st.session_state.df_admin[mask].copy()
 
-        st.warning(f"🛠️ Modification du planning de : **{prof_sel}**")
-        st.caption("✨ Pour ajouter : remplissez la ligne vide avec (+) en bas du tableau.")
+        st.info(f"📍 Mode édition : **{prof_sel}**")
+        st.caption("✨ Pour AJOUTER : Remplissez la ligne vide avec le symbole (+) tout en bas du tableau.")
         
-        # 2. L'éditeur spécifique
+        # Éditeur spécifique
         edited_prof_df = st.data_editor(
             df_filtre,
             use_container_width=True,
             num_rows="dynamic",
-            key=f"editor_v4_{prof_sel}",
+            key=f"ed_prof_{prof_sel}",
             column_config={
-                "Enseignants": st.column_config.TextColumn("👤 Enseignants", disabled=True),
+                "Enseignants": st.column_config.TextColumn("👤 Enseignant", disabled=True),
                 "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
                 "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
                 "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
             }
         )
 
-        # 3. Bouton de synchronisation avec nettoyage des lignes vides
-        if st.button(f"🔄 Valider les changements pour {prof_sel}", use_container_width=True, type="primary"):
-            # A. On retire les anciennes lignes
+        # BOUTON DE VALIDATION (Remonte les infos vers le global)
+        if st.button(f"➕ Appliquer les changements pour {prof_sel}", use_container_width=True, type="primary"):
+            # A. On garde tous les autres profs
             df_others = st.session_state.df_admin[st.session_state.df_admin["Enseignants"] != prof_sel]
             
-            # B. NETTOYAGE : On ne garde que les lignes où au moins la matière ou l'horaire est rempli
-            # Cela évite d'ajouter des lignes totalement vides au global
-            edited_prof_df = edited_prof_df.dropna(subset=['Enseignements', 'Horaire'], how='all')
-            
-            # C. ATTRIBUTION DU NOM : Pour que les nouvelles lignes soient liées au prof
+            # B. On force le nom du prof sur les nouvelles lignes et on nettoie le vide
             edited_prof_df["Enseignants"] = prof_sel
+            edited_prof_df = edited_prof_df.dropna(subset=['Enseignements'], how='all')
             
-            # D. FUSION
+            # C. Fusion et mise à jour du state
             st.session_state.df_admin = pd.concat([df_others, edited_prof_df], ignore_index=True)
             
-            st.success(f"✅ Synchronisation effectuée ! La nouvelle ligne est maintenant dans le tableau global.")
+            st.success("✅ Changements répercutés dans le tableau global ci-dessous !")
             st.rerun()
 
-    # 6. SAUVEGARDE ET ACTIONS FINALES
+    st.write("---")
+
+    # ---------------------------------------------------------
+    # 4. AFFICHAGE DU RÉSULTAT GLOBAL (PLACÉ EN BAS)
+    # ---------------------------------------------------------
+    st.subheader("2️⃣ Aperçu et Contrôle de l'EDT Global")
+    
+    # Cet éditeur permet aussi des modifs directes sur tout le monde
+    st.session_state.df_admin = st.data_editor(
+        st.session_state.df_admin[cols_format],
+        use_container_width=True,
+        num_rows="dynamic",
+        key="global_editor_final_view",
+        column_config={
+            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
+            "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
+            "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
+        }
+    )
+
+    # 5. ACTIONS DE SAUVEGARDE
     st.write("---")
     c1, c2, c3 = st.columns(3)
     
     with c1:
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
-                # On s'assure de sauvegarder le state actuel trié par jour
-                ordre_jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-                st.session_state.df_admin['Jours'] = pd.Categorical(st.session_state.df_admin['Jours'], categories=ordre_jours, ordered=True)
+                # Tri chronologique avant sauvegarde
+                ordre_j = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+                st.session_state.df_admin['Jours'] = pd.Categorical(st.session_state.df_admin['Jours'], categories=ordre_j, ordered=True)
                 df_to_save = st.session_state.df_admin.sort_values(by=['Jours', 'Horaire'])
                 
                 df_to_save[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Modifications enregistrées et triées sur le serveur !")
+                st.success("✅ Fichier Excel mis à jour et trié !")
                 st.balloons()
             except Exception as e:
-                st.error(f"Erreur de sauvegarde : {e}")
+                st.error(f"Erreur : {e}")
 
     with c2:
-        if st.button("🔄 Réinitialiser l'éditeur", use_container_width=True):
+        if st.button("🔄 Annuler / Recharger", use_container_width=True):
             if 'df_admin' in st.session_state:
                 del st.session_state.df_admin
             st.rerun()
@@ -614,16 +607,8 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             st.session_state.df_admin[cols_format].to_excel(writer, index=False)
-        
-        st.download_button(
-            label="📥 Télécharger Excel final",
-            data=buffer.getvalue(),
-            file_name=f"EDT_S2_2026_Final.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+        st.download_button("📥 Télécharger Excel", buffer.getvalue(), "EDT_S2_2026.xlsx", use_container_width=True)
 
-    st.info("💡 **Note :** Si vous ajoutez une ligne, elle apparaîtra dans le tableau global après avoir cliqué sur 'Valider'.")
     st.stop() 
 
 # --- EN-TÊTE --- (Le reste de votre code existant...)
@@ -972,6 +957,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
