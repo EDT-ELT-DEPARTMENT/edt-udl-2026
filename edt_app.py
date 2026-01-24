@@ -165,7 +165,7 @@ if not st.session_state["user_data"]:
     with t_conn:
         email_input = st.text_input("Adresse Email", key="login_email")
         pass_input = st.text_input("Mot de passe", type="password", key="login_pass")
-        if st.button("Se connecter au portail"):
+        if st.button("Se connecter au portail", use_container_width=True):
             result = supabase.table("enseignants_auth").select("*").eq("email", email_input).eq("password_hash", hash_pw(pass_input)).execute()
             if result.data:
                 st.session_state["user_data"] = result.data[0]
@@ -174,18 +174,36 @@ if not st.session_state["user_data"]:
                 st.error("Email ou mot de passe incorrect.")
                 
     with t_ins:
-        st.subheader("Créer un nouveau compte Enseignant")
-        # On récupère la liste des noms depuis l'Excel pour éviter les erreurs de saisie
+        st.subheader("📝 Créer un nouveau compte Enseignant")
+        # Récupération des noms depuis l'Excel
         noms_possibles = sorted(df["Enseignants"].unique()) if df is not None else []
         
-        new_nom = st.selectbox("Sélectionnez votre nom (tel qu'il apparaît dans l'EDT)", noms_possibles)
-        new_email = st.text_input("Votre adresse Email")
-        new_pass = st.text_input("Choisissez un mot de passe", type="password")
-        confirm_pass = st.text_input("Confirmez le mot de passe", type="password")
+        col1, col2 = st.columns(2)
+        with col1:
+            new_nom = st.selectbox("Sélectionnez votre nom (dans l'EDT)", noms_possibles)
+            new_email = st.text_input("Votre adresse Email")
+            
+        with col2:
+            # Nouveau : Choix du Statut
+            statut_user = st.radio("Statut de l'enseignant", ["Permanent", "Vacataire"], horizontal=True)
+            
+            # Nouveau : Champ téléphone conditionnel
+            new_phone = ""
+            if statut_user == "Vacataire":
+                new_phone = st.text_input("📱 Numéro de téléphone (Obligatoire)", placeholder="06XXXXXXXX")
+
+        st.divider()
+        c_p1, c_p2 = st.columns(2)
+        with c_p1:
+            new_pass = st.text_input("Choisissez un mot de passe", type="password")
+        with c_p2:
+            confirm_pass = st.text_input("Confirmez le mot de passe", type="password")
         
-        if st.button("Créer mon compte"):
+        if st.button("Créer mon compte", use_container_width=True, type="primary"):
             if not new_email or not new_pass:
-                st.warning("Veuillez remplir tous les champs.")
+                st.warning("Veuillez remplir les champs obligatoires.")
+            elif statut_user == "Vacataire" and not new_phone:
+                st.error("Le numéro de téléphone est requis pour les vacataires.")
             elif new_pass != confirm_pass:
                 st.error("Les mots de passe ne correspondent pas.")
             else:
@@ -198,48 +216,36 @@ if not st.session_state["user_data"]:
                         "nom_officiel": new_nom,
                         "email": new_email,
                         "password_hash": hash_pw(new_pass),
-                        "role": "enseignant"
+                        "role": "enseignant",
+                        "statut": statut_user,
+                        "telephone": new_phone if statut_user == "Vacataire" else None
                     }
-                    supabase.table("enseignants_auth").insert(data_ins).execute()
-                    st.success("✅ Compte créé avec succès ! Vous pouvez maintenant vous connecter.")
-                    st.balloons()
+                    try:
+                        supabase.table("enseignants_auth").insert(data_ins).execute()
+                        st.success("✅ Compte créé avec succès ! Connectez-vous maintenant.")
+                        st.balloons()
+                    except Exception as e:
+                        st.error(f"Erreur Supabase : {e}")
 
     with t_adm:
         code_admin = st.text_input("Code de sécurité Administration", type="password", key="admin_code")
-        if st.button("Accès Administration"):
+        if st.button("Accès Administration", use_container_width=True):
             if code_admin == "doctorat2026":
-                # On force l'email ici pour activer vos droits maître
                 st.session_state["user_data"] = {
                     "nom_officiel": "ADMINISTRATEUR", 
                     "role": "admin",
-                    "email": "milouafarid@gmail.com"  # <--- AJOUTER CETTE LIGNE
+                    "email": "milouafarid@gmail.com"
                 }
                 st.rerun()
             else:
                 st.error("Code admin incorrect.")
-# --- SOLUTIONS AUX ERREURS (Remplace le bloc supprimé) ---
-user = st.session_state.get("user_data")
 
-# Le st.stop() est le gardien : si pas de login, on n'affiche pas la suite
+# --- GARDIEN DE SESSION ---
+user = st.session_state.get("user_data")
 if user is None:
     st.stop() 
 
 is_admin = user.get("role") == "admin"
-
-jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
-
-map_h = {normalize(h): h for h in horaires_list}
-map_j = {normalize(j): j for j in jours_list}
-
-import streamlit as st
-import pandas as pd
-import os
-import hashlib
-import io
-from datetime import datetime
-from supabase import create_client
-
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(
     page_title="EDT UDL 2026",
@@ -1072,6 +1078,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
