@@ -885,103 +885,122 @@ if df is not None:
             st.error("Accès réservé au Bureau des Examens.")
         else:
             st.header("⚙️ Moteur Intelligent de Surveillance")
-            st.info("Saisissez les numéros des salles/amphis (ex: 06, 07, 12) pour chaque promotion.")
+            st.info("Configurez la répartition des étudiants par type de lieu (Salles/Amphis).")
 
-            # 1. BASE DE DONNÉES DES LIEUX (Configuration enrichie)
+            # 1. BASE DE DONNÉES DES LIEUX (Initialisation)
             if "exam_config" not in st.session_state:
-                # Structure : [Nb Salles, Etu/Salle, Liste Salles, Nb Amphis, Etu/Amphi, Liste Amphis]
+                # Structure : [Nb Salles, Etu par Salle, Nb Amphis, Etu par Amphi]
                 st.session_state.exam_config = {
-                    "L1 MCIL": [4, 25, "S01, S02, S03, S04", 2, 80, "Amphi A, Amphi B"], 
-                    "L2 ELT": [2, 30, "S06, S07", 0, 0, ""],
-                    "M1 RE": [1, 20, "S12", 0, 0, ""]
+                    "L1 MCIL": [4, 25, 2, 80], 
+                    "L2 ELT": [2, 30, 0, 0],
+                    "M1 RE": [1, 20, 0, 0]
                 }
 
-            with st.expander("🏢 Configuration Précise des Lieux", expanded=True):
+            with st.expander("🏢 Configuration des Lieux par Promotion", expanded=True):
+                st.write("Définissez la répartition pour chaque promotion :")
+                
+                # Conversion en DataFrame pour l'édition facile
                 data_cfg = []
                 for k, v in st.session_state.exam_config.items():
                     data_cfg.append({
                         "Promotion": k, 
-                        "Nb Salles": v[0], "Etu/Salle": v[1], "Numéros Salles": v[2],
-                        "Nb Amphis": v[3], "Etu/Amphi": v[4], "Noms Amphis": v[5]
+                        "Nb Salles": v[0], "Etu/Salle": v[1],
+                        "Nb Amphis": v[2], "Etu/Amphi": v[3]
                     })
                 
-                edited_df = st.data_editor(pd.DataFrame(data_cfg), use_container_width=True, num_rows="dynamic", hide_index=True)
+                edited_df = st.data_editor(
+                    pd.DataFrame(data_cfg), 
+                    use_container_width=True, 
+                    num_rows="dynamic", 
+                    hide_index=True
+                )
                 
-                if st.button("💾 Sauvegarder la configuration"):
+                if st.button("💾 Sauvegarder la configuration des lieux"):
                     new_cfg = {}
                     for _, r in edited_df.iterrows():
                         new_cfg[r["Promotion"]] = [
-                            int(r["Nb Salles"]), int(r["Etu/Salle"]), str(r["Numéros Salles"]),
-                            int(r["Nb Amphis"]), int(r["Etu/Amphi"]), str(r["Noms Amphis"])
+                            int(r["Nb Salles"]), int(r["Etu/Salle"]),
+                            int(r["Nb Amphis"]), int(r["Etu/Amphi"])
                         ]
                     st.session_state.exam_config = new_cfg
-                    st.success("Lieux et numéros enregistrés !")
+                    st.success("Configuration sauvegardée !")
 
-            # 2. RÉCUPÉRATION PROFILS SUPABASE
+            # 2. RÉCUPÉRATION DES PROFILS SUPABASE (Pour le statut)
             res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, statut").execute()
             db_profs = {row['nom_officiel']: {"email": row['email'], "statut": row['statut']} for row in res_auth.data} if res_auth.data else {}
 
-            SRC = "surve1illances_2026.xlsx"
+            SRC = "surveillances_2026.xlsx"
             if os.path.exists(SRC):
                 df_src = pd.read_excel(SRC)
                 df_src.columns = [str(c).strip() for c in df_src.columns]
                 for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
                 
-                C_MAT, C_SURV, C_DATE, C_HEURE, C_PROMO = "Matière", "Surveillant(s)", "Date", "Heure", "Promotion"
+                C_MAT, C_SURV, C_DATE, C_HEURE, C_SALLE, C_PROMO = "Matière", "Surveillant(s)", "Date", "Heure", "Salle", "Promotion"
                 liste_profs_all = sorted([p for p in df_src[C_SURV].unique() if p not in ["", "nan", "Non défini"]])
 
-                ratio_global = st.sidebar.number_input("Ratio Etu/Surv", value=25)
-                m_base = st.sidebar.number_input("Max séances", value=12)
+                with st.expander("⚖️ Ratio de Surveillance", expanded=False):
+                    ratio_global = st.number_input("Nombre d'étudiants par surveillant (Ratio) :", min_value=1, value=25)
+                    m_base = st.number_input("Max séances par enseignant :", min_value=1, value=12)
 
-                p_cible = st.multiselect("🎓 Choisir les promotions :", sorted(df_src[C_PROMO].unique()))
+                p_cible = st.multiselect("🎓 Promotions à générer :", sorted(df_src[C_PROMO].unique()))
                 
                 if st.button("🚀 GÉNÉRER LE PLANNING") and p_cible:
                     stats = {p: 0 for p in liste_profs_all}
                     tracker, res_list = [], []
 
                     for p_name in p_cible:
-                        cfg = st.session_state.exam_config.get(p_name, [1, 30, "S01", 0, 0, ""])
-                        nb_s, etu_s, list_s, nb_a, etu_a, list_a = cfg
-                        
-                        # Conversion des listes de numéros (S01, S02 -> ['S01', 'S02'])
-                        salles_nums = [s.strip() for s in list_s.split(",") if s.strip()]
-                        amphis_nums = [a.strip() for a in list_a.split(",") if a.strip()]
+                        # Récupération config : [Salles, Etu/Salle, Amphis, Etu/Amphi]
+                        cfg = st.session_state.exam_config.get(p_name, [1, 30, 0, 0])
+                        nb_s, etu_s, nb_a, etu_a = cfg
 
+                        # On récupère les examens de cette promotion
                         df_exams = df_src[df_src[C_PROMO] == p_name].drop_duplicates(subset=[C_MAT, C_DATE, C_HEURE])
 
                         for _, row in df_exams.iterrows():
-                            # --- GÉNÉRATION AMPHIS ---
-                            for i in range(nb_a):
-                                lieu_nom = amphis_nums[i] if i < len(amphis_nums) else f"Amphi {i+1}"
+                            # --- GÉNÉRATION POUR LES AMPHIS ---
+                            for a_idx in range(1, nb_a + 1):
                                 besoin = max(2, round(etu_a / ratio_global))
-                                tri = sorted(liste_profs_all, key=lambda x: (stats[x], 0 if db_profs.get(x, {}).get('statut') == "Vacataire" else 1))
                                 equipe = []
+                                tri = sorted(liste_profs_all, key=lambda x: (stats[x], 0 if db_profs.get(x, {}).get('statut') == "Vacataire" else 1))
+                                
                                 for p in tri:
                                     if len(equipe) < besoin and stats[p] < m_base:
                                         if not any(t for t in tracker if t['D']==row[C_DATE] and t['H']==row[C_HEURE] and t['N']==p):
                                             equipe.append(p); stats[p] += 1
                                             tracker.append({'D': row[C_DATE], 'H': row[C_HEURE], 'N': p})
-                                res_list.append({"Date": row[C_DATE], "Heure": row[C_HEURE], "Promotion": p_name, "Lieu": lieu_nom, "Matière": row[C_MAT], "Equipe": " / ".join(equipe)})
+                                
+                                res_list.append({
+                                    "Date": row[C_DATE], "Heure": row[C_HEURE], "Promotion": p_name,
+                                    "Lieu": f"Amphi {a_idx}", "Matière": row[C_MAT],
+                                    "Effectif": etu_a, "Equipe": " / ".join(equipe) if equipe else "⚠️ VIDE"
+                                })
 
-                            # --- GÉNÉRATION SALLES ---
-                            for i in range(nb_s):
-                                lieu_nom = salles_nums[i] if i < len(salles_nums) else f"Salle {i+1}"
+                            # --- GÉNÉRATION POUR LES SALLES ---
+                            for s_idx in range(1, nb_s + 1):
                                 besoin = max(2, round(etu_s / ratio_global))
-                                tri = sorted(liste_profs_all, key=lambda x: (stats[x], 0 if db_profs.get(x, {}).get('statut') == "Vacataire" else 1))
                                 equipe = []
+                                tri = sorted(liste_profs_all, key=lambda x: (stats[x], 0 if db_profs.get(x, {}).get('statut') == "Vacataire" else 1))
+                                
                                 for p in tri:
                                     if len(equipe) < besoin and stats[p] < m_base:
                                         if not any(t for t in tracker if t['D']==row[C_DATE] and t['H']==row[C_HEURE] and t['N']==p):
                                             equipe.append(p); stats[p] += 1
                                             tracker.append({'D': row[C_DATE], 'H': row[C_HEURE], 'N': p})
-                                res_list.append({"Date": row[C_DATE], "Heure": row[C_HEURE], "Promotion": p_name, "Lieu": lieu_nom, "Matière": row[C_MAT], "Equipe": " / ".join(equipe)})
+                                
+                                res_list.append({
+                                    "Date": row[C_DATE], "Heure": row[C_HEURE], "Promotion": p_name,
+                                    "Lieu": f"Salle {s_idx}", "Matière": row[C_MAT],
+                                    "Effectif": etu_s, "Equipe": " / ".join(equipe) if equipe else "⚠️ VIDE"
+                                })
 
                     st.session_state.df_genere = pd.DataFrame(res_list)
+                    st.success("Planning généré selon votre configuration !")
                     st.rerun()
 
                 # --- AFFICHAGE ---
                 if st.session_state.get("df_genere") is not None:
-                    st.dataframe(st.session_state.df_genere, use_container_width=True, hide_index=True)
+                    st.dataframe(st.session_state.df_genere, use_container_width=True)
+                    # Options d'exportation...
     elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
