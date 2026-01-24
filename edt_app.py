@@ -498,46 +498,49 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.divider()
     st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-    # 1. DÉFINITION DE LA STRUCTURE STRICTE
+    # 1. STRUCTURE STRICTE
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
 
-    # 2. INITIALISATION ET VÉRIFICATION DES COLONNES
+    # 2. VÉRIFICATION ET NETTOYAGE DE LA MÉMOIRE (Empêche le KeyError)
+    if 'df_admin' in st.session_state:
+        # Si une colonne manque dans la mémoire actuelle, on efface tout pour recharger proprement
+        if not all(c in st.session_state.df_admin.columns for c in cols_format):
+            del st.session_state.df_admin
+            st.rerun()
+
     if 'df_admin' not in st.session_state:
         temp_df = df.copy()
-        
-        # Sécurité cruciale : On crée les colonnes manquantes pour éviter le KeyError
+        # Création des colonnes manquantes
         for col in cols_format:
             if col not in temp_df.columns:
-                temp_df[col] = "" # Ajoute la colonne vide si elle n'existe pas
+                temp_df[col] = ""
         
         if "Horaire" in temp_df.columns:
             temp_df["Horaire"] = temp_df["Horaire"].astype(str).str.replace(r'^08h', '8h', regex=True).str.strip()
         st.session_state.df_admin = temp_df
 
-    # 3. RÉCUPÉRATION DES OPTIONS
+    # 3. OPTIONS
     horaires_ref = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
     existants = st.session_state.df_admin["Horaire"].dropna().unique().tolist()
     liste_horaires_finale = sorted(list(set(existants + horaires_ref)))
-    
     opts_promos = sorted(st.session_state.df_admin["Promotion"].dropna().unique().tolist()) if "Promotion" in st.session_state.df_admin.columns else ["M2RE"]
     jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
 
-    # 4. TABLEAU GLOBAL (ÉDITION)
+    # 4. TABLEAU GLOBAL
     st.markdown("### 🌍 Tableau Global")
     
-    # On utilise maintenant cols_format en toute sécurité car l'étape 2 a créé les colonnes
+    # On utilise une sécurité supplémentaire pour ne pas appeler de colonnes inexistantes
+    cols_a_afficher = [c for c in cols_format if c in st.session_state.df_admin.columns]
+
     edited_df = st.data_editor(
-        st.session_state.df_admin[cols_format],
+        st.session_state.df_admin[cols_a_afficher],
         use_container_width=True,
         num_rows="dynamic",
-        key="global_editor_v2026_final_fixed",
+        key="global_editor_v2026_ultimate", # Nouvelle clé pour forcer le rafraîchissement
         column_config={
-            "Enseignements": st.column_config.TextColumn("📚 Matière"),
-            "Code": st.column_config.TextColumn("🔑 Code"),
-            "Enseignants": st.column_config.TextColumn("👤 Enseignants"),
+            "Enseignements": st.column_config.TextColumn("📚 Matière", required=True),
             "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
-            "Lieu": st.column_config.TextColumn("📍 Lieu"),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
             "Chevauchement": st.column_config.TextColumn("⚠️ Chevauchement"),
         }
@@ -549,13 +552,16 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     # 5. GESTION PAR ENSEIGNANT
     st.write("---")
     st.subheader("🔍 Gestion Directe par Enseignant")
-    
     profs = sorted(st.session_state.df_admin["Enseignants"].dropna().unique().tolist())
     prof_sel = st.selectbox("Sélectionner un enseignant :", ["---"] + profs)
 
     if prof_sel != "---":
         mask = st.session_state.df_admin["Enseignants"] == prof_sel
         df_filtre = st.session_state.df_admin[mask].copy()
+        
+        # S'assurer que le filtre a aussi les bonnes colonnes
+        for c in cols_format:
+            if c not in df_filtre.columns: df_filtre[c] = ""
 
         edited_prof_df = st.data_editor(
             df_filtre[cols_format],
@@ -567,27 +573,24 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         if st.button(f"🔄 Appliquer pour {prof_sel}", use_container_width=True):
             df_others = st.session_state.df_admin[~mask]
             st.session_state.df_admin = pd.concat([df_others, edited_prof_df], ignore_index=True)
-            st.success("✅ Synchronisé au tableau global !")
+            st.success("✅ Mis à jour !")
             st.rerun()
 
-    # 6. SAUVEGARDE ET EXPORT
+    # 6. SAUVEGARDE
     st.write("---")
     c1, c2, c3 = st.columns(3)
-    
     with c1:
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
-                # Sauvegarde forcée avec les 8 colonnes
                 st.session_state.df_admin[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Fichier Excel mis à jour !")
+                st.success("✅ Serveur mis à jour !")
                 st.balloons()
             except Exception as e:
-                st.error(f"Erreur de sauvegarde : {e}")
-
+                st.error(f"Erreur : {e}")
+    
     with c2:
         if st.button("🔄 Réinitialiser l'éditeur", use_container_width=True):
-            if 'df_admin' in st.session_state:
-                del st.session_state.df_admin
+            if 'df_admin' in st.session_state: del st.session_state.df_admin
             st.rerun()
 
     with c3:
@@ -595,7 +598,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             st.session_state.df_admin[cols_format].to_excel(writer, index=False)
-        st.download_button("📥 Télécharger Excel", buffer.getvalue(), f"EDT_2026_{pd.Timestamp.now().strftime('%d_%m')}.xlsx", use_container_width=True)
+        st.download_button("📥 Télécharger Excel", buffer.getvalue(), f"EDT_2026.xlsx", use_container_width=True)
 
     st.stop() 
 
@@ -945,6 +948,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
