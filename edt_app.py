@@ -893,33 +893,80 @@ if df is not None:
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
             st.stop()
-        st.header("🏢 Répertoire et Envoi Automatisé")
+        
+        # --- EN-TÊTE DE LA PAGE AVEC LOGO ---
+        col_l, col_t = st.columns([1, 5])
+        with col_l:
+            st.image("logo.PNG", width=80)
+        with col_t:
+            st.header("🏢 Répertoire et Envoi Automatisé")
+            st.write("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique")
+
+        # 1. RÉCUPÉRATION DES DONNÉES
         res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, last_sent").execute()
         dict_info = {str(row['nom_officiel']).strip().upper(): {"email": row['email'], "statut": "✅ Envoyé" if row['last_sent'] else "⏳ En attente"} for row in res_auth.data} if res_auth.data else {}
         noms_excel = sorted([e for e in df['Enseignants'].unique() if str(e) not in ["Non défini", "nan", ""]])
         donnees_finales = [{"Enseignant": nom, "Email": dict_info.get(str(nom).strip().upper(), {"email": "⚠️ Non inscrit", "statut": "❌ Absent"})["email"], "État d'envoi": dict_info.get(str(nom).strip().upper(), {"email": "", "statut": "❌ Absent"})["statut"]} for nom in noms_excel]
-        st.dataframe(pd.DataFrame(donnees_finales), use_container_width=True, hide_index=True)
 
-        if st.button("🚀 Lancer l'envoi (Uniquement 'En attente')"):
-            import smtplib
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
-            try:
-                server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
-                server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
-                for row in donnees_finales:
-                    if row["État d'envoi"] == "⏳ En attente" and "@" in row["Email"]:
+        # 2. BOUTONS D'ACTION (GLOBAL)
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🔄 Actualiser & Réinitialiser les statuts", use_container_width=True):
+                supabase.table("enseignants_auth").update({"last_sent": None}).neq("email", "").execute()
+                st.success("✅ Statuts réinitialisés !")
+                st.rerun()
+        
+        with c2:
+            if st.button("🚀 Lancer l'envoi groupé (En attente)", type="primary", use_container_width=True):
+                import smtplib
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+                from datetime import datetime
+                try:
+                    server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
+                    server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
+                    for row in donnees_finales:
+                        if row["État d'envoi"] == "⏳ En attente" and "@" in str(row["Email"]):
+                            df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
+                            df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+                            msg = MIMEMultipart()
+                            msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
+                            msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
+                            corps_html = f"<html><body><h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2><p>Sallem,</p>{df_mail.to_html(index=False, border=1, justify='center')}<br><p>Cordialement.</p><p><b>Service d'enseignement du département d'électrotechnique.</b></p></body></html>"
+                            msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
+                            supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
+                    server.quit(); st.success("✅ Envoi groupé terminé !"); st.rerun()
+                except Exception as e: st.error(f"Erreur : {e}")
+
+        st.divider()
+
+        # 3. LISTE INDIVIDUELLE AVEC BOUTON D'ENVOI UNITAIRE
+        st.subheader("📬 Gestion individuelle des envois")
+        for idx, row in enumerate(donnees_finales):
+            col_ens, col_mail, col_stat, col_act = st.columns([2, 2, 1, 1])
+            col_ens.write(f"**{row['Enseignant']}**")
+            col_mail.write(row['Email'])
+            col_stat.write(row["État d'envoi"])
+            
+            if "@" in str(row["Email"]):
+                if col_act.button("📧 Envoyer", key=f"btn_{idx}"):
+                    import smtplib
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    from datetime import datetime
+                    try:
+                        server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
+                        server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
                         df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
-                        # DISPOSITION DEMANDÉE : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
                         df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
                         msg = MIMEMultipart()
-                        msg['From'] = f"Département Électrotechnique <{st.secrets['EMAIL_USER']}>"
-                        msg['To'] = row["Email"]; msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
-                        corps_html = f"<html><body><h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2><p>Bonjour,</p>{df_mail.to_html(index=False, border=1, justify='center')}<p>Cordialement.</p></body></html>"
+                        msg['Subject'] = f"Mise à jour Emploi du Temps - {row['Enseignant']}"
+                        msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
+                        corps_html = f"<html><body><h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2><p>Sallem,</p>{df_mail.to_html(index=False, border=1, justify='center')}<br><p>Cordialement.</p><p><b>Service d'enseignement du département d'électrotechnique.</b></p></body></html>"
                         msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
-                        supabase.table("enseignants_auth").update({"last_sent": "now()"}).eq("email", row["Email"]).execute()
-                server.quit(); st.success("✅ Emails envoyés !"); st.rerun()
-            except Exception as e: st.error(f"Erreur : {e}")
+                        supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
+                        server.quit(); st.success(f"✅ Envoyé à {row['Enseignant']}"); st.rerun()
+                    except Exception as e: st.error(f"Erreur : {e}")
 
     elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
@@ -944,6 +991,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
