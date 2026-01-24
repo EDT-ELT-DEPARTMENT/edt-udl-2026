@@ -539,16 +539,26 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         }
     )
 
-    # 6. SAUVEGARDE (Inchangée)
+    # 6. SAUVEGARDE ET ACTIONS FINALES
     st.write("---")
-    if st.button("💾 Enregistrer (Excel)", type="primary", use_container_width=True):
-        try:
-            edited_df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-            st.success("✅ Modifications enregistrées !")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Erreur : {e}")
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        if st.button("💾 Enregistrer les modifications", type="primary", use_container_width=True):
+            try:
+                # On sauvegarde en gardant strictement l'ordre demandé
+                edited_df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
+                st.success("✅ Données mises à jour avec succès dans le fichier Excel !")
+                st.balloons()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erreur lors de la sauvegarde : {e}")
 
+    with c2:
+        if st.button("🔄 Annuler / Actualiser", use_container_width=True):
+            st.rerun()
+
+    st.info("💡 **Astuce :** Vous pouvez copier-coller des données depuis Excel directement dans le tableau ci-dessus.")
     st.stop() 
 
 # --- EN-TÊTE --- (Le reste de votre code existant...)
@@ -897,6 +907,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
