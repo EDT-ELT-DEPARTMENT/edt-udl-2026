@@ -880,162 +880,66 @@ if df is not None:
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
 
-    import streamlit as st
-import pandas as pd
-import os
-import hashlib
-import io
-from datetime import datetime
-from supabase import create_client
+    elif portail == "🤖 Générateur Automatique":
+        if not is_admin:
+            st.error("Accès réservé au Bureau des Examens.")
+        else:
+            st.header("⚙️ Moteur de Génération de Surveillances")
+            if "effectifs_db" not in st.session_state:
+                st.session_state.effectifs_db = {"ING1": [50, 4], "MCIL1": [40, 3], "L1MCIL": [288, 4], "L2ELT": [90, 2], "M1RE": [15, 1], "ING2": [16, 1]}
 
-# --- CONFIGURATION UNIQUE DE LA PAGE ---
-st.set_page_config(
-    page_title="EDT UDL 2026",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+            with st.expander("📦 Gestion des Effectifs", expanded=False):
+                data_eff = [{"Promotion": k, "Effectif Total": v[0], "Nb de Salles": v[1]} for k, v in st.session_state.effectifs_db.items()]
+                edited_eff = st.data_editor(pd.DataFrame(data_eff), use_container_width=True, num_rows="dynamic", hide_index=True)
+                if st.button("💾 Sauvegarder la configuration"):
+                    st.session_state.effectifs_db = {row["Promotion"]: [int(row["Effectif Total"]), int(row["Nb de Salles"])] for _, row in edited_eff.iterrows()}
+                    st.success("Mis à jour !")
 
-# --- CONNEXION BASE DE DONNÉES ---
-URL = st.secrets["SUPABASE_URL"]
-KEY = st.secrets["SUPABASE_KEY"]
-supabase = create_client(URL, KEY)
+            SRC = "surveillances_2026.xlsx"
+            if os.path.exists(SRC):
+                df_src = pd.read_excel(SRC)
+                df_src.columns = [str(c).strip() for c in df_src.columns]
+                for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
+                
+                C_MAT, C_RESP, C_SURV, C_DATE, C_HEURE, C_SALLE, C_PROMO = "Matière", "Chargé de matière", "Surveillant(s)", "Date", "Heure", "Salle", "Promotion"
+                df_src = df_src[~df_src[C_MAT].str.contains(r'\bTP\b|\bTD\b', case=False, na=False)]
+                liste_profs = sorted([p for p in df_src[C_SURV].unique() if p not in ["", "nan", "Non défini"]])
 
-def hash_pw(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
+                with st.expander("⚖️ Plafonnement", expanded=True):
+                    col1, col2 = st.columns(2)
+                    m_base = col1.number_input("Max séances", min_value=1, value=10)
+                    ratio = col2.number_input("Ratio Étud/Surv", min_value=1, value=25)
+                
+                p_cible = st.multiselect("🎓 Promotions :", sorted(df_src[C_PROMO].unique()))
+                if st.button("🚀 GÉNÉRER LE PLANNING") and p_cible:
+                    stats = {p: 0 for p in liste_profs}
+                    tracker, res_list = [], []
+                    for p_name in p_cible:
+                        df_p = df_src[df_src[C_PROMO] == p_name].drop_duplicates(subset=[C_MAT, C_DATE, C_HEURE])
+                        conf = st.session_state.effectifs_db.get(p_name, [30, 1])
+                        eff_total, nb_salles = conf[0], int(conf[1])
+                        for _, row in df_p.iterrows():
+                            for s_idx in range(1, nb_salles + 1):
+                                eff_salle = eff_total // nb_salles
+                                nb_req = max(2, (eff_salle // ratio) + (1 if eff_salle % ratio > 0 else 0))
+                                equipe = []
+                                tri_prio = sorted(liste_profs, key=lambda x: stats[x])
+                                for p in tri_prio:
+                                    if len(equipe) < nb_req and stats[p] < m_base:
+                                        if not any(t for t in tracker if t['D']==row[C_DATE] and t['H']==row[C_HEURE] and t['N']==p):
+                                            equipe.append(p); stats[p] += 1
+                                            tracker.append({'D': row[C_DATE], 'H': row[C_HEURE], 'N': p})
+                                res_list.append({"Enseignements": row[C_MAT], "Code": "S2-2026", "Enseignants": " & ".join(equipe) if len(equipe) >= 2 else "⚠️ BESOIN RENFORT", "Horaire": row[C_HEURE], "Jours": row[C_DATE], "Lieu": f"Salle {s_idx}" if nb_salles > 1 else row[C_SALLE], "Promotion": f"{p_name} (S{s_idx})" if nb_salles > 1 else p_name})
+                    st.session_state.df_genere = pd.DataFrame(res_list)
+                    st.session_state.stats_charge = stats
+                    st.rerun()
 
-# --- GESTION DU TEMPS ---
-now = datetime.now()
-date_str = now.strftime("%d/%m/%Y")
-jours_semaine = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
-nom_jour_fr = jours_semaine[now.weekday()]
+                if st.session_state.get("df_genere") is not None:
+                    st.dataframe(st.session_state.df_genere, use_container_width=True, hide_index=True)
+                    xlsx_buf = io.BytesIO()
+                    with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer: st.session_state.df_genere.to_excel(writer, index=False)
+                    st.download_button("📥 TÉLÉCHARGER LE PLANNING", xlsx_buf.getvalue(), "EDT_Surveillances_2026.xlsx")
 
-# --- STYLE CSS ---
-st.markdown(f"""
-    <style>
-    .main-title {{ color: #1E3A8A; text-align: center; font-family: 'serif'; font-weight: bold; border-bottom: 3px solid #D4AF37; padding-bottom: 15px; font-size: 18px; }}
-    .portal-badge {{ background-color: #D4AF37; color: #1E3A8A; padding: 5px 15px; border-radius: 5px; font-weight: bold; text-align: center; margin-bottom: 20px; }}
-    .date-badge {{ background-color: #1E3A8A; color: white; padding: 5px 15px; border-radius: 20px; font-size: 12px; float: right; }}
-    .metric-card {{ background-color: #f8f9fa; border: 1px solid #1E3A8A; padding: 10px; border-radius: 10px; text-align: center; }}
-    .stat-box {{ padding: 15px; border-radius: 12px; color: white; font-weight: bold; text-align: center; flex: 1; }}
-    .bg-cours {{ background: linear-gradient(135deg, #1E3A8A, #3B82F6); }}
-    .bg-td {{ background: linear-gradient(135deg, #15803d, #22c55e); }}
-    .bg-tp {{ background: linear-gradient(135deg, #b45309, #f59e0b); }}
-    table {{ width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }}
-    th {{ background-color: #1E3A8A !important; color: white !important; border: 1px solid #000; padding: 6px; }}
-    td {{ border: 1px solid #000; padding: 4px !important; text-align: center; height: 90px; vertical-align: top; }}
-    .separator {{ border-top: 1px dashed #bbb; margin: 4px 0; }}
-    </style>
-""", unsafe_allow_html=True)
-
-# --- CHARGEMENT DES DONNÉES ---
-NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
-df = None
-
-def normalize(s):
-    if not s or s == "Non défini": return "vide"
-    return str(s).strip().lower().replace(" ", "").replace("-", "").replace("h00", "h").replace(":00", "")
-
-if os.path.exists(NOM_FICHIER_FIXE):
-    df = pd.read_excel(NOM_FICHIER_FIXE)
-    colonnes_cles = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
-    for col in colonnes_cles:
-        df[col] = df[col].fillna("Non défini").astype(str).str.strip()
-    df['h_norm'] = df['Horaire'].apply(normalize)
-    df['j_norm'] = df['Jours'].apply(normalize)
-
-# --- AUTHENTIFICATION ---
-if "user_data" not in st.session_state:
-    st.session_state["user_data"] = None
-
-if not st.session_state["user_data"]:
-    st.markdown("<h1 class='main-title'>🏛️ DÉPARTEMENT D'ÉLECTROTECHNIQUE - UDL SBA</h1>", unsafe_allow_html=True)
-    t_conn, t_ins, t_adm = st.tabs(["🔑 Connexion", "📝 Inscription", "🛡️ Admin"])
-    
-    with t_conn:
-        e_in = st.text_input("Email", key="l_em")
-        p_in = st.text_input("Mot de passe", type="password", key="l_pw")
-        if st.button("Se connecter", use_container_width=True):
-            res = supabase.table("enseignants_auth").select("*").eq("email", e_in).eq("password_hash", hash_pw(p_in)).execute()
-            if res.data:
-                st.session_state["user_data"] = res.data[0]
-                st.rerun()
-            else: st.error("Identifiants incorrects.")
-
-    with t_ins:
-        noms = sorted(df["Enseignants"].unique()) if df is not None else []
-        col1, col2 = st.columns(2)
-        with col1:
-            n_nom = st.selectbox("Nom dans l'EDT", noms)
-            n_em = st.text_input("Email")
-        with col2:
-            n_statut = st.radio("Statut", ["Permanent", "Vacataire"], horizontal=True)
-            n_tel = st.text_input("Téléphone") if n_statut == "Vacataire" else ""
-        
-        p1 = st.text_input("MDP", type="password", key="p1")
-        p2 = st.text_input("Confirm MDP", type="password", key="p2")
-        
-        if st.button("Créer compte"):
-            if p1 == p2 and n_em:
-                try:
-                    supabase.table("enseignants_auth").insert({
-                        "nom_officiel": n_nom, "email": n_em, "password_hash": hash_pw(p1),
-                        "role": "enseignant", "statut": n_statut, "telephone": n_tel
-                    }).execute()
-                    st.success("Compte créé !")
-                except: st.error("Erreur (Email déjà utilisé ?)")
-
-    with t_adm:
-        adm_c = st.text_input("Code Admin", type="password")
-        if st.button("Accès Admin"):
-            if adm_c == "doctorat2026":
-                st.session_state["user_data"] = {"nom_officiel": "ADMINISTRATEUR", "role": "admin", "email": "milouafarid@gmail.com"}
-                st.rerun()
-
-# --- ESPACE UTILISATEUR CONNECTÉ ---
-user = st.session_state.get("user_data")
-if user:
-    is_admin = user.get("role") == "admin"
-    jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-    horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
-    map_h = {normalize(h): h for h in horaires_list}
-    map_j = {normalize(j): j for j in jours_list}
-
-    with st.sidebar:
-        st.header(f"👤 {user.get('nom_officiel')}")
-        portail = st.selectbox("Espace", ["📖 Emploi du Temps", "📅 Surveillances", "👥 Portail Enseignants"])
-        mode_view = "Personnel"
-        if portail == "📖 Emploi du Temps" and is_admin:
-            mode_view = st.radio("Vue Admin", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur", "✍️ Éditeur"])
-        if st.button("🚪 Déconnexion"):
-            st.session_state["user_data"] = None
-            st.rerun()
-
-    # --- LOGIQUE AFFICHAGE ---
-    if is_admin and mode_view == "✍️ Éditeur":
-        st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-        # Logique de l'éditeur (déjà dans votre code, fonctionne bien)
-        # ... (Conserver votre bloc éditeur ici) ...
-        st.info("Utilisez le tableau ci-dessous pour modifier les données en temps réel.")
-        # [Ici insérer votre bloc 'edited_df' et boutons de sauvegarde]
-
-    elif portail == "📖 Emploi du Temps":
-        # En-tête
-        st.markdown("<h2 style='text-align:center;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>", unsafe_allow_html=True)
-        
-        if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
-            cible = user['nom_officiel'] if mode_view == "Personnel" else st.selectbox("Enseignant", sorted(df["Enseignants"].unique()))
-            df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
-            
-            # Affichage de la grille HTML
-            def fmt(rows):
-                return "<div class='separator'></div>".join([f"<b>{r['Code']}</b><br>{r['Enseignements']}<br>({r['Promotion']})<br><i>{r['Lieu']}</i>" for _, r in rows.iterrows()])
-            
-            if not df_f.empty:
-                grid = df_f.groupby(['h_norm', 'j_norm']).apply(fmt, include_groups=False).unstack('j_norm')
-                grid = grid.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
-                grid.index = horaires_list
-                grid.columns = jours_list
-                st.write(grid.to_html(escape=False), unsafe_allow_html=True)
     elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
@@ -1174,11 +1078,6 @@ if user:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
-
-
-
-
-
 
 
 
