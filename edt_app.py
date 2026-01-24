@@ -498,43 +498,28 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.divider()
     st.header("✍️ Console d'Administration des EDTs")
 
-    # 1. INITIALISATION DE LA MÉMOIRE CENTRALE (SESSION STATE)
+    # 1. INITIALISATION DE LA MÉMOIRE CENTRALE
     if 'df_admin' not in st.session_state:
-        # Nettoyage initial des horaires
-        temp_df = df.copy()
-        if "Horaire" in temp_df.columns:
-            temp_df["Horaire"] = temp_df["Horaire"].astype(str).str.replace(r'^08h', '8h', regex=True).str.strip()
-        st.session_state.df_admin = temp_df[cols_format]
+        st.session_state.df_admin = df[cols_format].copy()
 
-    # 2. RÉCUPÉRATION DYNAMIQUE DES OPTIONS
-    horaires_ref = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
-    existants = st.session_state.df_admin["Horaire"].dropna().unique().tolist()
-    liste_horaires_finale = sorted(list(set(existants + horaires_ref)))
-    opts_promos = sorted(st.session_state.df_admin["Promotion"].dropna().unique().tolist())
-    jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-
-    # ---------------------------------------------------------
-    # 3. ZONE DE MODIFICATION CIBLÉE (PLACÉE EN HAUT)
-    # ---------------------------------------------------------
-    st.subheader("1️⃣ Modifier ou Ajouter des cours par Enseignant")
+    # 2. ZONE DE MODIFICATION CIBLÉE (EN HAUT)
+    st.subheader("1️⃣ Modifier ou Ajouter des cours")
     
     liste_profs = sorted(st.session_state.df_admin["Enseignants"].dropna().unique().tolist())
-    prof_sel = st.selectbox("👤 Choisir l'enseignant à gérer :", ["---"] + liste_profs, key="sel_prof_admin")
+    prof_sel = st.selectbox("👤 Sélectionner un enseignant :", ["---"] + liste_profs, key="admin_sel")
 
     if prof_sel != "---":
-        # Filtrage des données pour ce prof
         mask = st.session_state.df_admin["Enseignants"] == prof_sel
         df_filtre = st.session_state.df_admin[mask].copy()
 
-        st.info(f"📍 Mode édition : **{prof_sel}**")
-        st.caption("✨ Pour AJOUTER : Remplissez la ligne vide avec le symbole (+) tout en bas du tableau.")
+        st.info(f"Édition du planning de : **{prof_sel}**")
         
-        # Éditeur spécifique
+        # Petit éditeur pour le prof
         edited_prof_df = st.data_editor(
             df_filtre,
             use_container_width=True,
             num_rows="dynamic",
-            key=f"ed_prof_{prof_sel}",
+            key=f"ed_fast_{prof_sel}",
             column_config={
                 "Enseignants": st.column_config.TextColumn("👤 Enseignant", disabled=True),
                 "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
@@ -543,34 +528,25 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             }
         )
 
-        # BOUTON DE VALIDATION (Remonte les infos vers le global)
-        if st.button(f"➕ Appliquer les changements pour {prof_sel}", use_container_width=True, type="primary"):
-            # A. On garde tous les autres profs
+        if st.button(f"➕ Appliquer et voir le résultat global", use_container_width=True, type="primary"):
             df_others = st.session_state.df_admin[st.session_state.df_admin["Enseignants"] != prof_sel]
-            
-            # B. On force le nom du prof sur les nouvelles lignes et on nettoie le vide
+            # On force le nom pour les nouvelles lignes ajoutées
             edited_prof_df["Enseignants"] = prof_sel
-            edited_prof_df = edited_prof_df.dropna(subset=['Enseignements'], how='all')
-            
-            # C. Fusion et mise à jour du state
-            st.session_state.df_admin = pd.concat([df_others, edited_prof_df], ignore_index=True)
-            
-            st.success("✅ Changements répercutés dans le tableau global ci-dessous !")
+            # On fusionne et on nettoie les lignes vides
+            st.session_state.df_admin = pd.concat([df_others, edited_prof_df], ignore_index=True).dropna(subset=['Enseignements'], how='all')
+            st.success("Synchronisation réussie !")
             st.rerun()
 
     st.write("---")
 
-    # ---------------------------------------------------------
-    # 4. AFFICHAGE DU RÉSULTAT GLOBAL (PLACÉ EN BAS)
-    # ---------------------------------------------------------
-    st.subheader("2️⃣ Aperçu et Contrôle de l'EDT Global")
-    
-    # Cet éditeur permet aussi des modifs directes sur tout le monde
+    # 3. AFFICHAGE DU RÉSULTAT GLOBAL (EN BAS)
+    st.subheader("2️⃣ Aperçu de l'EDT Global")
+    # On affiche le tableau final (qui est mis à jour immédiatement après le rerun)
     st.session_state.df_admin = st.data_editor(
         st.session_state.df_admin[cols_format],
         use_container_width=True,
         num_rows="dynamic",
-        key="global_editor_final_view",
+        key="global_view_final",
         column_config={
             "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
@@ -578,28 +554,22 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         }
     )
 
-    # 5. ACTIONS DE SAUVEGARDE
+    # 4. SAUVEGARDE ET EXPORT
     st.write("---")
     c1, c2, c3 = st.columns(3)
-    
     with c1:
-        if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
-            try:
-                # Tri chronologique avant sauvegarde
-                ordre_j = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-                st.session_state.df_admin['Jours'] = pd.Categorical(st.session_state.df_admin['Jours'], categories=ordre_j, ordered=True)
-                df_to_save = st.session_state.df_admin.sort_values(by=['Jours', 'Horaire'])
-                
-                df_to_save[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Fichier Excel mis à jour et trié !")
-                st.balloons()
-            except Exception as e:
-                st.error(f"Erreur : {e}")
-
+        if st.button("💾 Enregistrer DEFINITIVEMENT", type="primary", use_container_width=True):
+            # Tri automatique par jour avant enregistrement
+            ordre_j = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+            st.session_state.df_admin['Jours'] = pd.Categorical(st.session_state.df_admin['Jours'], categories=ordre_j, ordered=True)
+            df_save = st.session_state.df_admin.sort_values(by=['Jours', 'Horaire'])
+            df_save[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
+            st.success("✅ Fichier Excel mis à jour !")
+            st.balloons()
+    
     with c2:
-        if st.button("🔄 Annuler / Recharger", use_container_width=True):
-            if 'df_admin' in st.session_state:
-                del st.session_state.df_admin
+        if st.button("🔄 Annuler tout", use_container_width=True):
+            if 'df_admin' in st.session_state: del st.session_state.df_admin
             st.rerun()
 
     with c3:
@@ -957,6 +927,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
