@@ -498,35 +498,31 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.divider()
     st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-    # 1. NORMALISATION (Nettoyage des données pour l'affichage)
-    if "Horaire" in df.columns:
-        # On uniformise : on enlève les espaces en trop et on transforme "08h" en "8h"
-        df["Horaire"] = df["Horaire"].astype(str).str.replace(r'^08h', '8h', regex=True).str.strip()
+    # 1. INITIALISATION DE LA MÉMOIRE (SESSION STATE)
+    # Cela permet de garder les modifs entre les filtrages
+    if 'df_admin' not in st.session_state:
+        # Normalisation au premier chargement
+        temp_df = df.copy()
+        if "Horaire" in temp_df.columns:
+            temp_df["Horaire"] = temp_df["Horaire"].astype(str).str.replace(r'^08h', '8h', regex=True).str.strip()
+        st.session_state.df_admin = temp_df
 
-    # 2. RÉCUPÉRATION DYNAMIQUE DES HORAIRES (Crucial pour l'affichage)
-    # On prend les horaires standards ET ceux qui existent déjà dans le fichier
+    # 2. RÉCUPÉRATION DES OPTIONS
     horaires_ref = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
-    if "Horaire" in df.columns:
-        existants = df["Horaire"].dropna().unique().tolist()
-        # On fusionne sans doublons
-        liste_horaires_finale = sorted(list(set(existants + horaires_ref)))
-    else:
-        liste_horaires_finale = horaires_ref
-
-    # 3. OPTIONS POUR LES AUTRES COLONNES
-    opts_promos = sorted(df["Promotion"].dropna().unique().tolist()) if "Promotion" in df.columns else []
+    existants = st.session_state.df_admin["Horaire"].dropna().unique().tolist() if "Horaire" in st.session_state.df_admin.columns else []
+    liste_horaires_finale = sorted(list(set(existants + horaires_ref)))
+    
+    opts_promos = sorted(st.session_state.df_admin["Promotion"].dropna().unique().tolist()) if "Promotion" in st.session_state.df_admin.columns else []
     jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-
-    # 4. PRÉPARATION DU TABLEAU
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
-    df_to_edit = df[cols_format].copy()
 
-    # 5. L'ÉDITEUR AVEC LA LISTE MISE À JOUR
-    edited_df = st.data_editor(
-        df_to_edit,
+    # 3. TABLEAU GLOBAL (ÉDITION GÉNÉRALE)
+    st.markdown("### 🌍 Tableau Global")
+    st.session_state.df_admin = st.data_editor(
+        st.session_state.df_admin[cols_format],
         use_container_width=True,
         num_rows="dynamic",
-        key="admin_editor_2026_fix",
+        key="global_editor_v3",
         column_config={
             "Enseignements": st.column_config.TextColumn("📚 Matière"),
             "Code": st.column_config.TextColumn("🔑 Code"),
@@ -538,66 +534,75 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         }
     )
 
-    # --- NOUVEAU : SOUS-TABLEAUX DE VÉRIFICATION DYNAMIQUE ---
+    # 4. GESTION CIBLÉE PAR ENSEIGNANT (AVEC MODIFICATION)
     st.write("---")
-    st.subheader("🔍 Outils de vérification (Vues filtrées)")
+    st.subheader("🔍 Gestion Directe par Enseignant")
     
-    tab_prof, tab_promo = st.tabs(["👤 Par Enseignant", "🎓 Par Promotion"])
+    liste_profs = sorted(st.session_state.df_admin["Enseignants"].dropna().unique().tolist())
+    prof_sel = st.selectbox("Sélectionner un enseignant pour modifier, ajouter ou supprimer ses cours :", ["---"] + liste_profs)
 
-    with tab_prof:
-        if "Enseignants" in edited_df.columns:
-            liste_profs = sorted(edited_df["Enseignants"].dropna().unique().tolist())
-            prof_sel = st.selectbox("Choisir un enseignant :", ["---"] + liste_profs, key="view_prof")
-            if prof_sel != "---":
-                sub_df_p = edited_df[edited_df["Enseignants"] == prof_sel]
-                st.dataframe(sub_df_p[cols_format], use_container_width=True, hide_index=True)
-                # Alerte si conflit d'horaire pour le même prof
-                if sub_df_p.duplicated(subset=['Horaire', 'Jours']).any():
-                    st.error(f"⚠️ Conflit détecté : {prof_sel} a deux cours à la même heure !")
+    if prof_sel != "---":
+        mask = st.session_state.df_admin["Enseignants"] == prof_sel
+        df_filtre = st.session_state.df_admin[mask].copy()
 
-    with tab_promo:
-        if "Promotion" in edited_df.columns:
-            liste_promos = sorted(edited_df["Promotion"].dropna().unique().tolist())
-            promo_sel = st.selectbox("Choisir une promotion :", ["---"] + liste_promos, key="view_promo")
-            if promo_sel != "---":
-                sub_df_pr = edited_df[edited_df["Promotion"] == promo_sel]
-                st.dataframe(sub_df_pr[cols_format], use_container_width=True, hide_index=True)
-                # Alerte si conflit d'horaire pour la promo
-                if sub_df_pr.duplicated(subset=['Horaire', 'Jours']).any():
-                    st.error(f"⚠️ Conflit détecté : La promotion {promo_sel} a deux cours simultanés !")
+        st.warning(f"🛠️ Modification du planning de : **{prof_sel}**")
+        
+        # Éditeur spécifique pour l'enseignant (Permet Ajout/Suppression)
+        edited_prof_df = st.data_editor(
+            df_filtre,
+            use_container_width=True,
+            num_rows="dynamic",
+            key=f"editor_prof_{prof_sel}",
+            column_config={
+                "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
+                "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
+                "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
+            }
+        )
 
-    # 6. SAUVEGARDE ET ACTIONS FINALES
+        # Bouton pour injecter les changements dans le tableau global
+        if st.button(f"🔄 Appliquer les modifications pour {prof_sel}", use_container_width=True):
+            # Retirer les anciennes lignes et ajouter les nouvelles
+            df_others = st.session_state.df_admin[~mask]
+            edited_prof_df["Enseignants"] = prof_sel # Force le nom pour les nouvelles lignes
+            st.session_state.df_admin = pd.concat([df_others, edited_prof_df], ignore_index=True)
+            st.success(f"✅ Modifications de {prof_sel} synchronisées au tableau global !")
+            st.rerun()
+
+    # 5. SAUVEGARDE ET ACTIONS FINALES
     st.write("---")
     c1, c2, c3 = st.columns(3)
     
     with c1:
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
-                # Sauvegarde en respectant l'ordre des colonnes imposé
-                edited_df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Fichier serveur mis à jour !")
+                st.session_state.df_admin[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
+                st.success("✅ Fichier mis à jour !")
                 st.balloons()
-                st.rerun()
             except Exception as e:
-                st.error(f"Erreur de sauvegarde : {e}")
+                st.error(f"Erreur : {e}")
 
     with c2:
-        if st.button("🔄 Annuler / Actualiser", use_container_width=True):
+        if st.button("🔄 Réinitialiser l'éditeur", use_container_width=True):
+            if 'df_admin' in st.session_state:
+                del st.session_state.df_admin
             st.rerun()
 
     with c3:
         import io
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            edited_df[cols_format].to_excel(writer, index=False, sheet_name='Emploi_du_temps')
+            st.session_state.df_admin[cols_format].to_excel(writer, index=False)
         
         st.download_button(
-            label="📥 Télécharger / Imprimer (Excel)",
+            label="📥 Télécharger Excel final",
             data=buffer.getvalue(),
-            file_name=f"EDT_S2_2026_{pd.Timestamp.now().strftime('%d_%m_%Hh%M')}.xlsx",
+            file_name=f"EDT_Admin_Final_{pd.Timestamp.now().strftime('%d_%m')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
+
+    st.stop()
 
     st.info("💡 **Astuce Admin :** Les vues filtrées ci-dessus se mettent à jour en temps réel dès que vous modifiez le tableau principal.")
     st.stop() 
@@ -948,6 +953,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
