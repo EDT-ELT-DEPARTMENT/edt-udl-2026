@@ -940,18 +940,29 @@ if df is not None:
 
         st.divider()
 
-        # 3. LISTE INDIVIDUELLE AVEC RECHERCHE ET ENVOI UNITAIRE
+        # 3. LISTE INDIVIDUELLE AVEC FILTRES DE RECHERCHE ET STATUT
         st.divider()
         st.subheader("📬 Gestion individuelle des envois")
 
-        # Liste déroulante pour sélection rapide
-        liste_noms = ["TOUS"] + sorted([row["Enseignant"] for row in donnees_finales])
-        choix_enseignant = st.selectbox("🔍 Sélectionner un enseignant pour envoi rapide :", liste_noms)
+        # --- ZONE DE FILTRES ---
+        col_f1, col_f2 = st.columns(2)
+        
+        with col_f1:
+            liste_noms = ["TOUS"] + sorted([row["Enseignant"] for row in donnees_finales])
+            choix_enseignant = st.selectbox("🔍 Chercher un nom :", liste_noms)
+            
+        with col_f2:
+            # Filtre demandé : permet d'afficher uniquement ceux en attente
+            choix_statut = st.selectbox("📊 Filtrer par statut :", ["TOUS", "⏳ En attente", "✅ Envoyé", "❌ Absent"])
 
-        # Filtrage de la boucle d'affichage
+        # --- AFFICHAGE FILTRÉ ---
         for idx, row in enumerate(donnees_finales):
-            # Si on a choisi un enseignant précis, on ignore les autres lignes
+            # Filtre 1 : Par nom
             if choix_enseignant != "TOUS" and row["Enseignant"] != choix_enseignant:
+                continue
+            
+            # Filtre 2 : Par statut (ex: afficher seulement 'En attente')
+            if choix_statut != "TOUS" and row["État d'envoi"] != choix_statut:
                 continue
                 
             col_ens, col_mail, col_stat, col_act = st.columns([2, 2, 1, 1])
@@ -960,8 +971,7 @@ if df is not None:
             col_stat.write(row["État d'envoi"])
             
             if "@" in str(row["Email"]):
-                # On utilise le nom dans la key pour éviter les conflits Streamlit
-                if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}"):
+                if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}_{idx}"):
                     import smtplib
                     from email.mime.text import MIMEText
                     from email.mime.multipart import MIMEMultipart
@@ -969,9 +979,9 @@ if df is not None:
                     try:
                         server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
                         server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
-                        df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
                         
-                        # Disposition respectée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+                        # Récupération des données selon la disposition demandée
+                        df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
                         df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
                         
                         msg = MIMEMultipart()
@@ -989,12 +999,11 @@ if df is not None:
                         """
                         msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
                         
-                        # Mise à jour Supabase avec timestamp réel
+                        # Mise à jour Supabase avec timestamp ISO
                         supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
                         
                         server.quit(); st.success(f"✅ Envoyé à {row['Enseignant']}"); st.rerun()
                     except Exception as e: st.error(f"Erreur : {e}")
-
     elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
@@ -1018,6 +1027,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
