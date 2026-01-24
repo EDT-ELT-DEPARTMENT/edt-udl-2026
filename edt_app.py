@@ -499,13 +499,10 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
     # 1. INITIALISATION DE LA MÉMOIRE (SESSION STATE)
+    # Cela permet de garder les modifs entre les filtrages
     if 'df_admin' not in st.session_state:
+        # Normalisation au premier chargement
         temp_df = df.copy()
-        
-        # On force la présence de la colonne si elle n'existe pas dans le Excel source
-        if "Chevauchement" not in temp_df.columns:
-            temp_df["Chevauchement"] = ""
-            
         if "Horaire" in temp_df.columns:
             temp_df["Horaire"] = temp_df["Horaire"].astype(str).str.replace(r'^08h', '8h', regex=True).str.strip()
         st.session_state.df_admin = temp_df
@@ -517,17 +514,15 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     
     opts_promos = sorted(st.session_state.df_admin["Promotion"].dropna().unique().tolist()) if "Promotion" in st.session_state.df_admin.columns else []
     jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+    cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
 
-    # AJOUT DE LA COLONNE DANS LA DISPOSITION (8 colonnes maintenant)
-    cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
-
-    # 3. TABLEAU GLOBAL
-    st.markdown("### 🌍 Tableau Global (avec Chevauchement)")
+    # 3. TABLEAU GLOBAL (ÉDITION GÉNÉRALE)
+    st.markdown("### 🌍 Tableau Global")
     st.session_state.df_admin = st.data_editor(
         st.session_state.df_admin[cols_format],
         use_container_width=True,
         num_rows="dynamic",
-        key="global_editor_v2026_visible_chev",
+        key="global_editor_v3",
         column_config={
             "Enseignements": st.column_config.TextColumn("📚 Matière"),
             "Code": st.column_config.TextColumn("🔑 Code"),
@@ -536,16 +531,15 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
             "Lieu": st.column_config.TextColumn("📍 Lieu"),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
-            "Chevauchement": st.column_config.TextColumn("⚠️ Chevauchement"), # Visible ici
         }
     )
 
-    # 4. GESTION CIBLÉE PAR ENSEIGNANT (Mise à jour pour inclure la colonne)
+    # 4. GESTION CIBLÉE PAR ENSEIGNANT (AVEC MODIFICATION)
     st.write("---")
     st.subheader("🔍 Gestion Directe par Enseignant")
     
     liste_profs = sorted(st.session_state.df_admin["Enseignants"].dropna().unique().tolist())
-    prof_sel = st.selectbox("Sélectionner un enseignant :", ["---"] + liste_profs)
+    prof_sel = st.selectbox("Sélectionner un enseignant pour modifier, ajouter ou supprimer ses cours :", ["---"] + liste_profs)
 
     if prof_sel != "---":
         mask = st.session_state.df_admin["Enseignants"] == prof_sel
@@ -553,8 +547,9 @@ if is_admin and mode_view == "✍️ Éditeur de données":
 
         st.warning(f"🛠️ Modification du planning de : **{prof_sel}**")
         
+        # Éditeur spécifique pour l'enseignant (Permet Ajout/Suppression)
         edited_prof_df = st.data_editor(
-            df_filtre[cols_format],
+            df_filtre,
             use_container_width=True,
             num_rows="dynamic",
             key=f"editor_prof_{prof_sel}",
@@ -565,23 +560,52 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             }
         )
 
+        # Bouton pour injecter les changements dans le tableau global
         if st.button(f"🔄 Appliquer les modifications pour {prof_sel}", use_container_width=True):
+            # Retirer les anciennes lignes et ajouter les nouvelles
             df_others = st.session_state.df_admin[~mask]
-            edited_prof_df["Enseignants"] = prof_sel
+            edited_prof_df["Enseignants"] = prof_sel # Force le nom pour les nouvelles lignes
             st.session_state.df_admin = pd.concat([df_others, edited_prof_df], ignore_index=True)
-            st.success(f"✅ Modifications de {prof_sel} synchronisées !")
+            st.success(f"✅ Modifications de {prof_sel} synchronisées au tableau global !")
             st.rerun()
 
-    # 5. SAUVEGARDE
+    # 5. SAUVEGARDE ET ACTIONS FINALES
     st.write("---")
-    if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
-        try:
-            # On sauvegarde les 8 colonnes
-            st.session_state.df_admin[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-            st.success("✅ Fichier mis à jour avec la colonne Chevauchement !")
-            st.balloons()
-        except Exception as e:
-            st.error(f"Erreur : {e}") 
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
+            try:
+                st.session_state.df_admin[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
+                st.success("✅ Fichier mis à jour !")
+                st.balloons()
+            except Exception as e:
+                st.error(f"Erreur : {e}")
+
+    with c2:
+        if st.button("🔄 Réinitialiser l'éditeur", use_container_width=True):
+            if 'df_admin' in st.session_state:
+                del st.session_state.df_admin
+            st.rerun()
+
+    with c3:
+        import io
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            st.session_state.df_admin[cols_format].to_excel(writer, index=False)
+        
+        st.download_button(
+            label="📥 Télécharger Excel final",
+            data=buffer.getvalue(),
+            file_name=f"EDT_Admin_Final_{pd.Timestamp.now().strftime('%d_%m')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+    st.stop()
+
+    st.info("💡 **Astuce Admin :** Les vues filtrées ci-dessus se mettent à jour en temps réel dès que vous modifiez le tableau principal.")
+    st.stop() 
 
 # --- EN-TÊTE --- (Le reste de votre code existant...)
 st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
@@ -929,9 +953,6 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
-
-
-
 
 
 
