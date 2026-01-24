@@ -503,36 +503,41 @@ if is_admin and mode_view == "✍️ Éditeur de données":
 
     if 'df_admin' not in st.session_state:
         temp_df = df.copy()
-        
-        # On force la création des colonnes et on convertit TOUT en String
         for col in cols_format:
             if col not in temp_df.columns:
                 temp_df[col] = ""
-            # Nettoyage des types : remplace les NaN par du vide et force le format texte
             temp_df[col] = temp_df[col].astype(str).replace(['nan', 'None', '<NA>'], '')
-        
-        if "Horaire" in temp_df.columns:
-            temp_df["Horaire"] = temp_df["Horaire"].str.replace(r'^08h', '8h', regex=True).str.strip()
-        
         st.session_state.df_admin = temp_df
 
-    # 2. PRÉPARATION DES OPTIONS (Sécurisée contre les valeurs vides)
+    # 2. PRÉPARATION DES OPTIONS
     horaires_ref = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
     h_existants = [h for h in st.session_state.df_admin["Horaire"].unique() if h and h.strip() != ""]
     liste_horaires = sorted(list(set(h_existants + horaires_ref)))
-    
     jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
     promos_existantes = [p for p in st.session_state.df_admin["Promotion"].unique() if p and p.strip() != ""]
 
-    # 3. TABLEAU GLOBAL (ÉDITION SÉCURISÉE)
-    st.markdown("### 🌍 Tableau Global")
+    # --- NOUVEAUTÉ : FILTRE DE RECHERCHE ---
+    st.markdown("### 🔍 Filtrer par Enseignant")
+    search_prof = st.text_input("Tapez le nom de l'enseignant pour filtrer le tableau :", "")
+
+    # Application du filtre
+    if search_prof:
+        # On filtre les données pour l'affichage
+        df_to_edit = st.session_state.df_admin[
+            st.session_state.df_admin["Enseignants"].str.contains(search_prof, case=False, na=False)
+        ]
+        st.info(f"💡 Affichage des cours de : **{search_prof}**. Les modifications ou ajouts ne concernernt que cette sélection.")
+    else:
+        df_to_edit = st.session_state.df_admin
+
+    # 3. TABLEAU GLOBAL (ÉDITION AVEC FILTRE)
+    st.markdown("### 🌍 Tableau d'édition")
     
-    # On passe une copie propre à l'éditeur
     edited_df = st.data_editor(
-        st.session_state.df_admin[cols_format],
+        df_to_edit[cols_format],
         use_container_width=True,
         num_rows="dynamic",
-        key="editor_final_stable_2026",
+        key="editor_with_filter_2026",
         column_config={
             "Enseignements": st.column_config.TextColumn("📚 Matière"),
             "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires),
@@ -542,8 +547,16 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         }
     )
 
+    # Synchronisation des modifications
     if edited_df is not None:
-        st.session_state.df_admin = edited_df
+        if search_prof:
+            # Si on a filtré, on remplace uniquement les lignes filtrées dans le tableau global
+            indices_modifies = df_to_edit.index
+            # On met à jour le state global en conservant les autres enseignants
+            df_others = st.session_state.df_admin.drop(indices_modifies)
+            st.session_state.df_admin = pd.concat([df_others, edited_df], ignore_index=True)
+        else:
+            st.session_state.df_admin = edited_df
 
     # 4. SAUVEGARDE ET EXPORT
     st.write("---")
@@ -553,7 +566,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
                 st.session_state.df_admin[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Serveur mis à jour avec succès !")
+                st.success("✅ Modifications enregistrées sur le serveur !")
                 st.balloons()
             except Exception as e:
                 st.error(f"Erreur d'écriture : {e}")
@@ -918,6 +931,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
