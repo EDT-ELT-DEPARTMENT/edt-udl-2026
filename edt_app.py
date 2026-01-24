@@ -542,48 +542,58 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     prof_sel = st.selectbox("Sélectionner un enseignant pour modifier, ajouter ou supprimer ses cours :", ["---"] + liste_profs)
 
     if prof_sel != "---":
+        # 1. Création du masque pour isoler le prof
         mask = st.session_state.df_admin["Enseignants"] == prof_sel
         df_filtre = st.session_state.df_admin[mask].copy()
 
         st.warning(f"🛠️ Modification du planning de : **{prof_sel}**")
+        st.caption("Ajoutez ou supprimez des lignes ci-dessous, puis validez pour synchroniser avec le global.")
         
-        # Éditeur spécifique pour l'enseignant (Permet Ajout/Suppression)
+        # 2. L'éditeur spécifique pour l'enseignant
         edited_prof_df = st.data_editor(
             df_filtre,
             use_container_width=True,
             num_rows="dynamic",
             key=f"editor_prof_{prof_sel}",
             column_config={
+                "Enseignants": st.column_config.TextColumn("👤 Enseignants", disabled=True), # Nom fixé
                 "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
                 "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
                 "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
             }
         )
 
-        # Bouton pour injecter les changements dans le tableau global
-        if st.button(f"🔄 Appliquer les modifications pour {prof_sel}", use_container_width=True):
-            # Retirer les anciennes lignes et ajouter les nouvelles
+        # 3. Bouton de synchronisation (Correction : force l'attribution du nom)
+        if st.button(f"🔄 Appliquer les modifications pour {prof_sel}", use_container_width=True, type="secondary"):
+            # A. On retire les anciennes lignes de ce prof du tableau global
             df_others = st.session_state.df_admin[~mask]
-            edited_prof_df["Enseignants"] = prof_sel # Force le nom pour les nouvelles lignes
+            
+            # B. CRUCIAL : On force le nom du prof sur TOUTES les lignes (même les nouvelles ajoutées)
+            edited_prof_df["Enseignants"] = prof_sel
+            
+            # C. Fusion avec le reste des données
             st.session_state.df_admin = pd.concat([df_others, edited_prof_df], ignore_index=True)
-            st.success(f"✅ Modifications de {prof_sel} synchronisées au tableau global !")
+            
+            st.success(f"✅ Planning de {prof_sel} mis à jour dans le tableau global !")
             st.rerun()
 
-    # 5. SAUVEGARDE ET ACTIONS FINALES
+    # 6. SAUVEGARDE ET ACTIONS FINALES
     st.write("---")
     c1, c2, c3 = st.columns(3)
     
     with c1:
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
+                # Sauvegarde du state final
                 st.session_state.df_admin[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Fichier mis à jour !")
+                st.success("✅ Fichier Excel mis à jour sur le serveur !")
                 st.balloons()
             except Exception as e:
-                st.error(f"Erreur : {e}")
+                st.error(f"Erreur lors de l'écriture du fichier : {e}")
 
     with c2:
         if st.button("🔄 Réinitialiser l'éditeur", use_container_width=True):
+            # On vide le state pour forcer le rechargement depuis le fichier disque
             if 'df_admin' in st.session_state:
                 del st.session_state.df_admin
             st.rerun()
@@ -597,14 +607,12 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         st.download_button(
             label="📥 Télécharger Excel final",
             data=buffer.getvalue(),
-            file_name=f"EDT_Admin_Final_{pd.Timestamp.now().strftime('%d_%m')}.xlsx",
+            file_name=f"EDT_Admin_S2_2026.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
 
-    st.stop()
-
-    st.info("💡 **Astuce Admin :** Les vues filtrées ci-dessus se mettent à jour en temps réel dès que vous modifiez le tableau principal.")
+    st.info("💡 **Astuce Admin :** Utilisez le tableau global pour une vue d'ensemble et l'éditeur filtré pour les ajustements précis par enseignant.")
     st.stop() 
 
 # --- EN-TÊTE --- (Le reste de votre code existant...)
@@ -953,6 +961,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
