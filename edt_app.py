@@ -882,61 +882,74 @@ if df is not None:
 
     # --- ESPACE GÉNÉRATEUR AUTOMATIQUE (DANS LA LOGIQUE PRINCIPALE) ---
 if portail == "🤖 Générateur Automatique":
-    st.markdown("### ⚙️ Moteur de Génération de Surveillances")
-    
-    # --- 1. CONFIGURATION DES PARAMÈTRES ---
-    with st.container():
+    st.subheader("🤖 Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+    st.markdown("#### ⚙️ Moteur de Génération de Surveillances (Hors Période de Cours)")
+
+    # --- 1. CONFIGURATION ---
+    with st.expander("🛠️ Paramètres de l'algorithme", expanded=True):
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            st.markdown("⚖️ **Plafonnement**")
-            max_seances = st.number_input("Max séances / Enseignant", min_value=1, max_value=10, value=3)
-        
+            max_seances = st.number_input("⚖️ Max séances / Enseignant", 1, 15, 5)
         with col2:
-            st.markdown("📦 **Gestion des Effectifs**")
-            ratio = st.slider("Ratio Étud/Surv", 10, 50, 25)
-            
+            ratio = st.slider("👥 Ratio Étudiants/Surveillant", 10, 40, 20)
         with col3:
-            st.markdown("🎓 **Promotions**")
-            all_promos = sorted(df["Promotion"].unique()) if df is not None else ["L3", "M1", "M2"]
-            promos_sel = st.multiselect("Promotions à inclure :", all_promos, default=all_promos[:1])
+            all_promos = sorted(df["Promotion"].unique()) if df is not None else ["L3 ELT", "M1 RE", "M2 RE"]
+            promos_sel = st.multiselect("🎓 Promotions à évaluer :", all_promos, default=all_promos)
 
-    st.divider()
+    # --- 2. BASE DE DONNÉES ENSEIGNANTS ---
+    # On récupère la liste unique des enseignants inscrits ou présents dans l'EDT
+    liste_profs = sorted(df["Enseignants"].unique())
+    liste_profs = [p for p in liste_profs if p != "Non défini"]
+    
+    st.info(f"ℹ️ **Effectif disponible :** {len(liste_profs)} enseignants répertoriés pour la surveillance.")
 
-    # --- 2. LOGIQUE DE CALCUL (PRÉ-VÉRIFICATION) ---
-    st.subheader("📊 Analyse des besoins")
-    
-    # Simulation de calcul des besoins
-    # Imaginons que nous récupérons le nombre d'étudiants par promo depuis une autre source ou un input
-    nb_etudiants_simule = len(promos_sel) * 60  # Exemple : 60 étudiants par promo sélectionnée
-    surv_requis = -(-nb_etudiants_simule // ratio) # Arrondi supérieur
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Étudiants concernés", nb_etudiants_simule)
-    c2.metric("Surveillants requis / plage", surv_requis)
-    
-    # --- 3. DÉCLENCHEMENT DE L'ALGORITHME ---
+    # --- 3. DÉFINITION DES PLAGES D'EXAMENS ---
     st.markdown("---")
-    if st.button("🚀 Lancer la génération intelligente", type="primary", use_container_width=True):
-        with st.spinner("L'IA répartit les surveillances selon les disponibilités et la charge..."):
-            # Ici, nous appellerons une fonction d'optimisation
-            # Pour l'instant, affichons un aperçu du résultat possible
-            import time
-            time.sleep(1.5)
-            
-            st.success(f"✅ Planning généré avec succès pour {len(promos_sel)} promotions !")
-            
-            # Exemple de tableau de résultat
-            res_data = {
-                "Date": ["Dimanche 01/02", "Dimanche 01/02"],
-                "Horaire": ["09h00 - 10h30", "11h00 - 12h30"],
-                "Local": ["Amphi A", "Salle S06"],
-                "Surveillants affectés": ["Zidi, Bermaki, Touhami", "Benhamida, Maamar"]
-            }
-            st.table(pd.DataFrame(res_data))
-            
-            # Option d'export
-            st.download_button("📥 Télécharger le planning (PDF)", b"data", "Surveillances_S2_2026.pdf")
+    st.write("📅 **Définir les plages horaires des examens**")
+    
+    # Simulation d'une grille de saisie pour les examens
+    exam_days = st.multiselect("Jours d'examens", ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"], default=["Dimanche"])
+    slots = ["09h00 - 10h30", "11h00 - 12h30", "14h00 - 15h30"]
+    
+    # --- 4. BOUTON DE GÉNÉRATION ---
+    if st.button("🚀 Générer le Planning Équitable", type="primary", use_container_width=True):
+        # Simulation de l'attribution
+        import random
+        
+        results = []
+        available_profs = liste_profs.copy()
+        # Dictionnaire pour compter les affectations par prof
+        counts = {p: 0 for p in liste_profs}
+
+        for jour in exam_days:
+            for slot in slots:
+                # On choisit 3 profs au hasard pour l'exemple (en fonction du ratio réel dans votre version finale)
+                affectes = []
+                # On filtre ceux qui n'ont pas dépassé le plafond
+                pool = [p for p in counts if counts[p] < max_seances]
+                
+                if len(pool) >= 3:
+                    affectes = random.sample(pool, 3)
+                    for a in affectes:
+                        counts[a] += 1
+                
+                results.append({
+                    "Jour": jour,
+                    "Horaire": slot,
+                    "Surveillants": ", ".join(affectes),
+                    "Nombre": len(affectes)
+                })
+
+        st.success("✅ Répartition terminée en respectant le plafonnement !")
+        
+        # Affichage du résultat
+        df_res = pd.DataFrame(results)
+        st.dataframe(df_res, use_container_width=True)
+        
+        # --- 5. STATISTIQUES DE CHARGE ---
+        with st.expander("📊 Statistiques de charge par enseignant"):
+            charge_df = pd.DataFrame(list(counts.items()), columns=["Enseignant", "Nombre de Surveillances"])
+            st.bar_chart(charge_df.set_index("Enseignant"))
     elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
@@ -1075,6 +1088,7 @@ if portail == "🤖 Générateur Automatique":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
