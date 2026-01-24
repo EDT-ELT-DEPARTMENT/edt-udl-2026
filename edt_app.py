@@ -940,16 +940,28 @@ if df is not None:
 
         st.divider()
 
-        # 3. LISTE INDIVIDUELLE AVEC BOUTON D'ENVOI UNITAIRE
+        # 3. LISTE INDIVIDUELLE AVEC RECHERCHE ET ENVOI UNITAIRE
+        st.divider()
         st.subheader("📬 Gestion individuelle des envois")
+
+        # Liste déroulante pour sélection rapide
+        liste_noms = ["TOUS"] + sorted([row["Enseignant"] for row in donnees_finales])
+        choix_enseignant = st.selectbox("🔍 Sélectionner un enseignant pour envoi rapide :", liste_noms)
+
+        # Filtrage de la boucle d'affichage
         for idx, row in enumerate(donnees_finales):
+            # Si on a choisi un enseignant précis, on ignore les autres lignes
+            if choix_enseignant != "TOUS" and row["Enseignant"] != choix_enseignant:
+                continue
+                
             col_ens, col_mail, col_stat, col_act = st.columns([2, 2, 1, 1])
             col_ens.write(f"**{row['Enseignant']}**")
             col_mail.write(row['Email'])
             col_stat.write(row["État d'envoi"])
             
             if "@" in str(row["Email"]):
-                if col_act.button("📧 Envoyer", key=f"btn_{idx}"):
+                # On utilise le nom dans la key pour éviter les conflits Streamlit
+                if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}"):
                     import smtplib
                     from email.mime.text import MIMEText
                     from email.mime.multipart import MIMEMultipart
@@ -958,13 +970,28 @@ if df is not None:
                         server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
                         server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
                         df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
+                        
+                        # Disposition respectée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
                         df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+                        
                         msg = MIMEMultipart()
                         msg['Subject'] = f"Mise à jour Emploi du Temps - {row['Enseignant']}"
                         msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
-                        corps_html = f"<html><body><h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2><p>Sallem,</p>{df_mail.to_html(index=False, border=1, justify='center')}<br><p>Cordialement.</p><p><b>Service d'enseignement du département d'électrotechnique.</b></p></body></html>"
+                        
+                        corps_html = f"""
+                        <html><body>
+                            <h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                            <p>Sallem,</p>
+                            {df_mail.to_html(index=False, border=1, justify='center')}
+                            <br><p>Cordialement.</p>
+                            <p><b>Service d'enseignement du département d'électrotechnique.</b></p>
+                        </body></html>
+                        """
                         msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
+                        
+                        # Mise à jour Supabase avec timestamp réel
                         supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
+                        
                         server.quit(); st.success(f"✅ Envoyé à {row['Enseignant']}"); st.rerun()
                     except Exception as e: st.error(f"Erreur : {e}")
 
@@ -991,6 +1018,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
