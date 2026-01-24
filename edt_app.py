@@ -541,24 +541,41 @@ if is_admin and mode_view == "✍️ Éditeur de données":
 
     # 6. SAUVEGARDE ET ACTIONS FINALES
     st.write("---")
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3) # Passage à 3 colonnes
     
     with c1:
-        if st.button("💾 Enregistrer les modifications", type="primary", use_container_width=True):
+        if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
-                # On sauvegarde en gardant strictement l'ordre demandé
+                # Sauvegarde locale sur le serveur
                 edited_df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Données mises à jour avec succès dans le fichier Excel !")
+                st.success("✅ Fichier serveur mis à jour !")
                 st.balloons()
                 st.rerun()
             except Exception as e:
-                st.error(f"Erreur lors de la sauvegarde : {e}")
+                st.error(f"Erreur : {e}")
 
     with c2:
         if st.button("🔄 Annuler / Actualiser", use_container_width=True):
             st.rerun()
 
-    st.info("💡 **Astuce :** Vous pouvez copier-coller des données depuis Excel directement dans le tableau ci-dessus.")
+    with c3:
+        # Préparation du fichier Excel en mémoire pour le téléchargement
+        import io
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            edited_df[cols_format].to_excel(writer, index=False, sheet_name='Emploi_du_temps')
+            # Le writer se ferme automatiquement ici
+        
+        st.download_button(
+            label="📥 Télécharger / Imprimer (Excel)",
+            data=buffer.getvalue(),
+            file_name=f"EDT_S2_2026_{pd.Timestamp.now().strftime('%d_%m_%Hh%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            help="Téléchargez le fichier pour l'ouvrir dans Excel et l'imprimer."
+        )
+
+    st.info("💡 **Note sur l'impression :** Pour imprimer, téléchargez le fichier Excel via le bouton ci-dessus, ouvrez-le, puis utilisez `Ctrl + P` dans votre logiciel (Excel/LibreOffice).")
     st.stop() 
 
 # --- EN-TÊTE --- (Le reste de votre code existant...)
@@ -907,6 +924,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
