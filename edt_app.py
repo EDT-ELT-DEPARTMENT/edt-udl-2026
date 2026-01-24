@@ -586,9 +586,23 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     st.stop() 
 
 
-# --- EN-TÊTE ---
-st.markdown(f"<div class='date-badge'>📅 {nom_jour_fr} {date_str}</div>", unsafe_allow_html=True)
-st.markdown("<h1 class='main-title'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
+# --- EN-TÊTE HARMONISÉ (LOGO + TITRE + DATE) ---
+col_logo, col_titre, col_date = st.columns([1, 5, 1.2])
+
+with col_logo:
+    try:
+        st.image("logo.PNG", width=90)
+    except:
+        st.markdown("🏛️") # Secours si le fichier est manquant
+
+with col_titre:
+    st.markdown("<h1 class='main-title' style='border-bottom: none; margin-top: 0;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
+
+with col_date:
+    st.markdown(f"<div class='date-badge' style='float: right;'>📅 {nom_jour_fr}<br>{date_str}</div>", unsafe_allow_html=True)
+
+# Ligne dorée décorative et badge du mode
+st.markdown("<div style='border-bottom: 3px solid #D4AF37; margin-bottom: 10px;'></div>", unsafe_allow_html=True)
 st.markdown(f"<div class='portal-badge'>MODE ACTIF : {portail.upper()}</div>", unsafe_allow_html=True)
 
 # --- LOGIQUE PRINCIPALE ---
@@ -930,6 +944,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
