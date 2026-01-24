@@ -531,7 +531,6 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             "Enseignements": st.column_config.TextColumn("📚 Matière"),
             "Code": st.column_config.TextColumn("🔑 Code"),
             "Enseignants": st.column_config.TextColumn("👤 Enseignants"),
-            # On utilise la liste fusionnée ici pour que les valeurs existantes s'affichent
             "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
             "Lieu": st.column_config.TextColumn("📍 Lieu"),
@@ -539,43 +538,68 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         }
     )
 
+    # --- NOUVEAU : SOUS-TABLEAUX DE VÉRIFICATION DYNAMIQUE ---
+    st.write("---")
+    st.subheader("🔍 Outils de vérification (Vues filtrées)")
+    
+    tab_prof, tab_promo = st.tabs(["👤 Par Enseignant", "🎓 Par Promotion"])
+
+    with tab_prof:
+        if "Enseignants" in edited_df.columns:
+            liste_profs = sorted(edited_df["Enseignants"].dropna().unique().tolist())
+            prof_sel = st.selectbox("Choisir un enseignant :", ["---"] + liste_profs, key="view_prof")
+            if prof_sel != "---":
+                sub_df_p = edited_df[edited_df["Enseignants"] == prof_sel]
+                st.dataframe(sub_df_p[cols_format], use_container_width=True, hide_index=True)
+                # Alerte si conflit d'horaire pour le même prof
+                if sub_df_p.duplicated(subset=['Horaire', 'Jours']).any():
+                    st.error(f"⚠️ Conflit détecté : {prof_sel} a deux cours à la même heure !")
+
+    with tab_promo:
+        if "Promotion" in edited_df.columns:
+            liste_promos = sorted(edited_df["Promotion"].dropna().unique().tolist())
+            promo_sel = st.selectbox("Choisir une promotion :", ["---"] + liste_promos, key="view_promo")
+            if promo_sel != "---":
+                sub_df_pr = edited_df[edited_df["Promotion"] == promo_sel]
+                st.dataframe(sub_df_pr[cols_format], use_container_width=True, hide_index=True)
+                # Alerte si conflit d'horaire pour la promo
+                if sub_df_pr.duplicated(subset=['Horaire', 'Jours']).any():
+                    st.error(f"⚠️ Conflit détecté : La promotion {promo_sel} a deux cours simultanés !")
+
     # 6. SAUVEGARDE ET ACTIONS FINALES
     st.write("---")
-    c1, c2, c3 = st.columns(3) # Passage à 3 colonnes
+    c1, c2, c3 = st.columns(3)
     
     with c1:
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
-                # Sauvegarde locale sur le serveur
+                # Sauvegarde en respectant l'ordre des colonnes imposé
                 edited_df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                 st.success("✅ Fichier serveur mis à jour !")
                 st.balloons()
                 st.rerun()
             except Exception as e:
-                st.error(f"Erreur : {e}")
+                st.error(f"Erreur de sauvegarde : {e}")
 
     with c2:
         if st.button("🔄 Annuler / Actualiser", use_container_width=True):
             st.rerun()
 
     with c3:
-        # Préparation du fichier Excel en mémoire pour le téléchargement
         import io
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
             edited_df[cols_format].to_excel(writer, index=False, sheet_name='Emploi_du_temps')
-            # Le writer se ferme automatiquement ici
         
         st.download_button(
             label="📥 Télécharger / Imprimer (Excel)",
             data=buffer.getvalue(),
             file_name=f"EDT_S2_2026_{pd.Timestamp.now().strftime('%d_%m_%Hh%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            help="Téléchargez le fichier pour l'ouvrir dans Excel et l'imprimer."
+            use_container_width=True
         )
 
-    st.info("💡 **Note sur l'impression :** Pour imprimer, téléchargez le fichier Excel via le bouton ci-dessus, ouvrez-le, puis utilisez `Ctrl + P` dans votre logiciel (Excel/LibreOffice).")
+    st.info("💡 **Astuce Admin :** Les vues filtrées ci-dessus se mettent à jour en temps réel dès que vous modifiez le tableau principal.")
     st.stop() 
 
 # --- EN-TÊTE --- (Le reste de votre code existant...)
@@ -924,6 +948,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
