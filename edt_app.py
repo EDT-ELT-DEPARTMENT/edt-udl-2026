@@ -502,7 +502,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     if 'df_admin' not in st.session_state:
         temp_df = df.copy()
         
-        # Sécurité : On s'assure que la colonne "Chevauchement" existe en arrière-plan
+        # On force la présence de la colonne "Chevauchement" si elle n'existe pas
         if "Chevauchement" not in temp_df.columns:
             temp_df["Chevauchement"] = ""
             
@@ -510,9 +510,9 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             temp_df["Horaire"] = temp_df["Horaire"].astype(str).str.replace(r'^08h', '8h', regex=True).str.strip()
         st.session_state.df_admin = temp_df
 
-    # 2. CONFIGURATION DES COLONNES ET OPTIONS
-    # L'ordre d'affichage que vous avez exigé
-    cols_affichage = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
+    # 2. CONFIGURATION DES COLONNES (Mise à jour : 8 colonnes visibles)
+    # On ajoute "Chevauchement" à votre liste préférée
+    cols_affichage = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
     
     horaires_ref = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"]
     existants = st.session_state.df_admin["Horaire"].dropna().unique().tolist() if "Horaire" in st.session_state.df_admin.columns else []
@@ -522,15 +522,14 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     jours_std = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
 
     # 3. TABLEAU GLOBAL (ÉDITION GÉNÉRALE)
-    st.markdown("### 🌍 Tableau Global")
+    st.markdown("### 🌍 Tableau Global (Mode Édition Totale)")
     
-    # On passe TOUT le dataframe (y compris Chevauchement) mais on n'affiche que vos colonnes
+    # On affiche l'intégralité du DataFrame incluant Chevauchement
     edited_df = st.data_editor(
-        st.session_state.df_admin,
+        st.session_state.df_admin[cols_affichage],
         use_container_width=True,
         num_rows="dynamic",
-        key="global_editor_v2026_final", # Clé rafraîchie pour forcer l'activation du bouton (+)
-        column_order=cols_affichage,    # ✅ Cache 'Chevauchement' tout en le gardant dans les données
+        key="global_editor_v2026_visible_chev", 
         column_config={
             "Enseignements": st.column_config.TextColumn("📚 Matière", required=True),
             "Code": st.column_config.TextColumn("🔑 Code"),
@@ -539,10 +538,10 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
             "Lieu": st.column_config.TextColumn("📍 Lieu"),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=opts_promos),
+            "Chevauchement": st.column_config.TextColumn("⚠️ Chevauchement"), # ✅ Maintenant affichée
         }
     )
     
-    # Mise à jour immédiate de la mémoire
     if edited_df is not None:
         st.session_state.df_admin = edited_df
 
@@ -560,11 +559,10 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         st.warning(f"🛠️ Modification du planning de : **{prof_sel}**")
         
         edited_prof_df = st.data_editor(
-            df_filtre,
+            df_filtre[cols_affichage],
             use_container_width=True,
             num_rows="dynamic",
             key=f"editor_prof_{prof_sel}",
-            column_order=cols_affichage, # Respecte la disposition ici aussi
             column_config={
                 "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires_finale),
                 "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
@@ -586,9 +584,9 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     with c1:
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
-                # On sauvegarde tout (y compris Chevauchement) pour rester compatible avec le fichier source
-                st.session_state.df_admin.to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Fichier Excel mis à jour sur GitHub !")
+                # Sauvegarde des 8 colonnes dans le fichier Excel
+                st.session_state.df_admin[cols_affichage].to_excel(NOM_FICHIER_FIXE, index=False)
+                st.success("✅ Fichier Excel (8 colonnes) mis à jour !")
                 st.balloons()
             except Exception as e:
                 st.error(f"Erreur de sauvegarde : {e}")
@@ -603,7 +601,6 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         import io
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            # Pour l'export utilisateur, on ne garde que les colonnes propres
             st.session_state.df_admin[cols_affichage].to_excel(writer, index=False)
         
         st.download_button(
@@ -962,6 +959,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
