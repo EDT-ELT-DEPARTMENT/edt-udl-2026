@@ -902,7 +902,7 @@ if df is not None:
                         msg = MIMEMultipart()
                         msg['From'] = f"Département Électrotechnique <{st.secrets['EMAIL_USER']}>"
                         msg['To'] = row["Email"]; msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
-                        corps_html = f"<html><body><h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2><p>Bonjour,</p>{df_mail.to_html(index=False, border=1, justify='center')}<p>Cordialement.</p></body></html>"
+                        corps_html = f"<html><body><h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2><p>Sallem,</p>{df_mail.to_html(index=False, border=1, justify='center')}<p>Cordialement.</p></body></html>"
                         msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
                         supabase.table("enseignants_auth").update({"last_sent": "now()"}).eq("email", row["Email"]).execute()
                 server.quit(); st.success("✅ Emails envoyés !"); st.rerun()
@@ -931,6 +931,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
