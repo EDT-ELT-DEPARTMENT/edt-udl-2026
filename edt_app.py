@@ -530,9 +530,56 @@ if is_admin and mode_view == "✍️ Éditeur de données":
     else:
         df_to_edit = st.session_state.df_admin
 
-    # 3. TABLEAU GLOBAL (ÉDITION AVEC FILTRE)
+    # 3. TABLEAU GLOBAL (ÉDITION, AJOUT & DÉTECTION DE CONFLITS)
     st.markdown("### 🌍 Tableau d'édition")
     
+    # --- FORMULAIRE D'AJOUT AVEC VÉRIFICATION ---
+    with st.expander("➕ Ajouter une nouvelle ligne (Vérification automatique)"):
+        with st.form("form_nouvelle_ligne"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                n_ensg = st.text_input("📚 Enseignements")
+                n_code = st.text_input("🔑 Code")
+                n_promo = st.selectbox("🎓 Promotion", options=promos_existantes if promos_existantes else ["M2RE"])
+            with c2:
+                n_prof = st.text_input("👤 Enseignants")
+                n_horaire = st.selectbox("🕒 Horaire", options=liste_horaires)
+            with c3:
+                n_jour = st.selectbox("📅 Jours", options=jours_std)
+                n_lieu = st.text_input("🏢 Lieu (Salle)")
+                n_chev = "Non"
+
+            submit_add = st.form_submit_button("🔍 Vérifier et Insérer", use_container_width=True)
+
+            if submit_add:
+                # Vérification des conflits (Salle OU Enseignant occupés au même moment)
+                conflit_salle = st.session_state.df_admin[
+                    (st.session_state.df_admin['Jours'] == n_jour) & 
+                    (st.session_state.df_admin['Horaire'] == n_horaire) & 
+                    (st.session_state.df_admin['Lieu'] == n_lieu)
+                ]
+                
+                conflit_prof = st.session_state.df_admin[
+                    (st.session_state.df_admin['Jours'] == n_jour) & 
+                    (st.session_state.df_admin['Horaire'] == n_horaire) & 
+                    (st.session_state.df_admin['Enseignants'] == n_prof)
+                ]
+
+                if not conflit_salle.empty:
+                    st.error(f"❌ CONFLIT SALLE : La salle {n_lieu} est déjà prise par {conflit_salle.iloc[0]['Enseignants']}.")
+                elif not conflit_prof.empty:
+                    st.error(f"❌ CONFLIT ENSEIGNANT : M. {n_prof} a déjà un cours à cette heure en salle {conflit_prof.iloc[0]['Lieu']}.")
+                else:
+                    new_row = pd.DataFrame([{
+                        'Enseignements': n_ensg, 'Code': n_code, 'Enseignants': n_prof,
+                        'Horaire': n_horaire, 'Jours': n_jour, 'Lieu': n_lieu,
+                        'Promotion': n_promo, 'Chevauchement': n_chev
+                    }])
+                    st.session_state.df_admin = pd.concat([st.session_state.df_admin, new_row], ignore_index=True)
+                    st.success("✅ Ligne ajoutée sans conflit !")
+                    st.rerun()
+
+    # --- ÉDITEUR DE TABLEAU ---
     edited_df = st.data_editor(
         df_to_edit[cols_format],
         use_container_width=True,
@@ -547,12 +594,10 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         }
     )
 
-    # Synchronisation des modifications
-    if edited_df is not None:
+    # Synchronisation
+    if edited_df is not None and not edited_df.equals(df_to_edit[cols_format]):
         if search_prof:
-            # Si on a filtré, on remplace uniquement les lignes filtrées dans le tableau global
             indices_modifies = df_to_edit.index
-            # On met à jour le state global en conservant les autres enseignants
             df_others = st.session_state.df_admin.drop(indices_modifies)
             st.session_state.df_admin = pd.concat([df_others, edited_df], ignore_index=True)
         else:
@@ -566,10 +611,10 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
                 st.session_state.df_admin[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Modifications enregistrées sur le serveur !")
+                st.success("✅ Modifications enregistrées !")
                 st.balloons()
             except Exception as e:
-                st.error(f"Erreur d'écriture : {e}")
+                st.error(f"Erreur : {e}")
 
     with c2:
         if st.button("🔄 Réinitialiser l'éditeur", use_container_width=True):
@@ -1027,6 +1072,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
