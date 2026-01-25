@@ -1054,7 +1054,6 @@ def render_generateur_auto(df):
 # Appel de la fonction (à intégrer dans votre logique de portail)
 if portail == "🤖 Générateur Automatique":
     render_generateur_auto(df)
-    elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
             st.stop()
@@ -1192,6 +1191,7 @@ if portail == "🤖 Générateur Automatique":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
