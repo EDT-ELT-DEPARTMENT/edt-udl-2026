@@ -880,22 +880,77 @@ if df is not None:
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
 
-    # --- ESPACE GÉNÉRATEUR AUTOMATIQUE (DANS LA LOGIQUE PRINCIPALE) ---
+    import streamlit as st
+import pandas as pd
+from datetime import timedelta, date
+
+# Titre de rappel obligatoire
+st.markdown("### 🤖 Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+
 if portail == "🤖 Générateur Automatique":
-    st.subheader("🤖 Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-    st.markdown("#### ⚙️ Moteur de Génération de Surveillances (Hors Période de Cours)")
+    st.info("📅 **Configuration de la Période d'Examens**")
 
-    # --- 1. CONFIGURATION ---
-    with st.expander("🛠️ Paramètres de l'algorithme", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            max_seances = st.number_input("⚖️ Max séances / Enseignant", 1, 15, 5)
-        with col2:
-            ratio = st.slider("👥 Ratio Étudiants/Surveillant", 10, 40, 20)
-        with col3:
-            all_promos = sorted(df["Promotion"].unique()) if df is not None else ["L3 ELT", "M1 RE", "M2 RE"]
-            promos_sel = st.multiselect("🎓 Promotions à évaluer :", all_promos, default=all_promos)
+    # --- 1. DÉFINITION DES DATES ---
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        date_debut = st.date_input("Début des examens", date(2026, 5, 17)) # Exemple Mai 2026
+    with col_d2:
+        date_fin = st.date_input("Fin des examens", date_debut + timedelta(days=12))
 
+    # --- 2. GESTION DES JOURS FÉRIÉS (EXEMPLE ALGÉRIE 2026) ---
+    # Vous pouvez ajuster cette liste selon le calendrier officiel
+    jours_feries = [
+        date(2026, 5, 1),  # Fête du Travail
+        date(2026, 5, 19), # Fête de l'Étudiant
+        # Ajoutez ici l'Aïd ou autres dates mobiles si nécessaire
+    ]
+
+    # --- 3. LOGIQUE DE FILTRAGE ---
+    jours_examens = []
+    current_date = date_debut
+    while current_date <= date_fin:
+        # 0=Lundi, 1=Mardi, 2=Mercredi, 3=Jeudi, 4=Vendredi, 5=Samedi, 6=Dimanche
+        weekday = current_date.weekday()
+        
+        # Exclure Vendredi (4) et Samedi (5) + Jours fériés
+        if weekday != 4 and weekday != 5 and current_date not in jours_feries:
+            jours_examens.append(current_date)
+        
+        current_date += timedelta(days=1)
+
+    # --- 4. AFFICHAGE DES JOURS RETENUS ---
+    if jours_examens:
+        st.success(f"✅ {len(jours_examens)} jours de surveillance identifiés (hors weekends et fériés).")
+        
+        # Affichage sous forme de jetons/tags
+        cols = st.columns(4)
+        for i, j in enumerate(jours_examens):
+            nom_jour = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][j.weekday()]
+            cols[i % 4].markdown(f"🔹 **{nom_jour}** \n`{j.strftime('%d/%m/%Y')}`")
+    else:
+        st.error("Aucun jour valide trouvé dans cette plage.")
+
+    # --- 5. DÉFINITION DES PLAGES HORAIRES ---
+    st.divider()
+    st.markdown("⏰ **Plages Horaires par Jour**")
+    
+    # On permet de définir les sessions standards
+    nb_sessions = st.number_input("Nombre de sessions par jour", 1, 4, 2)
+    plages = []
+    for i in range(nb_sessions):
+        c_h1, c_h2 = st.columns(2)
+        with c_h1:
+            h_debut = st.time_input(f"Début Session {i+1}", value=None, key=f"start_{i}")
+        with c_h2:
+            h_fin = st.time_input(f"Fin Session {i+1}", value=None, key=f"end_{i}")
+        if h_debut and h_fin:
+            plages.append(f"{h_debut.strftime('%Hh%M')} - {h_fin.strftime('%Hh%M')}")
+
+    # --- BOUTON FINAL ---
+    if st.button("🛠️ Préparer la Grille de Surveillance", use_container_width=True):
+        st.session_state['grille_prete'] = True
+        st.write("Grille générée pour :", [j.strftime('%d/%m') for j in jours_examens])
+        st.write("Sessions :", plages)
     # --- 2. BASE DE DONNÉES ENSEIGNANTS ---
     # On récupère la liste unique des enseignants inscrits ou présents dans l'EDT
     liste_profs = sorted(df["Enseignants"].unique())
@@ -1088,6 +1143,7 @@ if portail == "🤖 Générateur Automatique":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
