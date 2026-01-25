@@ -880,66 +880,168 @@ if df is not None:
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
 
-    elif portail == "🤖 Générateur Automatique":
-        if not is_admin:
-            st.error("Accès réservé au Bureau des Examens.")
-        else:
-            st.header("⚙️ Moteur de Génération de Surveillances")
-            if "effectifs_db" not in st.session_state:
-                st.session_state.effectifs_db = {"ING1": [50, 4], "MCIL1": [40, 3], "L1MCIL": [288, 4], "L2ELT": [90, 2], "M1RE": [15, 1], "ING2": [16, 1]}
+    import streamlit as st
+import pandas as pd
+import os
+import io
+import random
+from datetime import date, timedelta
 
-            with st.expander("📦 Gestion des Effectifs", expanded=False):
-                data_eff = [{"Promotion": k, "Effectif Total": v[0], "Nb de Salles": v[1]} for k, v in st.session_state.effectifs_db.items()]
-                edited_eff = st.data_editor(pd.DataFrame(data_eff), use_container_width=True, num_rows="dynamic", hide_index=True)
-                if st.button("💾 Sauvegarder la configuration"):
-                    st.session_state.effectifs_db = {row["Promotion"]: [int(row["Effectif Total"]), int(row["Nb de Salles"])] for _, row in edited_eff.iterrows()}
-                    st.success("Mis à jour !")
+# --- TITRE OFFICIEL ---
+st.header("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
-            SRC = "surveillances_2026.xlsx"
-            if os.path.exists(SRC):
-                df_src = pd.read_excel(SRC)
-                df_src.columns = [str(c).strip() for c in df_src.columns]
-                for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
-                
-                C_MAT, C_RESP, C_SURV, C_DATE, C_HEURE, C_SALLE, C_PROMO = "Matière", "Chargé de matière", "Surveillant(s)", "Date", "Heure", "Salle", "Promotion"
-                df_src = df_src[~df_src[C_MAT].str.contains(r'\bTP\b|\bTD\b', case=False, na=False)]
-                liste_profs = sorted([p for p in df_src[C_SURV].unique() if p not in ["", "nan", "Non défini"]])
+# --- LISTES PRÉDÉFINIES ---
+LISTE_SALLES = [f"Salle {i:02d}" for i in range(1, 19)]
+LISTE_AMPHIS = [f"Amphi A{i:02d}" for i in range(1, 13)]
+SESSIONS_DISPO = ["09h00 - 11h00", "11h30 - 13h30", "14h00 - 16h00"]
 
-                with st.expander("⚖️ Plafonnement", expanded=True):
-                    col1, col2 = st.columns(2)
-                    m_base = col1.number_input("Max séances", min_value=1, value=10)
-                    ratio = col2.number_input("Ratio Étud/Surv", min_value=1, value=25)
-                
-                p_cible = st.multiselect("🎓 Promotions :", sorted(df_src[C_PROMO].unique()))
-                if st.button("🚀 GÉNÉRER LE PLANNING") and p_cible:
-                    stats = {p: 0 for p in liste_profs}
-                    tracker, res_list = [], []
-                    for p_name in p_cible:
-                        df_p = df_src[df_src[C_PROMO] == p_name].drop_duplicates(subset=[C_MAT, C_DATE, C_HEURE])
-                        conf = st.session_state.effectifs_db.get(p_name, [30, 1])
-                        eff_total, nb_salles = conf[0], int(conf[1])
-                        for _, row in df_p.iterrows():
-                            for s_idx in range(1, nb_salles + 1):
-                                eff_salle = eff_total // nb_salles
-                                nb_req = max(2, (eff_salle // ratio) + (1 if eff_salle % ratio > 0 else 0))
-                                equipe = []
-                                tri_prio = sorted(liste_profs, key=lambda x: stats[x])
-                                for p in tri_prio:
-                                    if len(equipe) < nb_req and stats[p] < m_base:
-                                        if not any(t for t in tracker if t['D']==row[C_DATE] and t['H']==row[C_HEURE] and t['N']==p):
-                                            equipe.append(p); stats[p] += 1
-                                            tracker.append({'D': row[C_DATE], 'H': row[C_HEURE], 'N': p})
-                                res_list.append({"Enseignements": row[C_MAT], "Code": "S2-2026", "Enseignants": " & ".join(equipe) if len(equipe) >= 2 else "⚠️ BESOIN RENFORT", "Horaire": row[C_HEURE], "Jours": row[C_DATE], "Lieu": f"Salle {s_idx}" if nb_salles > 1 else row[C_SALLE], "Promotion": f"{p_name} (S{s_idx})" if nb_salles > 1 else p_name})
-                    st.session_state.df_genere = pd.DataFrame(res_list)
-                    st.session_state.stats_charge = stats
-                    st.rerun()
+# --- CHARGEMENT DES DONNÉES ---
+NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
 
-                if st.session_state.get("df_genere") is not None:
-                    st.dataframe(st.session_state.df_genere, use_container_width=True, hide_index=True)
-                    xlsx_buf = io.BytesIO()
-                    with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer: st.session_state.df_genere.to_excel(writer, index=False)
-                    st.download_button("📥 TÉLÉCHARGER LE PLANNING", xlsx_buf.getvalue(), "EDT_Surveillances_2026.xlsx")
+@st.cache_data
+def charger_donnees_examens():
+    if os.path.exists(NOM_FICHIER_FIXE):
+        df_src = pd.read_excel(NOM_FICHIER_FIXE)
+        df_src.columns = [str(c).strip() for c in df_src.columns]
+        
+        # Extraction des cours (matières d'examen)
+        df_cours = df_src[df_src['Code'].str.contains("Cours", case=False, na=False)]
+        matieres = df_cours[['Promotion', 'Enseignements']].drop_duplicates()
+        
+        # Liste globale des enseignants pour la surveillance
+        enseignants = sorted(df_src['Enseignants'].dropna().unique().tolist())
+        
+        return matieres, enseignants
+    return pd.DataFrame(), []
 
+df_matieres_source, liste_profs_globale = charger_donnees_examens()
+promos_source = sorted(df_matieres_source['Promotion'].unique().tolist()) if not df_matieres_source.empty else []
+
+if not promos_source:
+    st.error("⚠️ Fichier source introuvable ou aucune matière de type 'Cours' détectée.")
+    st.stop()
+
+# =========================================================
+# ÉTAPE 1 : PARAMÈTRES GÉNÉRAUX & CALENDRIER
+# =========================================================
+st.markdown("### 📅 1. Période & Règles de Surveillance")
+c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
+
+with c_d1:
+    d_debut = st.date_input("Date de début", date(2026, 5, 17))
+    d_fin = st.date_input("Date de fin", d_debut + timedelta(days=12))
+
+with c_d2:
+    nb_par_amphi = st.number_input("Surv. / Amphi", 1, 10, 3)
+
+with c_d3:
+    nb_par_salle = st.number_input("Surv. / Salle", 1, 10, 2)
+
+# Filtrage des jours ouvrables (exclure Vendredi/Samedi si nécessaire)
+jours_possibles = [d_debut + timedelta(days=x) for x in range((d_fin-d_debut).days + 1) 
+                  if (d_debut + timedelta(days=x)).weekday() not in [4, 5]]
+
+st.write("👉 **Cochez les jours de session :**")
+jours_valides = []
+cols_j = st.columns(6)
+for idx, d in enumerate(jours_possibles):
+    if cols_j[idx % 6].checkbox(f"{d.strftime('%d/%m')}", value=True, key=f"d_{d}"):
+        jours_valides.append(d)
+
+st.divider()
+
+# =========================================================
+# ÉTAPE 2 : CONFIGURATION LOGISTIQUE PAR PROMO
+# =========================================================
+st.markdown("### 📦 2. Attribution des Salles/Amphis")
+config_logistique = {}
+
+for promo in promos_source:
+    matieres_p = df_matieres_source[df_matieres_source['Promotion'] == promo]['Enseignements'].tolist()
+    
+    with st.expander(f"🎓 {promo} ({len(matieres_p)} examens)"):
+        col_h, col_e = st.columns(2)
+        with col_h:
+            h_fixe = st.selectbox("Créneau Horaire", SESSIONS_DISPO, key=f"h_{promo}")
+        with col_e:
+            eff = st.number_input("Effectif", 1, 500, 60, key=f"eff_{promo}")
+        
+        sel_a = st.multiselect("Cocher les Amphis", LISTE_AMPHIS, key=f"ma_{promo}")
+        sel_s = st.multiselect("Cocher les Salles", LISTE_SALLES, key=f"ms_{promo}")
+        
+        besoin_total = (len(sel_a) * nb_par_amphi) + (len(sel_s) * nb_par_salle)
+        st.metric("Surveillants requis", besoin_total)
+        
+        config_logistique[promo] = {
+            "horaire": h_fixe,
+            "effectif": eff,
+            "matieres": matieres_p,
+            "locaux": sel_a + sel_s,
+            "besoin": besoin_total
+        }
+
+st.divider()
+
+# =========================================================
+# ÉTAPE 3 : GÉNÉRATION ET AFFICHAGE
+# =========================================================
+if st.button("🚀 GÉNÉRER LE PLANNING & LES SURVEILLANTS", type="primary", use_container_width=True):
+    if not jours_valides:
+        st.error("Veuillez sélectionner au moins un jour.")
+    else:
+        # Initialisation du pool d'enseignants pour une rotation équitable
+        pool_profs = list(liste_profs_globale)
+        random.shuffle(pool_profs)
+        
+        resultats = []
+        
+        # On parcourt les jours sélectionnés
+        for i, jour in enumerate(jours_valides):
+            for promo, cfg in config_logistique.items():
+                # Si la promo a encore des examens à passer
+                if i < len(cfg['matieres']):
+                    
+                    # Attribution des surveillants
+                    surveillants_examen = []
+                    for _ in range(cfg['besoin']):
+                        if not pool_profs: # Recharge le pool si vide
+                            pool_profs = list(liste_profs_globale)
+                            random.shuffle(pool_profs)
+                        surveillants_examen.append(pool_profs.pop(0))
+                    
+                    resultats.append({
+                        "Enseignements": cfg['matieres'][i],
+                        "Code": "EXAM-S2",
+                        "Enseignants": ", ".join(surveillants_examen), # Liste des surveillants
+                        "Horaire": cfg['horaire'],
+                        "Jours": ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][jour.weekday()],
+                        "Lieu": " / ".join(cfg['locaux']) if cfg['locaux'] else "À définir",
+                        "Promotion": promo,
+                        "Date": jour.strftime('%d/%m/%Y'),
+                        "Effectif": cfg['effectif']
+                    })
+
+        df_final = pd.DataFrame(resultats)
+        
+        if not df_final.empty:
+            st.success("✅ Planning de surveillance généré !")
+            
+            # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+            cols_ordre = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion", "Date", "Effectif"]
+            st.dataframe(df_final[cols_ordre], use_container_width=True)
+            
+            # Export Excel
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df_final[cols_ordre].to_excel(writer, index=False, sheet_name='Surveillance_Examens')
+            
+            st.download_button(
+                label="📥 Télécharger le fichier Excel",
+                data=output.getvalue(),
+                file_name=f"Surveillance_Examens_S2_2026.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
     elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
@@ -1078,6 +1180,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
