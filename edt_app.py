@@ -1050,14 +1050,7 @@ def render_generateur_auto(df):
         file_name=f"EDT_{promo_sel}_S2_2026.csv",
         mime='text/csv',
     )
-
-# Appel de la fonction (à intégrer dans votre logique de portail)
-if portail == "🤖 Générateur Automatique":
-    render_generateur_auto(df)
-        if not is_admin:
-            st.error("🚫 ACCÈS RESTREINT.")
-            st.stop()
-        
+      
         # --- EN-TÊTE DE LA PAGE AVEC LOGO ---
         col_l, col_t = st.columns([1, 5])
         with col_l:
@@ -1191,6 +1184,7 @@ if portail == "🤖 Générateur Automatique":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
