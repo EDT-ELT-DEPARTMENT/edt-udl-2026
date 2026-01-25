@@ -884,121 +884,145 @@ if df is not None:
 import pandas as pd
 from datetime import timedelta, date
 
-# --- TITRE RAPPELÉ ---
-st.header("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+# --- CONFIGURATION DE LA PAGE ---
+st.set_page_config(page_title="Gestion Surveillance UDL", layout="wide")
 
-# --- SIMULATION DES DONNÉES SOURCE ---
-# Liste unique extraite de votre colonne "Promotion"
+# --- TITRE DE RAPPEL OBLIGATOIRE ---
+TITRE_OFFICIEL = "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
+
+# --- DONNÉES SOURCE (Promotions) ---
 promos_source = [
     "ING1", "ING2", "ING3EI", "ING3RSE", "ING4", 
     "L1MCIL", "L2ELT", "L2MCIL", "L3ELT", 
     "M1CE", "M1ER", "M1MCIL", "M1ME", "M1RE", "MCIL3"
 ]
 
-if portail == "🤖 Générateur Automatique":
-    
-    # =========================================================
-    # ÉTAPE 1 : GESTION DU CALENDRIER & EXCLUSIONS
-    # =========================================================
-    st.markdown("### 📅 1. Période des Examens")
-    
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        d_debut = st.date_input("Date de début", date(2026, 5, 17))
-    with col_d2:
-        d_fin = st.date_input("Date de fin", d_debut + timedelta(days=14))
-
-    # Génération des jours (hors Vendredi/Samedi)
-    jours_possibles = []
-    curr = d_debut
-    while curr <= d_fin:
-        if curr.weekday() not in [4, 5]: # Exclusion auto Vendredi/Samedi
-            jours_possibles.append(curr)
-        curr += timedelta(days=1)
-
-    st.write("👉 **Décochez les jours fériés ou exceptionnels à exclure :**")
-    jours_valides = []
-    cols_jours = st.columns(4)
-    for idx, d in enumerate(jours_possibles):
-        nom_j = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"][d.weekday()]
-        if cols_jours[idx % 4].checkbox(f"{nom_j} {d.strftime('%d/%m')}", value=True, key=f"excl_{d}"):
-            jours_valides.append(d)
-
+# --- SIDEBAR ---
+with st.sidebar:
+    st.markdown("### 👤 ADMINISTRATEUR")
+    portail = st.radio("🚀 Sélectionner Espace", ["🤖 Générateur Automatique", "📦 Gestion des Effectifs"])
     st.divider()
+    st.write(f"📅 **Dimanche 25/01/2026**")
+
+# --- ESPACE GÉNÉRATEUR ---
+if portail == "🤖 Générateur Automatique":
+    st.header(TITRE_OFFICIEL)
+    st.subheader("🤖 MODE ACTIF : GÉNÉRATEUR AUTOMATIQUE")
 
     # =========================================================
-    # ÉTAPE 2 : DIMENSIONNEMENT DES PROMOTIONS (PROMOS SOURCE)
+    # ÉTAPE 1 : CALENDRIER & EXCLUSIONS
+    # =========================================================
+    with st.expander("📅 1. Période des Examens", expanded=True):
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            d_debut = st.date_input("Date de début", date(2026, 5, 17))
+        with col_d2:
+            d_fin = st.date_input("Date de fin", d_debut + timedelta(days=14))
+
+        jours_possibles = []
+        curr = d_debut
+        while curr <= d_fin:
+            if curr.weekday() not in [4, 5]: # Exclusion Vendredi/Samedi
+                jours_possibles.append(curr)
+            curr += timedelta(days=1)
+
+        st.write("👉 **Décochez les jours fériés ou exceptionnels à exclure :**")
+        jours_valides = []
+        cols_j = st.columns(5)
+        for idx, d in enumerate(jours_possibles):
+            if cols_j[idx % 5].checkbox(f"{d.strftime('%d/%m')}", value=True, key=f"excl_{d}"):
+                jours_valides.append(d)
+
+    # =========================================================
+    # ÉTAPE 2 : DIMENSIONNEMENT DES EFFECTIFS & LOCAUX
     # =========================================================
     st.markdown("### 📦 2. Dimensionnement des Effectifs & Locaux")
-    
     config_logistique = {}
     
     for promo in sorted(promos_source):
         with st.expander(f"🎓 Configuration Logistique : {promo}"):
-            c1, c2, c3, c4 = st.columns([1,1,1,1])
+            c_eff, c_grp = st.columns(2)
+            with c_eff:
+                nb_etud = st.number_input(f"Nombre d'étudiants ({promo})", 1, 1000, 60, key=f"eff_{promo}")
+            with c_grp:
+                nb_gr = st.number_input(f"Nombre de groupes", 1, 20, 2, key=f"gr_{promo}")
+            
+            st.markdown("---")
+            c1, c2, c3 = st.columns(3)
             with c1:
-                nb_gr = st.number_input(f"Groupes", 1, 20, 1, key=f"gr_{promo}")
+                nb_amp = st.number_input(f"Amphis", 0, 10, 0, key=f"amp_{promo}")
             with c2:
-                nb_amp = st.number_input(f"Amphis", 0, 5, 0, key=f"amp_{promo}")
+                nb_sal = st.number_input(f"Salles", 0, 30, 1, key=f"sal_{promo}")
             with c3:
-                nb_sal = st.number_input(f"Salles", 0, 20, 1, key=f"sal_{promo}")
-            with c4:
-                # Calcul : 3 surveillants par amphi, 2 par salle
+                # Règle de calcul : 3 par amphi, 2 par salle
                 besoin = (nb_amp * 3) + (nb_sal * 2)
                 st.metric("Surveillants", besoin)
-                
+            
             config_logistique[promo] = {
+                "etudiants": nb_etud,
                 "groupes": nb_gr,
                 "amphis": nb_amp,
                 "salles": nb_sal,
-                "besoin_surv": besoin
+                "besoin": besoin
             }
 
+    # =========================================================
+    # ÉTAPE 3 : PARAMÈTRES & GÉNÉRATION
+    # =========================================================
     st.divider()
-
-    # =========================================================
-    # ÉTAPE 3 : PARAMÈTRES GLOBAUX & GÉNÉRATION
-    # =========================================================
     st.markdown("### ⚙️ 3. Paramètres de Génération")
-    
     col_p1, col_p2 = st.columns(2)
     with col_p1:
-        max_surv = st.number_input("⚖️ Plafonnement (Max séances/enseignant)", 1, 10, 3)
+        max_surv = st.number_input("⚖️ Plafonnement (Max séances/enseignant)", 1, 20, 5)
     with col_p2:
         sessions = st.multiselect("⏰ Sessions par jour", 
                                 ["09h00 - 11h00", "11h30 - 13h30", "14h00 - 16h00"], 
                                 default=["09h00 - 11h00", "14h00 - 16h00"])
 
-    # Bilan avant lancement
-    total_surv_requis = sum(p['besoin_surv'] for p in config_logistique.values())
+    total_surv_req = sum(p['besoin'] for p in config_logistique.values())
     
     st.info(f"""
     **Récapitulatif :**
     - Jours de présence : {len(jours_valides)} jours.
     - Sessions quotidiennes : {len(sessions)} sessions.
-    - Besoin en personnel : {total_surv_requis} surveillants par session.
+    - Besoin en personnel : **{total_surv_req}** surveillants par session.
     """)
 
     if st.button("🚀 LANCER LA GÉNÉRATION DU PLANNING", type="primary", use_container_width=True):
-        if not jours_valides:
-            st.error("Erreur : Aucun jour sélectionné.")
+        if not jours_valides or total_surv_req == 0:
+            st.error("Veuillez configurer les dates et les locaux avant de générer.")
         else:
-            with st.spinner("L'algorithme répartit les enseignants équitablement..."):
-                # Ici l'algorithme prend :
-                # 1. jours_valides
-                # 2. config_logistique
-                # 3. La liste des enseignants (Zidi, Touhami, etc.)
-                # 4. Le plafonnement (max_surv)
-                
+            with st.spinner("Génération du planning multi-promotions..."):
+                # Simulation de l'algorithme
+                resultats = []
+                for jour in jours_valides:
+                    for session in sessions:
+                        for promo, config in config_logistique.items():
+                            if config['besoin'] > 0: # On n'affiche que les promos configurées
+                                resultats.append({
+                                    "Date": jour.strftime('%d/%m/%Y'),
+                                    "Horaire": session,
+                                    "Promotion": promo,
+                                    "Étudiants": config['etudiants'], # Affichage du nombre d'étudiants
+                                    "Groupes": config['groupes'],
+                                    "Locaux": f"{config['amphis']} Amp / {config['salles']} Sal",
+                                    "Surveillants Requis": config['besoin']
+                                })
+
+                df_final = pd.DataFrame(resultats)
                 st.success("✅ Planning de surveillance généré avec succès !")
-                # Affichage des résultats (Simulation)
-                st.dataframe(pd.DataFrame({
-                    "Date": [jours_valides[0].strftime('%d/%m/%Y')],
-                    "Session": [sessions[0]],
-                    "Promotion": ["L1MCIL"],
-                    "Locaux": ["Amphi A, Salle 06"],
-                    "Surveillants": ["Zidi, Touhami, Bermaki, Rezoug"]
-                }))
+                
+                # Affichage du tableau complet
+                st.dataframe(df_final, use_container_width=True)
+                
+                # Bouton de téléchargement
+                csv = df_final.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Télécharger le Planning Complet (CSV)", csv, "Planning_S2_2026.csv", "text/csv")
+
+# --- ESPACE GESTION EFFECTIFS ---
+elif portail == "📦 Gestion des Effectifs":
+    st.header(TITRE_OFFICIEL)
+    st.write("Espace de gestion des listes nominatives d'étudiants.")
     elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
@@ -1137,6 +1161,7 @@ if portail == "🤖 Générateur Automatique":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
