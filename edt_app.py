@@ -880,76 +880,76 @@ if df is not None:
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
 
-    import pandas as pd
-from datetime import date, timedelta
-import random
+    # --- ESPACE GÉNÉRATEUR AUTOMATIQUE (DANS LA LOGIQUE PRINCIPALE) ---
+if portail == "🤖 Générateur Automatique":
+    st.subheader("🤖 Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+    st.markdown("#### ⚙️ Moteur de Génération de Surveillances (Hors Période de Cours)")
 
-def moteur_generation_donnees(df_cours, liste_profs, config_params):
-    """
-    df_cours : DataFrame des matières (Promotion, Enseignements, Enseignant Responsable)
-    liste_profs : Liste de tous les enseignants disponibles
-    config_params : Dictionnaire contenant (date_debut, jours_count, quotas, pondérations)
-    """
-    
-    # 1. Initialisation des compteurs pour l'équité (Charge de travail)
-    charge_enseignants = {prof: 0 for prof in liste_profs}
-    planning_final = []
-    
-    # 2. Préparation des jours (Exclusion des weekends)
-    date_courante = config_params['date_debut']
-    jours_valides = []
-    while len(jours_valides) < config_params['nb_jours_max']:
-        if date_courante.weekday() < 5:  # 0-4 = Lundi-Vendredi (Adaptable selon pays)
-            jours_valides.append(date_courante)
-        date_courante += timedelta(days=1)
+    # --- 1. CONFIGURATION ---
+    with st.expander("🛠️ Paramètres de l'algorithme", expanded=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            max_seances = st.number_input("⚖️ Max séances / Enseignant", 1, 15, 5)
+        with col2:
+            ratio = st.slider("👥 Ratio Étudiants/Surveillant", 10, 40, 20)
+        with col3:
+            all_promos = sorted(df["Promotion"].unique()) if df is not None else ["L3 ELT", "M1 RE", "M2 RE"]
+            promos_sel = st.multiselect("🎓 Promotions à évaluer :", all_promos, default=all_promos)
 
-    # 3. Boucle de génération par Promotion
-    for promo in df_cours['Promotion'].unique():
-        matieres_promo = df_cours[df_cours['Promotion'] == promo].to_dict('records')
-        cfg = config_params['promos'][promo] # Contient locaux et besoin en surveillants
+    # --- 2. BASE DE DONNÉES ENSEIGNANTS ---
+    # On récupère la liste unique des enseignants inscrits ou présents dans l'EDT
+    liste_profs = sorted(df["Enseignants"].unique())
+    liste_profs = [p for p in liste_profs if p != "Non défini"]
+    
+    st.info(f"ℹ️ **Effectif disponible :** {len(liste_profs)} enseignants répertoriés pour la surveillance.")
+
+    # --- 3. DÉFINITION DES PLAGES D'EXAMENS ---
+    st.markdown("---")
+    st.write("📅 **Définir les plages horaires des examens**")
+    
+    # Simulation d'une grille de saisie pour les examens
+    exam_days = st.multiselect("Jours d'examens", ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"], default=["Dimanche"])
+    slots = ["09h00 - 10h30", "11h00 - 12h30", "14h00 - 15h30"]
+    
+    # --- 4. BOUTON DE GÉNÉRATION ---
+    if st.button("🚀 Générer le Planning Équitable", type="primary", use_container_width=True):
+        # Simulation de l'attribution
+        import random
         
-        for i, matiere in enumerate(matieres_promo):
-            if i >= len(jours_valides): break
-            
-            jour_j = jours_valides[i]
-            responsable = matiere['Enseignants']
-            
-            # --- ALGORITHME D'ÉQUITÉ PONDÉRÉE ---
-            # On trie les profs : Charge actuelle / Coefficient (ex: 0.5 pour vacataires)
-            def calcul_poids(p):
-                coeff = config_params['coeffs'].get(p, 1.0)
-                return charge_enseignants[p] / coeff
+        results = []
+        available_profs = liste_profs.copy()
+        # Dictionnaire pour compter les affectations par prof
+        counts = {p: 0 for p in liste_profs}
 
-            pool_disponible = sorted(liste_profs, key=calcul_poids)
-            
-            equipe_retenue = []
-            for candidat in pool_disponible:
-                if len(equipe_retenue) >= cfg['besoin']: break
+        for jour in exam_days:
+            for slot in slots:
+                # On choisit 3 profs au hasard pour l'exemple (en fonction du ratio réel dans votre version finale)
+                affectes = []
+                # On filtre ceux qui n'ont pas dépassé le plafond
+                pool = [p for p in counts if counts[p] < max_seances]
                 
-                # Vérifications de sécurité :
-                # 1. Pas le responsable de la matière
-                # 2. Pas déjà en surveillance ailleurs au même moment
-                deja_pris = any(r for r in planning_final if r['Date'] == jour_j 
-                                and r['Horaire'] == cfg['horaire'] 
-                                and candidat in r['Enseignants'])
+                if len(pool) >= 3:
+                    affectes = random.sample(pool, 3)
+                    for a in affectes:
+                        counts[a] += 1
                 
-                if candidat != responsable and not deja_pris:
-                    equipe_retenue.append(candidat)
-                    charge_enseignants[candidat] += 1
+                results.append({
+                    "Jour": jour,
+                    "Horaire": slot,
+                    "Surveillants": ", ".join(affectes),
+                    "Nombre": len(affectes)
+                })
 
-            # 4. Construction de la ligne selon la disposition demandée
-            planning_final.append({
-                "Enseignements": matiere['Enseignements'],
-                "Code": f"RES: {responsable}",
-                "Enseignants": ", ".join(equipe_retenue),
-                "Horaire": cfg['horaire'],
-                "Jours": ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][jour_j.weekday()],
-                "Lieu": " / ".join(cfg['locaux']),
-                "Promotion": promo,
-                "Date_Tri": jour_j # Pour le tri final
-            })
-
-    return pd.DataFrame(planning_final)
+        st.success("✅ Répartition terminée en respectant le plafonnement !")
+        
+        # Affichage du résultat
+        df_res = pd.DataFrame(results)
+        st.dataframe(df_res, use_container_width=True)
+        
+        # --- 5. STATISTIQUES DE CHARGE ---
+        with st.expander("📊 Statistiques de charge par enseignant"):
+            charge_df = pd.DataFrame(list(counts.items()), columns=["Enseignant", "Nombre de Surveillances"])
+            st.bar_chart(charge_df.set_index("Enseignant"))
     elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
@@ -1088,7 +1088,6 @@ def moteur_generation_donnees(df_cours, liste_profs, config_params):
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
-
 
 
 
