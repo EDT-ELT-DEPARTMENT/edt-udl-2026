@@ -484,7 +484,113 @@ with st.sidebar:
     
     mode_view = "Personnel"
     poste_sup = False
-    
+    # =================================================================
+# --- NOUVEAU BLOC : GÉNÉRATEUR AUTOMATIQUE (À COLLER ICI) ---
+# =================================================================
+if portail == "🤖 Générateur Automatique":
+    if not is_admin:
+        st.error("🚫 ACCÈS RESTREINT : Cet espace est réservé à l'administration.")
+    else:
+        st.markdown(f"<h2 class='main-title'>{TITRE_OFFICIEL}</h2>", unsafe_allow_html=True)
+        st.markdown("<div class='portal-badge'>MODE ACTIF : 🤖 GÉNÉRATEUR AUTOMATIQUE</div>", unsafe_allow_html=True)
+
+        # --- 1. PÉRIODE DES EXAMENS ---
+        st.subheader("📅 1. Période des Examens")
+        c1, c2 = st.columns(2)
+        d_debut = c1.date_input("Date de début", date(2026, 5, 17))
+        d_fin = c2.date_input("Date de fin", d_debut + timedelta(days=14))
+        
+        # Génération des jours possibles (hors Vendredi/Samedi)
+        jours_possibles = [d_debut + timedelta(days=x) for x in range((d_fin-d_debut).days + 1) 
+                          if (d_debut + timedelta(days=x)).weekday() not in [4, 5]]
+        
+        st.write("👉 **Cochez les jours de la session :**")
+        selection_jours = []
+        cols_jours = st.columns(5)
+        for idx, j in enumerate(jours_possibles):
+            if cols_jours[idx % 5].checkbox(f"{j.strftime('%d/%m')}", value=True, key=f"day_{j}"):
+                selection_jours.append(j)
+
+        # --- 2. ATTRIBUTION DES SALLES/AMPHIS PAR PROMOTION ---
+        st.subheader("📦 2. Attribution des Salles/Amphis par Promotion")
+        
+        SUR_AMP, SUR_SAL = 3, 2  # Quotas par défaut
+        L_AMPHIS = [f"Amphi A{i:02d}" for i in range(1, 13)]
+        L_SALLES = [f"Salle {i:02d}" for i in range(1, 19)]
+        config_gen = {}
+
+        # On utilise le DF chargé en début de script (df)
+        if df is not None:
+            promotions = sorted(df['Promotion'].unique())
+            for promo in promotions:
+                df_p = df[df['Promotion'] == promo]
+                nb_exams = len(df_p)
+                
+                with st.expander(f"🎓 {promo} ({nb_exams} examens prévus)"):
+                    col_h, col_e = st.columns(2)
+                    h_sel = col_h.selectbox("Créneau Horaire", ["09h00 - 11h00", "14h00 - 16h00"], key=f"h_{promo}")
+                    eff = col_e.number_input("Effectif total", value=60, key=f"eff_{promo}")
+                    
+                    s_amp = st.multiselect("Cocher les Amphis", L_AMPHIS, key=f"amp_{promo}")
+                    s_sal = st.multiselect("Cocher les Salles", L_SALLES, key=f"sal_{promo}")
+                    
+                    st.caption(f"📝 Matières : {', '.join(df_p['Enseignements'].tolist())}")
+                    besoin = (len(s_amp) * SUR_AMP) + (len(s_sal) * SUR_SAL)
+                    st.metric("Total Surveillants Requis", besoin)
+                    
+                    if besoin > 0:
+                        config_gen[promo] = {"mats": df_p.to_dict('records'), "h": h_sel, "loc": s_amp + s_sal, "b": besoin}
+        
+        # --- 3. BOUTON DE GÉNÉRATION ---
+        if st.button("🚀 GÉNÉRER LE PLANNING DE SURVEILLANCE", use_container_width=True, type="primary"):
+            if not selection_jours or not config_gen:
+                st.warning("⚠️ Configuration incomplète (jours ou salles manquants).")
+            else:
+                # Récupération de la liste des profs depuis le DF initial
+                liste_profs = sorted(df["Enseignants"].unique())
+                charge = {p: 0 for p in liste_profs}
+                res = []
+                
+                for idx_j, val_j in enumerate(selection_jours):
+                    for promo, cfg in config_gen.items():
+                        if idx_j < len(cfg['mats']):
+                            m_info = cfg['mats'][idx_j]
+                            pool = sorted(liste_profs, key=lambda x: charge[x])
+                            equipe = []
+                            for p in pool:
+                                if len(equipe) < cfg['b']:
+                                    # Anti-collision
+                                    pris = any(r for r in res if r['Date'] == val_j.strftime('%d/%m/%Y') and r['Horaire'] == cfg['h'] and p in r['Enseignants'])
+                                    if p != m_info['Enseignants'] and not pris:
+                                        equipe.append(p)
+                                        charge[p] += 1
+                            
+                            res.append({
+                                "Enseignements": m_info['Enseignements'],
+                                "Code": f"S2-2026 (Resp: {m_info['Enseignants']})",
+                                "Enseignants": ", ".join(equipe),
+                                "Horaire": cfg['h'],
+                                "Jours": ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"][val_j.weekday()],
+                                "Lieu": " / ".join(cfg['loc']),
+                                "Promotion": promo,
+                                "Date": val_j.strftime('%d/%m/%Y')
+                            })
+                st.session_state.df_genere = pd.DataFrame(res)
+                st.success("✅ Planning généré !")
+
+        # --- 4. EXPORT ---
+        if "df_genere" in st.session_state:
+            ord_col = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
+            st.dataframe(st.session_state.df_genere[ord_col], use_container_width=True)
+            buf = io.BytesIO()
+            st.session_state.df_genere[ord_col].to_excel(buf, index=False)
+            st.download_button("📥 Télécharger Excel", buf.getvalue(), "Surveillances_2026.xlsx")
+
+# =================================================================
+# --- LOGIQUE EXISTANTE (Emploi du temps, etc.) ---
+# =================================================================
+elif portail == "📖 Emploi du Temps":
+    # ... la suite de votre code ...
     if portail == "📖 Emploi du Temps":
         if is_admin:
             mode_view = st.radio("Vue Administration :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur de conflits","✍️ Éditeur de données"])
@@ -1063,6 +1169,7 @@ if df is not None:
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
        
+
 
 
 
