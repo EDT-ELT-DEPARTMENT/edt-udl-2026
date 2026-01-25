@@ -982,66 +982,78 @@ for promo in promos_source:
 
 st.divider()
 
-# =========================================================
-# ÉTAPE 3 : GÉNÉRATION ET AFFICHAGE
-# =========================================================
-if st.button("🚀 GÉNÉRER LE PLANNING & LES SURVEILLANTS", type="primary", use_container_width=True):
-    if not jours_valides:
-        st.error("Veuillez sélectionner au moins un jour.")
-    else:
-        # Initialisation du pool d'enseignants pour une rotation équitable
-        pool_profs = list(liste_profs_globale)
-        random.shuffle(pool_profs)
-        
-        resultats = []
-        
-        # On parcourt les jours sélectionnés
-        for i, jour in enumerate(jours_valides):
-            for promo, cfg in config_logistique.items():
-                # Si la promo a encore des examens à passer
-                if i < len(cfg['matieres']):
-                    
-                    # Attribution des surveillants
-                    surveillants_examen = []
-                    for _ in range(cfg['besoin']):
-                        if not pool_profs: # Recharge le pool si vide
-                            pool_profs = list(liste_profs_globale)
-                            random.shuffle(pool_profs)
-                        surveillants_examen.append(pool_profs.pop(0))
-                    
-                    resultats.append({
-                        "Enseignements": cfg['matieres'][i],
-                        "Code": "EXAM-S2",
-                        "Enseignants": ", ".join(surveillants_examen), # Liste des surveillants
-                        "Horaire": cfg['horaire'],
-                        "Jours": ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][jour.weekday()],
-                        "Lieu": " / ".join(cfg['locaux']) if cfg['locaux'] else "À définir",
-                        "Promotion": promo,
-                        "Date": jour.strftime('%d/%m/%Y'),
-                        "Effectif": cfg['effectif']
-                    })
+import streamlit as st
+import pandas as pd
 
-        df_final = pd.DataFrame(resultats)
+def render_generateur_auto(df):
+    st.subheader("🤖 Générateur Automatique d'Emploi du Temps")
+    st.markdown("### Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+
+    # --- 1. CONFIGURATION DES DONNÉES ---
+    jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+    horaires_ordre = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
+    
+    # --- 2. FILTRES DYNAMIQUES ---
+    col1, col2 = st.columns(2)
+    with col1:
+        promo_list = sorted(df["Promotion"].unique())
+        promo_sel = st.selectbox("🎯 Sélectionner la Promotion", promo_list)
+    
+    with col2:
+        view_type = st.radio("🖼️ Format d'affichage", ["Tableau croisé (Grille)", "Liste détaillée"], horizontal=True)
+
+    # Filtrage des données
+    df_filtered = df[df["Promotion"] == promo_sel].copy()
+
+    # --- 3. LOGIQUE DE GÉNÉRATION ---
+    if view_type == "Tableau croisé (Grille)":
+        # Fonction pour formater le contenu des cellules
+        def format_cell(group):
+            items = []
+            for _, row in group.iterrows():
+                # Détermination de la couleur selon le type (Cours/TD/TP)
+                code_up = str(row['Code']).upper()
+                emoji = "📘" if "COURS" in code_up else "📗" if "TD" in code_up else "📙"
+                
+                content = f"""
+                <div style="border-bottom: 1px dashed #ccc; padding: 5px; margin-bottom: 5px;">
+                    <b style="color: #1E3A8A;">{emoji} {row['Enseignements']}</b><br>
+                    <small>👤 {row['Enseignants']}</small><br>
+                    <i style="color: #D4AF37;">📍 {row['Lieu']}</i>
+                </div>
+                """
+                items.append(content)
+            return "".join(items)
+
+        # Création de la matrice
+        grid = df_filtered.groupby(['Horaire', 'Jours']).apply(format_cell).unstack('Jours')
         
-        if not df_final.empty:
-            st.success("✅ Planning de surveillance généré !")
-            
-            # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
-            cols_ordre = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion", "Date", "Effectif"]
-            st.dataframe(df_final[cols_ordre], use_container_width=True)
-            
-            # Export Excel
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_final[cols_ordre].to_excel(writer, index=False, sheet_name='Surveillance_Examens')
-            
-            st.download_button(
-                label="📥 Télécharger le fichier Excel",
-                data=output.getvalue(),
-                file_name=f"Surveillance_Examens_S2_2026.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+        # Réindexation pour garantir l'ordre chronologique
+        grid = grid.reindex(index=horaires_ordre, columns=jours_ordre).fillna("")
+
+        # Affichage HTML
+        st.markdown(f"#### 📅 Emploi du temps : {promo_sel}")
+        st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+
+    else:
+        # Affichage sous forme de liste propre
+        st.markdown(f"#### 📋 Liste des enseignements : {promo_sel}")
+        cols_to_show = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
+        st.dataframe(df_filtered[cols_to_show], use_container_width=True, hide_index=True)
+
+    # --- 4. EXPORT ---
+    st.divider()
+    csv = df_filtered.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Télécharger l'EDT de " + promo_sel + " (CSV)",
+        data=csv,
+        file_name=f"EDT_{promo_sel}_S2_2026.csv",
+        mime='text/csv',
+    )
+
+# Appel de la fonction (à intégrer dans votre logique de portail)
+if portail == "🤖 Générateur Automatique":
+    render_generateur_auto(df)
     elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
@@ -1180,6 +1192,7 @@ if st.button("🚀 GÉNÉRER LE PLANNING & LES SURVEILLANTS", type="primary", us
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
