@@ -1062,27 +1062,7 @@ if df is not None:
         disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
-        if is_admin:
-            st.divider(); st.subheader("✍️ Espace Éditeur de Données (Admin)")
-            search_query = st.text_input("🔍 Rechercher une ligne :")
-            cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
-            for col in cols_format: 
-                if col not in df.columns: df[col] = ""
-            df_to_edit = df[df[cols_format].apply(lambda r: r.astype(str).str.contains(search_query, case=False).any(), axis=1)].copy() if search_query else df[cols_format].copy()
-            edited_df = st.data_editor(df_to_edit, use_container_width=True, num_rows="dynamic", key="admin_master_editor")
-
-            if st.button("💾 Sauvegarder les modifications"):
-                try:
-                    if search_query: df.update(edited_df)
-                    else: df = edited_df
-                    df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                    st.success("✅ Modifications enregistrées !"); st.rerun()
-                except Exception as e: st.error(f"Erreur : {e}")
-
-
-
-
-
+       
 
 
 
