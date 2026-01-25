@@ -474,13 +474,94 @@ map_j = {normalize(j): j for j in jours_list}
 
 # --- BARRE LATÉRALE ---
 with st.sidebar:
-    # On utilise .get() pour éviter le crash si la donnée est corrompue
     st.header(f"👤 {user.get('nom_officiel', 'Utilisateur')}")
+    
+    # Menu principal
     portail = st.selectbox("🚀 Sélectionner Espace", [
-        "📖 Emploi du Temps", "📅 Surveillances Examens", 
-        "🤖 Générateur Automatique", "👥 Portail Enseignants", "🎓 Portail Étudiants"
+        "📖 Emploi du Temps", 
+        "🤖 Générateur Automatique",
+        "📅 Surveillances Examens", 
+        "👥 Portail Enseignants", 
+        "🎓 Portail Étudiants"
     ])
+    
     st.divider()
+    
+    # Options spécifiques selon l'espace (si nécessaire)
+    if portail == "📖 Emploi du Temps":
+        if is_admin:
+            mode_view = st.radio("Vue Administration :", ["Promotion", "Enseignant", "🏢 Planning Salles", "🚩 Vérificateur de conflits", "✍️ Éditeur de données"])
+        else:
+            mode_view = "Personnel"
+            
+    if st.button("🚪 Déconnexion du compte"):
+        st.session_state["user_data"] = None
+        st.rerun()
+
+# --- LOGIQUE DU GÉNÉRATEUR AUTOMATIQUE (ISOLÉE) ---
+if portail == "🤖 Générateur Automatique":
+    st.markdown("### 🤖 Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+    
+    if df is not None:
+        st.info("Cette interface génère automatiquement l'emploi du temps visuel par promotion.")
+        
+        # 1. Sélection de la Promotion
+        promos_disponibles = sorted(df["Promotion"].unique())
+        promo_cible = st.selectbox("🎯 Choisir une Promotion :", promos_disponibles)
+        
+        # 2. Filtrage et Tri
+        df_gen = df[df["Promotion"] == promo_cible].copy()
+        jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+        horaires_ordre = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
+
+        # 3. Fonction de formatage visuel (HTML)
+        def format_bloc_auto(rows):
+            html_content = ""
+            for _, r in rows.iterrows():
+                code_up = str(r['Code']).upper()
+                # Couleur dynamique selon la nature
+                color = "#1E3A8A" if "COURS" in code_up else "#15803d" if "TD" in code_up else "#b45309"
+                nature = "COURS" if "COURS" in code_up else "TD" if "TD" in code_up else "TP"
+                
+                html_content += f"""
+                <div style="background-color: {color}; color: white; padding: 10px; border-radius: 8px; margin-bottom: 8px; border-left: 5px solid #D4AF37;">
+                    <b style="font-size: 12px;">{nature}: {r['Enseignements']}</b><br>
+                    <span style="font-size: 11px;">👤 {r['Enseignants']}</span><br>
+                    <i style="font-size: 10px;">📍 {r['Lieu']}</i>
+                </div>
+                """
+            return html_content
+
+        # 4. Génération de la Grille
+        grid_auto = df_gen.groupby(['h_norm', 'j_norm']).apply(format_bloc_auto, include_groups=False).unstack('j_norm')
+        grid_auto = grid_auto.reindex(index=[normalize(h) for h in horaires_ordre], 
+                                     columns=[normalize(j) for j in jours_ordre]).fillna("")
+        
+        # Mapping des noms pour l'affichage final
+        grid_auto.index = horaires_ordre
+        grid_auto.columns = jours_ordre
+
+        # 5. Affichage du tableau HTML
+        st.markdown(f"#### 📅 Emploi du Temps : {promo_cible}")
+        st.write(grid_auto.to_html(escape=False), unsafe_allow_html=True)
+
+        # 6. Bouton d'exportation (Disposition demandée)
+        st.divider()
+        cols_export = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
+        
+        buffer = io.BytesIO()
+        df_gen[cols_export].to_excel(buffer, index=False)
+        st.download_button(
+            label=f"📥 Télécharger l'EDT de {promo_cible} (Excel)",
+            data=buffer.getvalue(),
+            file_name=f"EDT_{promo_cible}_S2_2026.xlsx",
+            mime="application/vnd.ms-excel",
+            use_container_width=True
+        )
+    else:
+        st.warning("⚠️ Base de données non chargée. Veuillez vérifier le fichier Excel.")
+    
+    st.stop() # Arrête l'exécution ici pour ne pas afficher le reste de la page
     
     mode_view = "Personnel"
     poste_sup = False
@@ -1139,6 +1220,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
