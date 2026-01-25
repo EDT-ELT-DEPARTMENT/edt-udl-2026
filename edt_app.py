@@ -1062,7 +1062,125 @@ if df is not None:
         disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
         st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
 
+        import streamlit as st
+import pandas as pd
+import os
+import io
+
+def generateur_surveillances_elt():
+    st.header("⚙️ Moteur de Génération - Département Électrotechnique")
+
+    # 1. BASE DE DONNÉES DES EFFECTIFS (Stockée en session)
+    if "effectifs_db" not in st.session_state:
+        st.session_state.effectifs_db = {
+            "L2 ELT": [90, 2],    # [Nombre d'étudiants, Nombre de salles prévues]
+            "L3 ELT": [75, 2],
+            "M1 RE": [25, 1],
+            "M1 CIL": [30, 1],
+            "M2 RE": [20, 1],
+            "ING 1": [55, 2]
+        }
+
+    # Interface de gestion des effectifs
+    with st.expander("📦 Configuration des Groupes & Salles"):
+        data_eff = [{"Promotion": k, "Effectif": v[0], "Nb Salles": v[1]} for k, v in st.session_state.effectifs_db.items()]
+        edited_eff = st.data_editor(pd.DataFrame(data_eff), use_container_width=True, hide_index=True)
+        if st.button("💾 Mettre à jour les effectifs"):
+            st.session_state.effectifs_db = {row["Promotion"]: [int(row["Effectif"]), int(row["Nb Salles"])] for _, row in edited_eff.iterrows()}
+
+    # 2. CHARGEMENT DE LA SOURCE (Le fichier des examens bruts)
+    # Ce fichier doit contenir : Matière, Surveillant(s), Date, Heure, Salle, Promotion
+    SRC = "surveillances_2026.xlsx"
+    
+    if os.path.exists(SRC):
+        df_src = pd.read_excel(SRC)
+        # Nettoyage des noms de colonnes
+        df_src.columns = [str(c).strip() for c in df_src.columns]
         
+        # Identification des colonnes selon votre standard
+        C_MAT, C_SURV, C_DATE, C_HEURE, C_SALLE, C_PROMO = "Matière", "Surveillant(s)", "Date", "Heure", "Salle", "Promotion"
+        
+        # Extraction de la liste unique des enseignants disponibles
+        # On filtre pour ne garder que les noms valides
+        liste_profs = sorted([p for p in df_src[C_SURV].unique() if str(p) not in ["", "nan", "Non défini"]])
+
+        # 3. PARAMÈTRES DE L'ALGORITHME
+        st.subheader("⚖️ Paramètres d'Équilibrage")
+        col1, col2 = st.columns(2)
+        max_seances = col1.number_input("Maximum de surveillances par prof", min_value=1, value=8)
+        ratio_etud_surv = col2.number_input("Nombre d'étudiants par surveillant", min_value=10, value=25)
+        
+        promos_a_generer = st.multiselect("Sélectionner les Promotions à traiter :", sorted(df_src[C_PROMO].unique()))
+
+        if st.button("🚀 LANCER LA GÉNÉRATION") and promos_a_generer:
+            # Initialisation des compteurs pour l'équité
+            charge_enseignants = {p: 0 for p in liste_profs}
+            planning_global = []
+            tracker_presence = [] # Pour éviter qu'un prof soit à deux endroits en même temps
+
+            for promo in promos_a_generer:
+                # On récupère les examens pour cette promo
+                examens_promo = df_src[df_src[C_PROMO] == promo].drop_duplicates(subset=[C_MAT, C_DATE, C_HEURE])
+                config = st.session_state.effectifs_db.get(promo, [30, 1])
+                
+                total_etudiants = config[0]
+                nb_salles = config[1]
+                etudiants_par_salle = total_etudiants // nb_salles
+
+                for _, examen in examens_promo.iterrows():
+                    for s_idx in range(1, nb_salles + 1):
+                        # Calcul du nombre de surveillants nécessaires pour cette salle
+                        # (Minimum 2 surveillants par salle par sécurité)
+                        besoin = max(2, (etudiants_par_salle // ratio_etud_surv) + (1 if etudiants_par_salle % ratio_etud_surv > 0 else 0))
+                        
+                        equipe_salle = []
+                        # Tri des profs : celui qui a le moins travaillé passe en premier (Equité)
+                        profs_tries = sorted(liste_profs, key=lambda x: charge_enseignants[x])
+
+                        for prof in profs_tries:
+                            if len(equipe_salle) < besoin and charge_enseignants[prof] < max_seances:
+                                # Vérification de disponibilité (Pas déjà pris à cette Date + Heure)
+                                if not any(t for t in tracker_presence if t['D'] == examen[C_DATE] and t['H'] == examen[C_HEURE] and t['N'] == prof):
+                                    equipe_salle.append(prof)
+                                    charge_enseignants[prof] += 1
+                                    tracker_presence.append({'D': examen[C_DATE], 'H': examen[C_HEURE], 'N': prof})
+
+                        # Ajout au résultat final avec le formatage demandé
+                        planning_global.append({
+                            "Enseignements": examen[C_MAT],
+                            "Code": "EXAM-S2",
+                            "Enseignants": " & ".join(equipe_salle) if equipe_salle else "⚠️ MANQUE DE PERSONNEL",
+                            "Horaire": examen[C_HEURE],
+                            "Jours": examen[C_DATE],
+                            "Lieu": f"Salle {s_idx}" if nb_salles > 1 else examen[C_SALLE],
+                            "Promotion": promo
+                        })
+
+            # Stockage et affichage
+            st.session_state.df_genere = pd.DataFrame(planning_global)
+            st.success("Planning généré avec succès !")
+
+        # 4. EXPORTATION
+        if "df_genere" in st.session_state:
+            st.markdown("### 📊 Aperçu du Planning Généré")
+            st.dataframe(st.session_state.df_genere, use_container_width=True)
+            
+            # Export Excel
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                st.session_state.df_genere.to_excel(writer, index=False, sheet_name='Surveillances')
+            
+            st.download_button(
+                label="📥 Télécharger le fichier .xlsx",
+                data=output.getvalue(),
+                file_name=f"Planning_Surveillances_{promo}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+    else:
+        st.warning(f"Le fichier source '{SRC}' est introuvable. Veuillez le charger dans le répertoire.")
+
+generateur_surveillances_elt()
+
 
 
 
