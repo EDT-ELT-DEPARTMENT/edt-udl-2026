@@ -881,107 +881,104 @@ if df is not None:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
 
     elif portail == "🤖 Générateur Automatique":
-    if not is_admin:
-        st.error("Accès réservé au Bureau des Examens.")
-    else:
-        st.markdown(f"<h2 class='main-title'>{TITRE_OFFICIEL}</h2>", unsafe_allow_html=True)
-        st.markdown("<div class='portal-badge'>MODE : GÉNÉRATEUR AUTOMATIQUE DE SURVEILLANCES</div>", unsafe_allow_html=True)
+        if not is_admin:
+            st.error("Accès réservé au Bureau des Examens.")
+        else:
+            st.markdown(f"<h2 class='main-title'>{TITRE_OFFICIEL}</h2>", unsafe_allow_html=True)
+            st.markdown("<div class='portal-badge'>MODE : GÉNÉRATEUR AUTOMATIQUE DE SURVEILLANCES</div>", unsafe_allow_html=True)
 
-        # 1. PARAMÉTRAGE DE LA PÉRIODE
-        st.subheader("📅 1. Période des Examens")
-        c1, c2 = st.columns(2)
-        d_debut = c1.date_input("Date de début", date(2026, 5, 17))
-        d_fin = c2.date_input("Date de fin", d_debut + timedelta(days=14))
-        
-        # Génération des jours ouvrables (hors Vendredi=4 et Samedi=5)
-        jours_exam = [d_debut + timedelta(days=x) for x in range((d_fin-d_debut).days + 1) 
+            # 1. PARAMÉTRAGE DE LA PÉRIODE
+            st.subheader("📅 1. Période des Examens")
+            c1, c2 = st.columns(2)
+            d_debut = c1.date_input("Date de début", date(2026, 5, 17))
+            d_fin = c2.date_input("Date de fin", d_debut + timedelta(days=14))
+            
+            # Génération des jours (exclusion Vendredi=4 et Samedi=5)
+            jours_exam = [d_debut + timedelta(days=x) for x in range((d_fin-d_debut).days + 1) 
                           if (d_debut + timedelta(days=x)).weekday() not in [4, 5]]
-        
-        # 2. QUOTAS ET PONDÉRATION
-        st.subheader("👨‍🏫 2. Attribution & Quotas")
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            q_amphi = st.number_input("Surveillants / Amphi", 1, 5, 3)
-            q_salle = st.number_input("Surveillants / Salle", 1, 5, 2)
-        with col_s2:
-            # Récupération des vacataires pour la charge réduite
-            res_vac = supabase.table("enseignants_auth").select("nom_officiel").eq("statut", "Vacataire").execute()
-            liste_vacs = [v['nom_officiel'] for v in res_vac.data]
-            profs_reduits = st.multiselect("Postes Sup / Vacataires (Charge réduite)", liste_enseignants_globale, default=liste_vacs)
-            coeff = st.slider("Coefficient de charge (%) pour ces profs", 10, 100, 50)
-
-        # 3. LOGISTIQUE DES SALLES PAR PROMO
-        st.subheader("📦 3. Salles & Amphis")
-        L_SALLES = [f"Salle {i:02d}" for i in range(1, 19)]
-        L_AMPHIS = [f"Amphi A{i:02d}" for i in range(1, 13)]
-        
-        config_promo = {}
-        if not df_examens.empty:
-            for promo in sorted(df_examens['Promotion'].unique()):
-                with st.expander(f"🎓 Configuration : {promo}"):
-                    cx1, cx2 = st.columns(2)
-                    h_select = cx1.selectbox("Horaire d'examen", ["09h00 - 11h00", "14h00 - 16h00"], key=f"h_{promo}")
-                    eff_p = cx2.number_input("Effectif total", 10, 500, 60, key=f"e_{promo}")
-                    sel_a = st.multiselect("Amphis affectés", L_AMPHIS, key=f"a_{promo}")
-                    sel_s = st.multiselect("Salles affectées", L_SALLES, key=f"s_{promo}")
-                    
-                    besoin = (len(sel_a) * q_amphi) + (len(sel_s) * q_salle)
-                    st.info(f"Besoin total : {besoin} surveillants")
-                    
-                    config_promo[promo] = {
-                        "matieres": df_examens[df_examens['Promotion']==promo]['Enseignements'].tolist(),
-                        "responsables": df_examens[df_examens['Promotion']==promo]['Enseignants'].tolist(),
-                        "horaire": h_select, "locaux": sel_a + sel_s, "besoin": besoin
-                    }
-
-        # 4. BOUTON DE GÉNÉRATION
-        if st.button("🚀 GÉNÉRER LE PLANNING FINAL", type="primary", use_container_width=True):
-            charge_profs = {p: 0 for p in liste_enseignants_globale}
-            resultats = []
             
-            for idx_j, val_jour in enumerate(jours_exam):
-                for promo, cfg in config_promo.items():
-                    if idx_j < len(cfg['matieres']):
-                        resp = cfg['responsables'][idx_j]
-                        
-                        # Algorithme d'équité (tri par charge pondérée)
-                        pool = sorted(liste_enseignants_globale, 
-                                      key=lambda p: charge_profs[p] / (coeff/100 if p in profs_reduits else 1))
-                        
-                        choisis = []
-                        for candidat in pool:
-                            if candidat != resp and len(choisis) < cfg['besoin']:
-                                # Vérification anti-collision (pas deux surveillances en même temps)
-                                deja_occupe = any(r for r in resultats if r['Date'] == val_jour.strftime('%d/%m/%Y') 
-                                                and r['Horaire'] == cfg['horaire'] and candidat in r['Enseignants'])
-                                if not deja_occupe:
-                                    choisis.append(candidat)
-                                    charge_profs[candidat] += 1
-                        
-                        resultats.append({
-                            "Enseignements": cfg['matieres'][idx_j],
-                            "Code": f"Resp: {resp}",
-                            "Enseignants": ", ".join(choisis),
-                            "Horaire": cfg['horaire'],
-                            "Jours": ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][val_jour.weekday()],
-                            "Lieu": " / ".join(cfg['locaux']),
-                            "Promotion": promo,
-                            "Date": val_jour.strftime('%d/%m/%Y')
-                        })
-            
-            if resultats:
-                st.session_state.df_genere = pd.DataFrame(resultats)
-                st.success("✅ Planning généré avec succès !")
+            # 2. QUOTAS ET PONDÉRATION
+            st.subheader("👨‍🏫 2. Attribution & Quotas")
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                q_amphi = st.number_input("Surveillants / Amphi", 1, 5, 3)
+                q_salle = st.number_input("Surveillants / Salle", 1, 5, 2)
+            with col_s2:
+                # Récupération des vacataires pour charge réduite
+                res_vac = supabase.table("enseignants_auth").select("nom_officiel").eq("statut", "Vacataire").execute()
+                liste_vacs = [v['nom_officiel'] for v in res_vac.data]
+                profs_reduits = st.multiselect("Charge réduite (Postes Sup / Vacataires)", liste_enseignants_globale, default=liste_vacs)
+                coeff = st.slider("Coefficient de charge (%)", 10, 100, 50)
 
-        # 5. AFFICHAGE ET TÉLÉCHARGEMENT
-        if "df_genere" in st.session_state:
-            cols_dispo = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
-            st.dataframe(st.session_state.df_genere[cols_dispo], use_container_width=True)
+            # 3. LOGISTIQUE DES SALLES
+            st.subheader("📦 3. Salles & Amphis")
+            L_SALLES = [f"Salle {i:02d}" for i in range(1, 19)]
+            L_AMPHIS = [f"Amphi A{i:02d}" for i in range(1, 13)]
             
-            xlsx_buf = io.BytesIO()
-            with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer:
-                st.session_state.df_genere[cols_dispo].to_excel(writer, index=False)
-            st.download_button("📥 TÉLÉCHARGER LE PLANNING (.xlsx)", xlsx_buf.getvalue(), "Planning_Surveillances_2026.xlsx")
+            config_promo = {}
+            if not df_examens.empty:
+                for promo in sorted(df_examens['Promotion'].unique()):
+                    with st.expander(f"🎓 Configuration : {promo}"):
+                        cx1, cx2 = st.columns(2)
+                        h_select = cx1.selectbox("Horaire", ["09h00 - 11h00", "14h00 - 16h00"], key=f"h_{promo}")
+                        eff_p = cx2.number_input("Effectif", 10, 500, 60, key=f"e_{promo}")
+                        sel_a = st.multiselect("Amphis", L_AMPHIS, key=f"a_{promo}")
+                        sel_s = st.multiselect("Salles", L_SALLES, key=f"s_{promo}")
+                        
+                        besoin = (len(sel_a) * q_amphi) + (len(sel_s) * q_salle)
+                        st.info(f"Besoin : {besoin} surveillants")
+                        
+                        config_promo[promo] = {
+                            "matieres": df_examens[df_examens['Promotion']==promo]['Enseignements'].tolist(),
+                            "responsables": df_examens[df_examens['Promotion']==promo]['Enseignants'].tolist(),
+                            "horaire": h_select, "locaux": sel_a + sel_s, "besoin": besoin
+                        }
+
+            # 4. GÉNÉRATION
+            if st.button("🚀 GÉNÉRER LE PLANNING FINAL", type="primary", use_container_width=True):
+                charge_profs = {p: 0 for p in liste_enseignants_globale}
+                resultats = []
+                
+                for idx_j, val_jour in enumerate(jours_exam):
+                    for promo, cfg in config_promo.items():
+                        if idx_j < len(cfg['matieres']):
+                            resp = cfg['responsables'][idx_j]
+                            pool = sorted(liste_enseignants_globale, 
+                                          key=lambda p: charge_profs[p] / (coeff/100 if p in profs_reduits else 1))
+                            
+                            choisis = []
+                            for candidat in pool:
+                                if candidat != resp and len(choisis) < cfg['besoin']:
+                                    deja_pris = any(r for r in resultats if r['Date'] == val_jour.strftime('%d/%m/%Y') 
+                                                    and r['Horaire'] == cfg['horaire'] and candidat in r['Enseignants'])
+                                    if not deja_pris:
+                                        choisis.append(candidat)
+                                        charge_profs[candidat] += 1
+                            
+                            resultats.append({
+                                "Enseignements": cfg['matieres'][idx_j],
+                                "Code": f"R: {resp}",
+                                "Enseignants": ", ".join(choisis),
+                                "Horaire": cfg['horaire'],
+                                "Jours": ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][val_jour.weekday()],
+                                "Lieu": " / ".join(cfg['locaux']),
+                                "Promotion": promo,
+                                "Date": val_jour.strftime('%d/%m/%Y')
+                            })
+                
+                if resultats:
+                    st.session_state.df_genere = pd.DataFrame(resultats)
+                    st.success("✅ Planning généré !")
+
+            # 5. AFFICHAGE ET EXPORT
+            if "df_genere" in st.session_state:
+                cols_ord = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
+                st.dataframe(st.session_state.df_genere[cols_ord], use_container_width=True)
+                
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    st.session_state.df_genere[cols_ord].to_excel(writer, index=False)
+                st.download_button("📥 Télécharger (.xlsx)", output.getvalue(), "Planning_Examens_2026.xlsx")
     elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
@@ -1120,6 +1117,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
