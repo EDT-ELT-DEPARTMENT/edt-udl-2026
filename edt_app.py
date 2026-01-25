@@ -100,78 +100,109 @@ elif portail == "🤖 Générateur Automatique":
             st.error("Accès réservé au Bureau des Examens.")
         else:
             st.header("⚙️ Moteur de Génération de Surveillances")
-            st.caption("Gestion Calendaire : Session S2-2026")
+            st.write("Plateforme : **Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA**")
 
-            # 1. SÉLECTION DE LA PÉRIODE DES EXAMENS
-            st.subheader("📅 Période de la Session")
-            col_d1, col_d2 = st.columns(2)
-            date_debut = col_d1.date_input("Début des examens", datetime.date(2026, 5, 17)) # Exemple Mai 2026
-            date_fin = col_d2.date_input("Fin des examens", datetime.date(2026, 5, 28))
-
-            # Fonction pour générer les jours ouvrables (Hors Ven, Sam et Fériés)
-            def generer_jours_examens(debut, fin):
-                jours_valides = []
-                curr = debut
-                # Liste simplifiée des jours fériés algériens pour 2026 (à ajuster selon calendrier officiel)
-                feries_2026 = [
-                    datetime.date(2026, 5, 1),  # Fête du travail
-                    datetime.date(2026, 5, 25), # Exemple Aïd el-Fitr (estimation)
-                ]
-                while curr <= fin:
-                    # 4 = Vendredi, 5 = Samedi (en Python weekday() : Mon=0...Sun=6)
-                    # Attention : Selon la config système, vérifions :
-                    # 4 (Fri), 5 (Sat). En Algérie on travaille le Dimanche (6).
-                    if curr.weekday() not in [4, 5] and curr not in feries_2026:
-                        jours_valides.append(curr.strftime("%A %d %B %Y"))
-                    curr += datetime.timedelta(days=1)
-                return jours_valides
-
-            liste_jours_utilisables = generer_jours_examens(date_debut, date_fin)
-            
-            with st.expander("👁️ Voir les jours de session retenus"):
-                st.write(f"Nombre de jours d'examens : **{len(liste_jours_utilisables)}**")
-                st.write(liste_jours_utilisables)
-
-            # 2. RÉCUPÉRATION ET VALIDATION DES MATIÈRES (Depuis l'éditeur)
+            # 1. RÉCUPÉRATION INITIALE DES COURS (Source vers Éditeur)
+            # On extrait les cours du tableau principal mémorisé (st.session_state.df_main)
             if "df_source_exams" not in st.session_state:
                 if 'df' in locals() and df is not None:
+                    # On ne garde que les "Cours", on retire les doublons de matières
                     df_cours = df[df["Enseignements"].str.contains("Cours", case=False, na=False)].copy()
-                    st.session_state.df_source_exams = df_cours[["Enseignements", "Promotion"]].drop_duplicates()
+                    st.session_state.df_source_exams = df_cours[["Enseignements", "Promotion", "Jours"]].drop_duplicates()
                 else:
-                    st.session_state.df_source_exams = pd.DataFrame(columns=["Enseignements", "Promotion"])
+                    st.session_state.df_source_exams = pd.DataFrame(columns=["Enseignements", "Promotion", "Jours"])
 
-            with st.expander("📝 Attribution des Dates aux Examens", expanded=True):
-                st.info("Choisissez une date parmi les jours ouvrables calculés pour chaque matière.")
-                
-                # On ajoute une colonne Date au tableau éditable
-                df_prep = st.session_state.df_source_exams.copy()
-                if "Date Examen" not in df_prep.columns:
-                    df_prep["Date Examen"] = liste_jours_utilisables[0] if liste_jours_utilisables else ""
-
-                df_final_dates = st.data_editor(
-                    df_prep,
-                    column_config={
-                        "Date Examen": st.column_config.SelectboxColumn(
-                            "Date Examen",
-                            options=liste_jours_utilisables,
-                            required=True
-                        )
-                    },
-                    use_container_width=True, hide_index=True
+            with st.expander("📝 1. Valider la Liste des Examens (Source EDT)", expanded=True):
+                st.info("Ce tableau contient les Cours détectés. Modifiez ou supprimez les lignes qui n'ont pas d'examen.")
+                # L'éditeur de données permet de nettoyer la liste rapidement
+                df_validated = st.data_editor(
+                    st.session_state.df_source_exams, 
+                    use_container_width=True, 
+                    num_rows="dynamic", 
+                    hide_index=True,
+                    key="editor_exams"
                 )
 
-            # 3. CONFIGURATION LIEUX & CRÉNEAUX (Similaire aux étapes précédentes)
-            # [Ici se place votre bloc de configuration des Salles/Amphis/Horaires]
+            # 2. CONFIGURATION DES LIEUX ET CRÉNEAUX
+            if "exam_config" not in st.session_state:
+                st.session_state.exam_config = {}
+            
+            if "creneaux_list" not in st.session_state:
+                st.session_state.creneaux_list = ["08:30 - 10:30", "11:00 - 13:00", "13:30 - 15:30"]
 
-            # 4. GÉNÉRATION FINALE
-            if st.button("🚀 GÉNÉRER LE PLANNING COMPLET", type="primary", use_container_width=True):
-                # Utilisation de df_final_dates pour construire le planning
-                # Le système va boucler sur chaque ligne, créer les salles prévues,
-                # et affecter les enseignants de Supabase en vérifiant les conflits 
-                # sur la colonne "Date Examen" et "Horaire".
+            with st.expander("🏢 2. Configuration des Salles & Horaires", expanded=False):
+                promos_presents = sorted(df_validated["Promotion"].unique())
+                data_cfg = []
+                for p in promos_presents:
+                    v = st.session_state.exam_config.get(p, [1, 25, "S06", 0, 0, "", st.session_state.creneaux_list[0]])
+                    data_cfg.append({
+                        "Promotion": p, "Horaire": v[6], "Nb Salles": v[0], "Numéros Salles": v[2],
+                        "Nb Amphis": v[3], "Noms Amphis": v[5], "Capacité/Lieu": v[1]
+                    })
                 
-                # [Logique de génération identique à la précédente mais basée sur df_final_dates]
-                st.success("Planning de Surveillance S2-2026 généré avec succès !")
+                df_cfg_edit = st.data_editor(
+                    pd.DataFrame(data_cfg),
+                    column_config={"Horaire": st.column_config.SelectboxColumn("Horaire", options=st.session_state.creneaux_list)},
+                    use_container_width=True, hide_index=True
+                )
+                
+                if st.button("💾 Enregistrer la Configuration"):
+                    for _, r in df_cfg_edit.iterrows():
+                        st.session_state.exam_config[r["Promotion"]] = [
+                            int(r["Nb Salles"]), int(r["Capacité/Lieu"]), str(r["Numéros Salles"]),
+                            int(r["Nb Amphis"]), int(r["Capacité/Lieu"]), str(r["Noms Amphis"]),
+                            str(r["Horaire"])
+                        ]
+                    st.success("Configuration enregistrée.")
+
+            # 3. GÉNÉRATION FINALE
+            if st.button("🚀 GÉNÉRER LE PLANNING DE SURVEILLANCE", type="primary", use_container_width=True):
+                # Récupération profs Supabase
+                res_auth = supabase.table("enseignants_auth").select("nom_officiel, statut").execute()
+                db_profs = {row['nom_officiel']: row['statut'] for row in res_auth.data}
+                liste_profs = sorted(list(db_profs.keys()))
+                
+                stats_charge = {p: 0 for p in liste_profs}
+                tracker, final_list = [], []
+
+                for _, exam in df_validated.iterrows():
+                    p_name = exam["Promotion"]
+                    cfg = st.session_state.exam_config.get(p_name)
+                    if not cfg: continue
+
+                    nb_s, cap, list_s, nb_a, _, list_a, h_fixe = cfg
+                    lieux = [a.strip() for a in list_a.split(",") if a.strip()] + [s.strip() for s in list_s.split(",") if s.strip()]
+                    
+                    for lieu in lieux:
+                        besoin = max(2, round(cap / 25))
+                        equipe = []
+                        # Tri : Moins chargés d'abord, Vacataires prioritaires
+                        tri_prio = sorted(liste_profs, key=lambda x: (stats_charge[x], 0 if db_profs[x] == "Vacataire" else 1))
+
+                        for p in tri_prio:
+                            if len(equipe) < besoin:
+                                if not any(t for t in tracker if t['J']==exam["Jours"] and t['H']==h_fixe and t['N']==p):
+                                    equipe.append(p)
+                                    stats_charge[p] += 1
+                                    tracker.append({'J': exam["Jours"], 'H': h_fixe, 'N': p})
+
+                        final_list.append({
+                            "Enseignements": exam["Enseignements"],
+                            "Code": "S2-2026",
+                            "Enseignants": " / ".join(equipe),
+                            "Horaire": h_fixe,
+                            "Jours": exam["Jours"],
+                            "Lieu": lieu,
+                            "Promotion": p_name
+                        })
+
+                st.session_state.df_surv_final = pd.DataFrame(final_list)
+                st.rerun()
+
+            # 4. AFFICHAGE RÉSULTAT
+            if "df_surv_final" in st.session_state:
+                st.subheader("📋 Planning de Surveillance S2-2026")
+                st.dataframe(st.session_state.df_surv_final, use_container_width=True, hide_index=True)
 elif portail == "👥 Portail Enseignants":
     st.subheader("👥 Espace Enseignants & Annuaire")
     
@@ -210,4 +241,5 @@ elif portail == "🎓 Portail Étudiants":
                         st.caption(f"📍 Lieu : {r['Lieu']} | Enseignant : {r['Enseignants']}")
     else:
         st.info("Veuillez sélectionner une promotion pour voir l'emploi du temps.")
+
 
