@@ -880,177 +880,132 @@ if df is not None:
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
 
-    import streamlit as st
-import pandas as pd
-import os
-import io
-import random
-from datetime import date, timedelta
+    elif portail == "🤖 Générateur Automatique":
+        if not is_admin:
+            st.error("Accès réservé au Bureau des Examens.")
+        else:
+            st.header("⚙️ Moteur Intelligent de Surveillance")
+            st.info("Configurez la répartition des étudiants par type de lieu (Salles/Amphis).")
 
-# --- TITRE OFFICIEL ---
-st.header("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+            # 1. BASE DE DONNÉES DES LIEUX (Initialisation)
+            if "exam_config" not in st.session_state:
+                # Structure : [Nb Salles, Etu par Salle, Nb Amphis, Etu par Amphi]
+                st.session_state.exam_config = {
+                    "L1 MCIL": [4, 25, 2, 80], 
+                    "L2 ELT": [2, 30, 0, 0],
+                    "M1 RE": [1, 20, 0, 0]
+                }
 
-# --- LISTES PRÉDÉFINIES ---
-LISTE_SALLES = [f"Salle {i:02d}" for i in range(1, 19)]
-LISTE_AMPHIS = [f"Amphi A{i:02d}" for i in range(1, 13)]
-SESSIONS_DISPO = ["09h00 - 11h00", "11h30 - 13h30", "14h00 - 16h00"]
-
-# --- CHARGEMENT DES DONNÉES ---
-NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
-
-@st.cache_data
-def charger_donnees_examens():
-    if os.path.exists(NOM_FICHIER_FIXE):
-        df_src = pd.read_excel(NOM_FICHIER_FIXE)
-        df_src.columns = [str(c).strip() for c in df_src.columns]
-        
-        # Extraction des cours (matières d'examen)
-        df_cours = df_src[df_src['Code'].str.contains("Cours", case=False, na=False)]
-        matieres = df_cours[['Promotion', 'Enseignements']].drop_duplicates()
-        
-        # Liste globale des enseignants pour la surveillance
-        enseignants = sorted(df_src['Enseignants'].dropna().unique().tolist())
-        
-        return matieres, enseignants
-    return pd.DataFrame(), []
-
-df_matieres_source, liste_profs_globale = charger_donnees_examens()
-promos_source = sorted(df_matieres_source['Promotion'].unique().tolist()) if not df_matieres_source.empty else []
-
-if not promos_source:
-    st.error("⚠️ Fichier source introuvable ou aucune matière de type 'Cours' détectée.")
-    st.stop()
-
-# =========================================================
-# ÉTAPE 1 : PARAMÈTRES GÉNÉRAUX & CALENDRIER
-# =========================================================
-st.markdown("### 📅 1. Période & Règles de Surveillance")
-c_d1, c_d2, c_d3 = st.columns([2, 1, 1])
-
-with c_d1:
-    d_debut = st.date_input("Date de début", date(2026, 5, 17))
-    d_fin = st.date_input("Date de fin", d_debut + timedelta(days=12))
-
-with c_d2:
-    nb_par_amphi = st.number_input("Surv. / Amphi", 1, 10, 3)
-
-with c_d3:
-    nb_par_salle = st.number_input("Surv. / Salle", 1, 10, 2)
-
-# Filtrage des jours ouvrables (exclure Vendredi/Samedi si nécessaire)
-jours_possibles = [d_debut + timedelta(days=x) for x in range((d_fin-d_debut).days + 1) 
-                  if (d_debut + timedelta(days=x)).weekday() not in [4, 5]]
-
-st.write("👉 **Cochez les jours de session :**")
-jours_valides = []
-cols_j = st.columns(6)
-for idx, d in enumerate(jours_possibles):
-    if cols_j[idx % 6].checkbox(f"{d.strftime('%d/%m')}", value=True, key=f"d_{d}"):
-        jours_valides.append(d)
-
-st.divider()
-
-# =========================================================
-# ÉTAPE 2 : CONFIGURATION LOGISTIQUE PAR PROMO
-# =========================================================
-st.markdown("### 📦 2. Attribution des Salles/Amphis")
-config_logistique = {}
-
-for promo in promos_source:
-    matieres_p = df_matieres_source[df_matieres_source['Promotion'] == promo]['Enseignements'].tolist()
-    
-    with st.expander(f"🎓 {promo} ({len(matieres_p)} examens)"):
-        col_h, col_e = st.columns(2)
-        with col_h:
-            h_fixe = st.selectbox("Créneau Horaire", SESSIONS_DISPO, key=f"h_{promo}")
-        with col_e:
-            eff = st.number_input("Effectif", 1, 500, 60, key=f"eff_{promo}")
-        
-        sel_a = st.multiselect("Cocher les Amphis", LISTE_AMPHIS, key=f"ma_{promo}")
-        sel_s = st.multiselect("Cocher les Salles", LISTE_SALLES, key=f"ms_{promo}")
-        
-        besoin_total = (len(sel_a) * nb_par_amphi) + (len(sel_s) * nb_par_salle)
-        st.metric("Surveillants requis", besoin_total)
-        
-        config_logistique[promo] = {
-            "horaire": h_fixe,
-            "effectif": eff,
-            "matieres": matieres_p,
-            "locaux": sel_a + sel_s,
-            "besoin": besoin_total
-        }
-
-st.divider()
-
-import streamlit as st
-import pandas as pd
-
-def render_generateur_auto(df):
-    st.subheader("🤖 Générateur Automatique d'Emploi du Temps")
-    st.markdown("### Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
-
-    # --- 1. CONFIGURATION DES DONNÉES ---
-    jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-    horaires_ordre = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
-    
-    # --- 2. FILTRES DYNAMIQUES ---
-    col1, col2 = st.columns(2)
-    with col1:
-        promo_list = sorted(df["Promotion"].unique())
-        promo_sel = st.selectbox("🎯 Sélectionner la Promotion", promo_list)
-    
-    with col2:
-        view_type = st.radio("🖼️ Format d'affichage", ["Tableau croisé (Grille)", "Liste détaillée"], horizontal=True)
-
-    # Filtrage des données
-    df_filtered = df[df["Promotion"] == promo_sel].copy()
-
-    # --- 3. LOGIQUE DE GÉNÉRATION ---
-    if view_type == "Tableau croisé (Grille)":
-        # Fonction pour formater le contenu des cellules
-        def format_cell(group):
-            items = []
-            for _, row in group.iterrows():
-                # Détermination de la couleur selon le type (Cours/TD/TP)
-                code_up = str(row['Code']).upper()
-                emoji = "📘" if "COURS" in code_up else "📗" if "TD" in code_up else "📙"
+            with st.expander("🏢 Configuration des Lieux par Promotion", expanded=True):
+                st.write("Définissez la répartition pour chaque promotion :")
                 
-                content = f"""
-                <div style="border-bottom: 1px dashed #ccc; padding: 5px; margin-bottom: 5px;">
-                    <b style="color: #1E3A8A;">{emoji} {row['Enseignements']}</b><br>
-                    <small>👤 {row['Enseignants']}</small><br>
-                    <i style="color: #D4AF37;">📍 {row['Lieu']}</i>
-                </div>
-                """
-                items.append(content)
-            return "".join(items)
+                # Conversion en DataFrame pour l'édition facile
+                data_cfg = []
+                for k, v in st.session_state.exam_config.items():
+                    data_cfg.append({
+                        "Promotion": k, 
+                        "Nb Salles": v[0], "Etu/Salle": v[1],
+                        "Nb Amphis": v[2], "Etu/Amphi": v[3]
+                    })
+                
+                edited_df = st.data_editor(
+                    pd.DataFrame(data_cfg), 
+                    use_container_width=True, 
+                    num_rows="dynamic", 
+                    hide_index=True
+                )
+                
+                if st.button("💾 Sauvegarder la configuration des lieux"):
+                    new_cfg = {}
+                    for _, r in edited_df.iterrows():
+                        new_cfg[r["Promotion"]] = [
+                            int(r["Nb Salles"]), int(r["Etu/Salle"]),
+                            int(r["Nb Amphis"]), int(r["Etu/Amphi"])
+                        ]
+                    st.session_state.exam_config = new_cfg
+                    st.success("Configuration sauvegardée !")
 
-        # Création de la matrice
-        grid = df_filtered.groupby(['Horaire', 'Jours']).apply(format_cell).unstack('Jours')
+            # 2. RÉCUPÉRATION DES PROFILS SUPABASE (Pour le statut)
+            res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, statut").execute()
+            db_profs = {row['nom_officiel']: {"email": row['email'], "statut": row['statut']} for row in res_auth.data} if res_auth.data else {}
+
+            SRC = "surveillances_2026.xlsx"
+            if os.path.exists(SRC):
+                df_src = pd.read_excel(SRC)
+                df_src.columns = [str(c).strip() for c in df_src.columns]
+                for c in df_src.columns: df_src[c] = df_src[c].fillna("").astype(str).str.strip()
+                
+                C_MAT, C_SURV, C_DATE, C_HEURE, C_SALLE, C_PROMO = "Matière", "Surveillant(s)", "Date", "Heure", "Salle", "Promotion"
+                liste_profs_all = sorted([p for p in df_src[C_SURV].unique() if p not in ["", "nan", "Non défini"]])
+
+                with st.expander("⚖️ Ratio de Surveillance", expanded=False):
+                    ratio_global = st.number_input("Nombre d'étudiants par surveillant (Ratio) :", min_value=1, value=25)
+                    m_base = st.number_input("Max séances par enseignant :", min_value=1, value=12)
+
+                p_cible = st.multiselect("🎓 Promotions à générer :", sorted(df_src[C_PROMO].unique()))
+                
+                if st.button("🚀 GÉNÉRER LE PLANNING") and p_cible:
+                    stats = {p: 0 for p in liste_profs_all}
+                    tracker, res_list = [], []
+
+                    for p_name in p_cible:
+                        # Récupération config : [Salles, Etu/Salle, Amphis, Etu/Amphi]
+                        cfg = st.session_state.exam_config.get(p_name, [1, 30, 0, 0])
+                        nb_s, etu_s, nb_a, etu_a = cfg
+
+                        # On récupère les examens de cette promotion
+                        df_exams = df_src[df_src[C_PROMO] == p_name].drop_duplicates(subset=[C_MAT, C_DATE, C_HEURE])
+
+                        for _, row in df_exams.iterrows():
+                            # --- GÉNÉRATION POUR LES AMPHIS ---
+                            for a_idx in range(1, nb_a + 1):
+                                besoin = max(2, round(etu_a / ratio_global))
+                                equipe = []
+                                tri = sorted(liste_profs_all, key=lambda x: (stats[x], 0 if db_profs.get(x, {}).get('statut') == "Vacataire" else 1))
+                                
+                                for p in tri:
+                                    if len(equipe) < besoin and stats[p] < m_base:
+                                        if not any(t for t in tracker if t['D']==row[C_DATE] and t['H']==row[C_HEURE] and t['N']==p):
+                                            equipe.append(p); stats[p] += 1
+                                            tracker.append({'D': row[C_DATE], 'H': row[C_HEURE], 'N': p})
+                                
+                                res_list.append({
+                                    "Date": row[C_DATE], "Heure": row[C_HEURE], "Promotion": p_name,
+                                    "Lieu": f"Amphi {a_idx}", "Matière": row[C_MAT],
+                                    "Effectif": etu_a, "Equipe": " / ".join(equipe) if equipe else "⚠️ VIDE"
+                                })
+
+                            # --- GÉNÉRATION POUR LES SALLES ---
+                            for s_idx in range(1, nb_s + 1):
+                                besoin = max(2, round(etu_s / ratio_global))
+                                equipe = []
+                                tri = sorted(liste_profs_all, key=lambda x: (stats[x], 0 if db_profs.get(x, {}).get('statut') == "Vacataire" else 1))
+                                
+                                for p in tri:
+                                    if len(equipe) < besoin and stats[p] < m_base:
+                                        if not any(t for t in tracker if t['D']==row[C_DATE] and t['H']==row[C_HEURE] and t['N']==p):
+                                            equipe.append(p); stats[p] += 1
+                                            tracker.append({'D': row[C_DATE], 'H': row[C_HEURE], 'N': p})
+                                
+                                res_list.append({
+                                    "Date": row[C_DATE], "Heure": row[C_HEURE], "Promotion": p_name,
+                                    "Lieu": f"Salle {s_idx}", "Matière": row[C_MAT],
+                                    "Effectif": etu_s, "Equipe": " / ".join(equipe) if equipe else "⚠️ VIDE"
+                                })
+
+                    st.session_state.df_genere = pd.DataFrame(res_list)
+                    st.success("Planning généré selon votre configuration !")
+                    st.rerun()
+
+                # --- AFFICHAGE ---
+                if st.session_state.get("df_genere") is not None:
+                    st.dataframe(st.session_state.df_genere, use_container_width=True)
+                    # Options d'exportation...
+    elif portail == "👥 Portail Enseignants":
+        if not is_admin:
+            st.error("🚫 ACCÈS RESTREINT.")
+            st.stop()
         
-        # Réindexation pour garantir l'ordre chronologique
-        grid = grid.reindex(index=horaires_ordre, columns=jours_ordre).fillna("")
-
-        # Affichage HTML
-        st.markdown(f"#### 📅 Emploi du temps : {promo_sel}")
-        st.write(grid.to_html(escape=False), unsafe_allow_html=True)
-
-    else:
-        # Affichage sous forme de liste propre
-        st.markdown(f"#### 📋 Liste des enseignements : {promo_sel}")
-        cols_to_show = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion"]
-        st.dataframe(df_filtered[cols_to_show], use_container_width=True, hide_index=True)
-
-    # --- 4. EXPORT ---
-    st.divider()
-    csv = df_filtered.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Télécharger l'EDT de " + promo_sel + " (CSV)",
-        data=csv,
-        file_name=f"EDT_{promo_sel}_S2_2026.csv",
-        mime='text/csv',
-    )
-      
         # --- EN-TÊTE DE LA PAGE AVEC LOGO ---
         col_l, col_t = st.columns([1, 5])
         with col_l:
