@@ -882,75 +882,58 @@ if df is not None:
 
     import streamlit as st
 import pandas as pd
-from datetime import timedelta, date
 
-# Titre de rappel obligatoire
+# Titre obligatoire
 st.markdown("### 🤖 Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
 if portail == "🤖 Générateur Automatique":
-    st.info("📅 **Configuration de la Période d'Examens**")
-
-    # --- 1. DÉFINITION DES DATES ---
-    col_d1, col_d2 = st.columns(2)
-    with col_d1:
-        date_debut = st.date_input("Début des examens", date(2026, 5, 17)) # Exemple Mai 2026
-    with col_d2:
-        date_fin = st.date_input("Fin des examens", date_debut + timedelta(days=12))
-
-    # --- 2. GESTION DES JOURS FÉRIÉS (EXEMPLE ALGÉRIE 2026) ---
-    # Vous pouvez ajuster cette liste selon le calendrier officiel
-    jours_feries = [
-        date(2026, 5, 1),  # Fête du Travail
-        date(2026, 5, 19), # Fête de l'Étudiant
-        # Ajoutez ici l'Aïd ou autres dates mobiles si nécessaire
-    ]
-
-    # --- 3. LOGIQUE DE FILTRAGE ---
-    jours_examens = []
-    current_date = date_debut
-    while current_date <= date_fin:
-        # 0=Lundi, 1=Mardi, 2=Mercredi, 3=Jeudi, 4=Vendredi, 5=Samedi, 6=Dimanche
-        weekday = current_date.weekday()
-        
-        # Exclure Vendredi (4) et Samedi (5) + Jours fériés
-        if weekday != 4 and weekday != 5 and current_date not in jours_feries:
-            jours_examens.append(current_date)
-        
-        current_date += timedelta(days=1)
-
-    # --- 4. AFFICHAGE DES JOURS RETENUS ---
-    if jours_examens:
-        st.success(f"✅ {len(jours_examens)} jours de surveillance identifiés (hors weekends et fériés).")
-        
-        # Affichage sous forme de jetons/tags
-        cols = st.columns(4)
-        for i, j in enumerate(jours_examens):
-            nom_jour = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"][j.weekday()]
-            cols[i % 4].markdown(f"🔹 **{nom_jour}** \n`{j.strftime('%d/%m/%Y')}`")
-    else:
-        st.error("Aucun jour valide trouvé dans cette plage.")
-
-    # --- 5. DÉFINITION DES PLAGES HORAIRES ---
-    st.divider()
-    st.markdown("⏰ **Plages Horaires par Jour**")
+    st.markdown("#### 📦 Dimensionnement des Effectifs & Locaux")
     
-    # On permet de définir les sessions standards
-    nb_sessions = st.number_input("Nombre de sessions par jour", 1, 4, 2)
-    plages = []
-    for i in range(nb_sessions):
-        c_h1, c_h2 = st.columns(2)
-        with c_h1:
-            h_debut = st.time_input(f"Début Session {i+1}", value=None, key=f"start_{i}")
-        with c_h2:
-            h_fin = st.time_input(f"Fin Session {i+1}", value=None, key=f"end_{i}")
-        if h_debut and h_fin:
-            plages.append(f"{h_debut.strftime('%Hh%M')} - {h_fin.strftime('%Hh%M')}")
+    # On récupère les promos sélectionnées précédemment ou par défaut
+    if 'promos_sel' not in locals():
+        promos_sel = ["L3 ELT", "M1 RE", "M2 RE"]
 
-    # --- BOUTON FINAL ---
-    if st.button("🛠️ Préparer la Grille de Surveillance", use_container_width=True):
-        st.session_state['grille_prete'] = True
-        st.write("Grille générée pour :", [j.strftime('%d/%m') for j in jours_examens])
-        st.write("Sessions :", plages)
+    # Dictionnaire pour stocker la config de chaque promo
+    config_logistique = {}
+
+    for promo in promos_sel:
+        with st.expander(f"🎓 Configuration : {promo}", expanded=True):
+            col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+            
+            with col1:
+                nb_groupes = st.number_input(f"Groupes ({promo})", 1, 10, 2, key=f"grp_{promo}")
+            
+            with col2:
+                nb_amphis = st.number_input(f"Amphis ({promo})", 0, 5, 1, key=f"amp_{promo}")
+            
+            with col3:
+                nb_salles = st.number_input(f"Salles ({promo})", 0, 20, 2, key=f"sal_{promo}")
+            
+            with col4:
+                # Estimation du besoin en surveillants (ex: 3 par Amphi, 2 par Salle)
+                besoin_estime = (nb_amphis * 3) + (nb_salles * 2)
+                st.metric("Surv. requis", besoin_estime)
+            
+            config_logistique[promo] = {
+                "groupes": nb_groupes,
+                "amphis": nb_amphis,
+                "salles": nb_salles,
+                "total_surv": besoin_estime
+            }
+
+    st.divider()
+    
+    # --- RÉCAPITULATIF GLOBAL ---
+    total_surv_global = sum(item['total_surv'] for item in config_logistique.values())
+    
+    st.markdown(f"### 📊 Bilan des besoins par plage horaire")
+    c_res1, c_res2 = st.columns(2)
+    c_res1.info(f"**Total Locaux :** {sum(i['amphis'] for i in config_logistique.values())} Amphis & {sum(i['salles'] for i in config_logistique.values())} Salles")
+    c_res2.warning(f"**Total Surveillants nécessaires :** {total_surv_global} par séance")
+
+    if st.button("💾 Valider la configuration logistique", type="primary", use_container_width=True):
+        st.session_state['config_logistique'] = config_logistique
+        st.success("Configuration enregistrée ! Prêt pour l'affectation des noms.")
     # --- 2. BASE DE DONNÉES ENSEIGNANTS ---
     # On récupère la liste unique des enseignants inscrits ou présents dans l'EDT
     liste_profs = sorted(df["Enseignants"].unique())
@@ -1143,6 +1126,7 @@ if portail == "🤖 Générateur Automatique":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
