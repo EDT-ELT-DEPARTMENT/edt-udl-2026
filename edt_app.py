@@ -688,7 +688,80 @@ if df is not None:
             c1, c2, c3 = st.columns(3)
             charge_reelle = df_u['h_val'].sum()
             charge_reg = 3.0 if poste_sup else 6.0
-            
+            # --- CALCUL DES HEURES SUP ---
+            h_sup = charge_reelle - charge_reg
+            color_sup = "#e74c3c" if h_sup > 0 else "#27ae60"
+
+            # --- CRÉATION DES ONGLETS ---
+            tab_view, tab_t6 = st.tabs(["📅 Mon Emploi du Temps", "📝 Suivi de Séance (T6)"])
+
+            with tab_view:
+                st.markdown(f"### 📊 Bilan Horaire : {cible}")
+                # Affichage des boites de statistiques
+                st.markdown(f"""<div class="stat-container">
+                    <div class="stat-box bg-cours">📘 {len(df_u[df_u['Type'] == 'COURS'])} Séances Cours</div>
+                    <div class="stat-box bg-td">📗 {len(df_u[df_u['Type'] == 'TD'])} Séances TD</div>
+                    <div class="stat-box bg-tp">📙 {len(df_u[df_u['Type'] == 'TP'])} Séances TP</div>
+                </div>""", unsafe_allow_html=True)
+
+                # Affichage des colonnes de metrics (c1, c2, c3)
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1:
+                    st.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
+                with col_m2:
+                    st.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
+                with col_m3:
+                    st.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup.<br><h2 style='color:{color_sup};'>{h_sup} h</h2></div>", unsafe_allow_html=True)
+
+                # --- FONCTION DE FORMATAGE ET GRILLE ---
+                def format_case(rows):
+                    items = []
+                    for _, r in rows.iterrows():
+                        items.append(f"<b>{get_nature(r['Code'])} : {r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>")
+                    return "<div class='separator'></div>".join(items)
+                
+                if not df_f.empty:
+                    grid = df_f.groupby(['h_norm', 'j_norm']).apply(format_case, include_groups=False).unstack('j_norm')
+                    grid = grid.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
+                    grid.index = [map_h.get(i, i) for i in grid.index]
+                    grid.columns = [map_j.get(c, c) for c in grid.columns]
+                    st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+
+            with tab_t6:
+                st.subheader("📝 Registre Numérique de Séance (T6)")
+                st.info(f"Enseignant : **{cible}** | Plateforme de gestion des EDTs-S2-2026")
+                
+                pwd_t6 = st.text_input("🔑 Code Session :", type="password", key="secu_t6")
+                if pwd_t6 == "2026":
+                    # Formulaire T6
+                    mat_t6 = st.selectbox("📚 Séance de :", sorted(df_f["Enseignements"].unique()))
+                    promo_t6 = df_f[df_f["Enseignements"] == mat_t6]["Promotion"].iloc[0]
+                    
+                    # Lecture de la liste des étudiants
+                    if os.path.exists("Liste des étudiants-2025-2026.xlsx"):
+                        df_et = pd.read_excel("Liste des étudiants-2025-2026.xlsx")
+                        df_ma_promo = df_et[df_et["Promotion"] == promo_t6].copy()
+                        df_ma_promo["Full"] = df_ma_promo["Nom"].str.upper() + " " + df_ma_promo["Prénom"]
+                        liste_et = sorted(df_ma_promo["Full"].tolist())
+                        
+                        absents = st.multiselect("🚫 Étudiants Absents :", options=liste_et)
+                        
+                        c_n1, c_n2 = st.columns(2)
+                        with c_n1: et_note = st.selectbox("⭐ Noter un étudiant :", [""] + liste_et)
+                        with c_n2: val_note = st.text_input("Note :")
+
+                        if st.button("🚀 Valider la séance (Envoi Supabase)", use_container_width=True):
+                            data_t6 = {
+                                "enseignant": cible, "matiere": mat_t6, "promotion": promo_t6,
+                                "absents": ", ".join(absents), "note_etudiant": val_note,
+                                "etudiant_note": et_note, "date_heure": datetime.now().strftime("%Y-%m-%d %H:%M")
+                            }
+                            supabase.table("suivi_assiduite_2026").insert(data_t6).execute()
+                            st.success("Données enregistrées !")
+                    else:
+                        st.error("Fichier Excel des étudiants introuvable.")
+                else:
+                    st.warning("Veuillez saisir le code '2026' pour accéder au formulaire.")
             with c1:
                 st.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
             with c2:
@@ -1078,6 +1151,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
