@@ -4,26 +4,19 @@ from supabase import create_client, Client
 import io
 import urllib.parse
 
-# --- CONFIGURATION DE LA PAGE ---
+# --- CONFIGURATION ---
 st.set_page_config(page_title="Assiduité & Avancement - UDL SBA", layout="wide")
-
-# Titre officiel requis
 TITRE_OFFICIEL = "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
 
 # --- CONNEXION SUPABASE ---
-try:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    supabase: Client = create_client(url, key)
-except Exception as e:
-    st.error("Erreur de configuration des secrets Supabase.")
+url = st.secrets["SUPABASE_URL"]
+key = st.secrets["SUPABASE_KEY"]
+supabase: Client = create_client(url, key)
 
 # --- CHARGEMENT DES DONNÉES ---
 @st.cache_data
 def load_all_data():
-    # Source EDT
     df_edt = pd.read_excel("DATA-ASSUIDUITE-2026.xlsx")
-    # Source Étudiants
     df_etudiants = pd.read_excel("Liste des étudiants-2025-2026.xlsx")
     df_etudiants['Nom_Complet'] = df_etudiants['Nom'].astype(str).str.upper() + " " + df_etudiants['Prénom'].astype(str)
     return df_edt, df_etudiants
@@ -31,138 +24,118 @@ def load_all_data():
 df_edt, df_etudiants = load_all_data()
 
 st.markdown(f"#### {TITRE_OFFICIEL}")
-st.header("📊 Suivi d'Assiduité et Avancement Pédagogique")
 
-# --- FILTRES EN CASCADE ---
+# --- SÉLECTION ENSEIGNANT ---
 liste_profs = sorted(df_edt['Enseignants'].dropna().unique())
-enseignant_sel = st.selectbox("👤 1. Sélectionner l'Enseignant :", ["-- Choisir --"] + liste_profs)
+enseignant_sel = st.selectbox("👤 Sélectionner l'Enseignant :", ["-- Choisir --"] + liste_profs)
 
 if enseignant_sel != "-- Choisir --":
-    
-    # Onglets pour séparer Saisie et Historique
-    tab_saisie, tab_historique, tab_alertes = st.tabs(["📝 Nouvelle Séance", "📜 Historique Personnel", "⚠️ Alertes Absences"])
+    tab_saisie, tab_historique, tab_alertes = st.tabs(["📝 Saisie Séance", "📜 Historique", "⚠️ Alertes"])
 
     with tab_saisie:
+        # Filtres dynamiques
         promos_liees = sorted(df_edt[df_edt['Enseignants'] == enseignant_sel]['Promotion'].unique())
-        
-        col_p, col_m = st.columns(2)
-        with col_p:
-            promo_sel = st.selectbox("🎓 2. Sélectionner la Promotion :", ["-- Choisir --"] + promos_liees)
+        col1, col2 = st.columns(2)
+        with col1:
+            promo_sel = st.selectbox("🎓 Promotion :", ["-- Choisir --"] + promos_liees)
         
         if promo_sel != "-- Choisir --":
-            with col_m:
-                filtre_seance = (df_edt['Enseignants'] == enseignant_sel) & (df_edt['Promotion'] == promo_sel)
-                matieres_dispo = sorted(df_edt[filtre_seance]['Enseignements'].unique())
-                matiere_sel = st.selectbox("📖 3. Sélectionner la Matière :", matieres_dispo)
+            with col2:
+                filtre = (df_edt['Enseignants'] == enseignant_sel) & (df_edt['Promotion'] == promo_sel)
+                matieres = sorted(df_edt[filtre]['Enseignements'].unique())
+                matiere_sel = st.selectbox("📖 Matière :", matieres)
 
-            # Récupération infos EDT
-            infos = df_edt[(df_edt['Enseignants'] == enseignant_sel) & 
-                           (df_edt['Promotion'] == promo_sel) & 
-                           (df_edt['Enseignements'] == matiere_sel)].iloc[0]
+            # Infos EDT automatiques
+            info_ligne = df_edt[(df_edt['Enseignants'] == enseignant_sel) & (df_edt['Promotion'] == promo_sel) & (df_edt['Enseignements'] == matiere_sel)].iloc[0]
+            st.info(f"📍 {info_ligne['Jours']} | {info_ligne['Horaire']} | Lieu: {info_ligne['Lieu']}")
+
+            # Avancement
+            st.subheader("📈 Avancement Pédagogique")
+            ca1, ca2 = st.columns(2)
+            with ca1:
+                type_av = st.selectbox("Type :", ["Chapitre", "Fiche de TD N°", "Fiche de TP N°"])
+            with ca2:
+                num_av = st.selectbox("Numéro :", list(range(1, 31)))
             
-            st.success(f"📍 **Planning :** {infos['Jours']} à {infos['Horaire']} | **Lieu :** {infos['Lieu']}")
+            # Appel
+            st.subheader(f"👥 Appel ({promo_sel})")
+            liste_noms = sorted(df_etudiants[df_etudiants['Promotion'] == promo_sel]['Nom_Complet'].tolist())
+            absents_sel = st.multiselect("❌ Sélectionner les ABSENTS :", options=liste_noms)
 
-            st.divider()
+            # Enregistrement
+            with st.form("form_val"):
+                date_j = st.date_input("📅 Date réelle :")
+                obs = st.text_area("🗒️ Observations :")
+                code = st.text_input("🔑 Code (2026) :", type="password")
+                btn_save = st.form_submit_button("💾 1. Enregistrer dans la Base", use_container_width=True)
 
-            # --- SECTION AVANCEMENT PÉDAGOGIQUE ---
-            st.subheader("📈 État d'Avancement")
-            col_type, col_num = st.columns(2)
-            with col_type:
-                type_avanc = st.selectbox("Type d'avancement :", ["Chapitre", "Fiche de TD N°", "Fiche de TP N°"])
-            with col_num:
-                num_avanc = st.selectbox("Numéro :", list(range(1, 31)))
-            
-            label_avancement = f"{type_avanc} {num_avanc}"
-
-            # --- SECTION APPEL ---
-            st.subheader(f"👥 Liste d'appel ({promo_sel})")
-            etudiants_final = sorted(df_etudiants[df_etudiants['Promotion'] == promo_sel]['Nom_Complet'].tolist())
-            absents_sel = st.multiselect("❌ Cocher les étudiants ABSENTS :", options=etudiants_final)
-
-            # --- VALIDATION ET EXPORT ---
-            with st.form("form_global"):
-                date_reelle = st.date_input("📅 Date du jour :")
-                note_obs = st.text_area("🗒️ Observations complémentaires :")
-                code_verif = st.text_input("🔑 Code Validation (2026) :", type="password")
-                
-                submit = st.form_submit_button("🚀 Enregistrer et Générer le Rapport", use_container_width=True)
-
-            if submit:
-                if code_verif == "2026":
-                    texte_absents = ", ".join(absents_sel) if absents_sel else "Aucun absent"
-                    full_obs = f"Avancement: {label_avancement} | Lieu: {infos['Lieu']} | Obs: {note_obs}"
+            if btn_save:
+                if code == "2026":
+                    txt_abs = ", ".join(absents_sel) if absents_sel else "Aucun absent"
+                    avanc_txt = f"{type_av} {num_av}"
+                    full_obs = f"Avancement: {avanc_txt} | Lieu: {info_ligne['Lieu']} | Obs: {obs}"
                     
-                    data_db = {
-                        "enseignant": enseignant_sel,
-                        "matiere": matiere_sel,
-                        "promotion": promo_sel,
-                        "absents": texte_absents,
-                        "note_etudiant": full_obs
+                    # Supabase
+                    supabase.table("suivi_assiduite_2026").insert({
+                        "enseignant": enseignant_sel, "matiere": matiere_sel,
+                        "promotion": promo_sel, "absents": txt_abs, "note_etudiant": full_obs
+                    }).execute()
+                    
+                    st.success("✅ Enregistré en base de données. Vous pouvez maintenant exporter et envoyer l'email.")
+                    
+                    # Stockage temporaire pour l'email et l'export
+                    st.session_state['last_data'] = {
+                        "date": date_j, "prof": enseignant_sel, "mat": matiere_sel,
+                        "prom": promo_sel, "av": avanc_txt, "abs": txt_abs, "obs": obs
                     }
-                    supabase.table("suivi_assiduite_2026").insert(data_db).execute()
-                    st.success("✅ Séance enregistrée avec succès.")
 
-                    # Préparation Export
-                    report_data = pd.DataFrame([{
-                        "Date": date_reelle, "Enseignant": enseignant_sel, "Matière": matiere_sel,
-                        "Promotion": promo_sel, "Avancement": label_avancement, "Absents": texte_absents
-                    }])
+            # --- ZONE DE CONFIRMATION D'ENVOI ET EXPORT ---
+            if 'last_data' in st.session_state:
+                st.divider()
+                st.subheader("📤 Confirmation et Envoi")
+                d = st.session_state['last_data']
+                
+                c_ex, c_em = st.columns(2)
+                
+                with c_ex:
+                    df_exp = pd.DataFrame([d])
+                    # Export Excel
+                    buf = io.BytesIO()
+                    with pd.ExcelWriter(buf, engine='openpyxl') as w:
+                        df_exp.to_excel(w, index=False)
+                    st.download_button("📥 Télécharger Rapport Excel", buf.getvalue(), f"Rapport_{d['date']}.xlsx")
 
-                    # Boutons Téléchargement
-                    col_ex, col_ht = st.columns(2)
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        report_data.to_excel(writer, index=False)
-                    col_ex.download_button("📥 Télécharger EXCEL", output.getvalue(), f"Rapport_{date_reelle}.xlsx")
-                    col_ht.download_button("📄 Télécharger HTML", report_data.to_html(index=False), f"Rapport_{date_reelle}.html", "text/html")
-
-                    # Email
-                    subject = urllib.parse.quote(f"Rapport d'avancement - {promo_sel}")
-                    body = urllib.parse.quote(f"Enseignant: {enseignant_sel}\nPromo: {promo_sel}\nAvancement: {label_avancement}\nAbsents: {texte_absents}")
-                    mailto_link = f"mailto:chef-adjoint@univ-sba.dz?subject={subject}&body={body}"
-                    st.markdown(f'<a href="{mailto_link}" style="display:inline-block;padding:12px;background:#D4442E;color:white;border-radius:8px;text-decoration:none;">📧 Envoyer Email Responsables</a>', unsafe_allow_html=True)
-                else:
-                    st.error("⚠️ Code incorrect.")
+                with c_em:
+                    # Préparation Email
+                    destinataires = "chef-departement@univ-sba.dz, responsable-parcours@univ-sba.dz"
+                    sujet = f"Rapport d'assiduité - {d['prom']} - {d['mat']}"
+                    corps = (f"Bonjour,\n\nVoici le rapport de séance du {d['date']}:\n\n"
+                             f"Enseignant: {d['prof']}\nPromotion: {d['prom']}\n"
+                             f"Matière: {d['mat']}\nAvancement: {d['av']}\n"
+                             f"Absents: {d['abs']}\nObservations: {d['obs']}\n\nCordialement.")
+                    
+                    mailto = f"mailto:{destinataires}?subject={urllib.parse.quote(sujet)}&body={urllib.parse.quote(corps)}"
+                    
+                    st.warning("⚠️ Cliquez ci-dessous pour confirmer l'envoi au Chef de Département et Responsable.")
+                    st.markdown(f'<a href="{mailto}" target="_blank" style="display: block; width: 100%; padding: 10px; background-color: #FF4B4B; color: white; text-align: center; border-radius: 5px; text-decoration: none; font-weight: bold;">📧 CONFIRMER ET ENVOYER L\'EMAIL</a>', unsafe_allow_html=True)
 
     with tab_historique:
-        st.subheader(f"📜 Historique des séances de M. {enseignant_sel}")
-        response = supabase.table("suivi_assiduite_2026").select("*").eq("enseignant", enseignant_sel).execute()
-        if response.data:
-            df_hist = pd.DataFrame(response.data)
-            # On réorganise les colonnes pour la lecture
-            cols = ["id", "matiere", "promotion", "absents", "note_etudiant"]
-            st.dataframe(df_hist[cols], use_container_width=True)
-        else:
-            st.write("Aucun historique trouvé.")
+        st.subheader("📜 Mes dernières séances")
+        res = supabase.table("suivi_assiduite_2026").select("*").eq("enseignant", enseignant_sel).execute()
+        if res.data:
+            st.dataframe(pd.DataFrame(res.data)[["matiere", "promotion", "absents", "note_etudiant"]], use_container_width=True)
 
     with tab_alertes:
-        st.subheader("⚠️ Signalement des Absences Répétées")
-        limit = st.number_input("Seuil d'alerte (nb d'absences)", min_value=1, value=3)
-        
-        # Récupérer TOUTES les absences pour cet enseignant ou toute la base
-        all_res = supabase.table("suivi_assiduite_2026").select("absents, promotion").execute()
-        if all_res.data:
-            # On crée une liste plate de tous les noms cités dans la colonne 'absents'
-            absences_count = []
-            for entry in all_res.data:
-                if entry['absents'] and entry['absents'] != "Aucun absent":
-                    noms = [n.strip() for n in entry['absents'].split(",")]
-                    for nom in noms:
-                        absences_count.append({"Etudiant": nom, "Promotion": entry['promotion']})
-            
-            if absences_count:
-                df_count = pd.DataFrame(absences_count)
-                # Groupement par étudiant et comptage
-                recap_absences = df_count.groupby(["Etudiant", "Promotion"]).size().reset_index(name="Total_Absences")
-                # Filtrage par le seuil
-                alertes = recap_absences[recap_absences["Total_Absences"] >= limit].sort_values(by="Total_Absences", ascending=False)
-                
-                if not alertes.empty:
-                    st.warning(f"Liste des étudiants ayant atteint ou dépassé {limit} absences :")
-                    st.table(alertes)
-                else:
-                    st.success(f"Aucun étudiant n'a atteint le seuil de {limit} absences pour le moment.")
-            else:
-                st.write("Aucune absence enregistrée.")
-else:
-    st.info("Veuillez sélectionner un enseignant pour afficher les outils de gestion.")
+        st.subheader("⚠️ Alertes Absences (+3 séances)")
+        # Logique de calcul identique à la précédente
+        all_d = supabase.table("suivi_assiduite_2026").select("absents, promotion").execute()
+        if all_d.data:
+            counts = []
+            for r in all_d.data:
+                if r['absents'] and r['absents'] != "Aucun absent":
+                    for n in r['absents'].split(","):
+                        counts.append({"Etudiant": n.strip(), "Promotion": r['promotion']})
+            if counts:
+                df_c = pd.DataFrame(counts)
+                recap = df_c.groupby(["Etudiant", "Promotion"]).size().reset_index(name="Absences")
+                st.table(recap[recap["Absences"] >= 3])
