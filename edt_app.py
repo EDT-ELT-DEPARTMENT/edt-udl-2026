@@ -774,11 +774,7 @@ if df is not None:
         st.subheader("📋 Vue par Promotion")
         promos_dispo = sorted(df["Promotion"].unique())
         p_sel = st.selectbox("Choisir Promotion :", promos_dispo)
-        df_p = df[df["Promotion"] == p_sel]
-        
-        # Affichage du tableau EDT pour la promotion
-        # (votre code d'affichage grid_p ici...)
-            
+        df_p = df[df["Promotion"] == p_sel]        
             def fmt_p(rows):
                 items = []
                 for _, r in rows.iterrows():
@@ -1140,6 +1136,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
