@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
+import io
+import urllib.parse
 
 # --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="Assiduité ELT - UDL SBA", layout="wide")
+st.set_page_config(page_title="Assiduité & Avancement - UDL SBA", layout="wide")
 
-# Titre officiel requis par vos instructions
+# Titre officiel requis
 TITRE_OFFICIEL = "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
 
 # --- CONNEXION SUPABASE ---
@@ -14,120 +16,138 @@ try:
     key = st.secrets["SUPABASE_KEY"]
     supabase: Client = create_client(url, key)
 except Exception as e:
-    st.error("Erreur de configuration des secrets Supabase. Vérifiez le panneau Settings.")
+    st.error("Erreur de configuration des secrets Supabase.")
 
-# --- CHARGEMENT DES SOURCES DE DONNÉES (GitHub) ---
+# --- CHARGEMENT DES DONNÉES ---
 @st.cache_data
 def load_all_data():
-    # 1. Chargement de l'EDT (Matières, Lieux, Horaires, Promos)
     df_edt = pd.read_excel("DATA-ASSUIDUITE-2026.xlsx")
-    
-    # 2. Chargement de la liste nominative des étudiants
     df_etudiants = pd.read_excel("Liste des étudiants-2025-2026.xlsx")
-    
-    # Préparation du nom complet pour l'appel (Nom en MAJUSCULES + Prénom)
     df_etudiants['Nom_Complet'] = df_etudiants['Nom'].astype(str).str.upper() + " " + df_etudiants['Prénom'].astype(str)
-    
     return df_edt, df_etudiants
 
 df_edt, df_etudiants = load_all_data()
 
-# --- INTERFACE UTILISATEUR ---
 st.markdown(f"#### {TITRE_OFFICIEL}")
-st.header("📝 Registre d'Assiduité Numérique")
-st.info("Sélectionnez votre nom pour filtrer automatiquement vos séances, promotions et lieux.")
+st.header("📊 Suivi d'Assiduité et Avancement Pédagogique")
 
-# --- ÉTAPE 1 : SÉLECTION DE L'ENSEIGNANT ---
+# --- FILTRES EN CASCADE ---
 liste_profs = sorted(df_edt['Enseignants'].dropna().unique())
-enseignant_sel = st.selectbox("👤 1. Sélectionner votre nom (Enseignant) :", ["-- Choisir --"] + liste_profs)
+enseignant_sel = st.selectbox("👤 1. Sélectionner l'Enseignant :", ["-- Choisir --"] + liste_profs)
 
 if enseignant_sel != "-- Choisir --":
-    
-    # --- ÉTAPE 2 : FILTRER LES PROMOTIONS LIÉES À CET ENSEIGNANT ---
     promos_liees = sorted(df_edt[df_edt['Enseignants'] == enseignant_sel]['Promotion'].unique())
     
     col_p, col_m = st.columns(2)
-    
     with col_p:
         promo_sel = st.selectbox("🎓 2. Sélectionner la Promotion :", ["-- Choisir --"] + promos_liees)
     
     if promo_sel != "-- Choisir --":
-        
         with col_m:
-            # --- ÉTAPE 3 : FILTRER LES MATIÈRES (Enseignant + Promotion) ---
             filtre_seance = (df_edt['Enseignants'] == enseignant_sel) & (df_edt['Promotion'] == promo_sel)
             matieres_dispo = sorted(df_edt[filtre_seance]['Enseignements'].unique())
             matiere_sel = st.selectbox("📖 3. Sélectionner la Matière :", matieres_dispo)
 
-        # --- ÉTAPE 4 : RÉCUPÉRATION AUTOMATIQUE (Lieu, Jour, Horaire) ---
-        # On extrait la ligne précise correspondant au trio Enseignant/Promo/Matière
-        infos_ligne = df_edt[(df_edt['Enseignants'] == enseignant_sel) & 
-                            (df_edt['Promotion'] == promo_sel) & 
-                            (df_edt['Enseignements'] == matiere_sel)].iloc[0]
+        # Récupération infos EDT
+        infos = df_edt[(df_edt['Enseignants'] == enseignant_sel) & 
+                       (df_edt['Promotion'] == promo_sel) & 
+                       (df_edt['Enseignements'] == matiere_sel)].iloc[0]
         
-        lieu_auto = infos_ligne['Lieu']
-        jour_auto = infos_ligne['Jours']
-        horaire_auto = infos_ligne['Horaire']
-
-        # Affichage des informations de planification pour confirmation
-        st.success(f"📍 **Détails planifiés :** {jour_auto} à {horaire_auto} | **Lieu :** {lieu_auto}")
+        st.success(f"📍 **Planning :** {infos['Jours']} à {infos['Horaire']} | **Lieu :** {infos['Lieu']}")
 
         st.divider()
 
-        # --- ÉTAPE 5 : CHARGEMENT DE LA LISTE DES ÉTUDIANTS ---
-        # On filtre la liste des étudiants par la promotion choisie
+        # --- SECTION AVANCEMENT PÉDAGOGIQUE ---
+        st.subheader("📈 État d'Avancement")
+        col_type, col_num = st.columns(2)
+        with col_type:
+            type_avanc = st.selectbox("Type d'avancement :", ["Chapitre", "Fiche de TD N°", "Fiche de TP N°"])
+        with col_num:
+            num_avanc = st.selectbox("Numéro :", list(range(1, 31)))
+        
+        label_avancement = f"{type_avanc} {num_avanc}"
+
+        # --- SECTION APPEL ---
+        st.subheader(f"👥 Liste d'appel ({promo_sel})")
         etudiants_final = sorted(df_etudiants[df_etudiants['Promotion'] == promo_sel]['Nom_Complet'].tolist())
+        absents_sel = st.multiselect("❌ Cocher les étudiants ABSENTS :", options=etudiants_final)
 
-        if etudiants_final:
-            st.subheader(f"👥 Appel des étudiants : {promo_sel}")
-            absents_sel = st.multiselect(
-                "❌ Cochez uniquement les étudiants ABSENTS :", 
-                options=etudiants_final,
-                help="Tapez les premières lettres du nom pour filtrer la liste."
-            )
+        # --- VALIDATION ET EXPORT ---
+        with st.form("form_global"):
+            date_reelle = st.date_input("📅 Date du jour :")
+            note_obs = st.text_area("🗒️ Observations complémentaires :")
+            code_verif = st.text_input("🔑 Code Validation (2026) :", type="password")
             
-            # --- FORMULAIRE D'ENREGISTREMENT FINAL ---
-            with st.form("form_final"):
-                st.markdown("##### Validation de la séance")
-                col_date, col_code = st.columns(2)
-                
-                with col_date:
-                    date_reelle = st.date_input("📅 Date réelle du cours :")
-                
-                with col_code:
-                    code_verif = st.text_input("🔑 Code de validation (2026) :", type="password")
-                
-                note_obs = st.text_area("🗒️ Thème du cours / Observations :", placeholder="Ex: Suite du chapitre 2, Absence délégué...")
+            submit = st.form_submit_button("🚀 Enregistrer et Générer le Rapport", use_container_width=True)
 
-                st.write(f"📊 **Récapitulatif :** {len(absents_sel)} étudiant(s) marqué(s) absent(s).")
+        if submit:
+            if code_verif == "2026":
+                texte_absents = ", ".join(absents_sel) if absents_sel else "Aucun absent"
+                full_obs = f"Avancement: {label_avancement} | Lieu: {infos['Lieu']} | Obs: {note_obs}"
                 
-                btn_envoyer = st.form_submit_button("🚀 ENREGISTRER DANS LA BASE DE DONNÉES", use_container_width=True)
+                # 1. Envoi Supabase
+                data_db = {
+                    "enseignant": enseignant_sel,
+                    "matiere": matiere_sel,
+                    "promotion": promo_sel,
+                    "absents": texte_absents,
+                    "note_etudiant": full_obs
+                }
+                supabase.table("suivi_assiduite_2026").insert(data_db).execute()
+                
+                st.success("✅ Données enregistrées dans Supabase.")
 
-            if btn_envoyer:
-                if code_verif == "2026":
-                    try:
-                        # On concatène les infos de temps et de lieu dans la note ou des colonnes si vous les créez
-                        texte_absents = ", ".join(absents_sel) if absents_sel else "Aucun absent"
-                        
-                        # Construction du pack de données pour Supabase
-                        data_payload = {
-                            "enseignant": enseignant_sel,
-                            "matiere": matiere_sel,
-                            "promotion": promo_sel,
-                            "absents": texte_absents,
-                            "note_etudiant": f"Date: {date_reelle} | Prévu: {jour_auto} {horaire_auto} | Lieu: {lieu_auto} | Obs: {note_obs}"
-                        }
-                        
-                        # Envoi vers la table dédiée
-                        supabase.table("suivi_assiduite_2026").insert(data_payload).execute()
-                        
-                        st.success(f"✅ L'appel pour {matiere_sel} a été enregistré avec succès !")
-                        st.balloons()
-                    except Exception as e:
-                        st.error(f"❌ Erreur lors de l'enregistrement : {e}")
-                else:
-                    st.error("⚠️ Code de validation incorrect. Les données n'ont pas été envoyées.")
-        else:
-            st.warning(f"⚠️ Aucun étudiant trouvé pour la promotion '{promo_sel}' dans votre fichier Excel.")
+                # 2. Création du DataFrame pour export
+                report_data = {
+                    "Date": [date_reelle],
+                    "Enseignant": [enseignant_sel],
+                    "Matière": [matiere_sel],
+                    "Promotion": [promo_sel],
+                    "Avancement": [label_avancement],
+                    "Lieu": [infos['Lieu']],
+                    "Absents": [texte_absents],
+                    "Observations": [note_obs]
+                }
+                df_report = pd.DataFrame(report_data)
+
+                # --- BOUTONS DE TÉLÉCHARGEMENT ---
+                st.divider()
+                st.write("### 📥 Télécharger le rapport de séance")
+                col_ex, col_ht = st.columns(2)
+                
+                # Excel
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df_report.to_excel(writer, index=False, sheet_name='Rapport')
+                excel_data = output.getvalue()
+                col_ex.download_button(label="📥 Télécharger EXCEL", data=excel_data, file_name=f"Rapport_{promo_sel}_{date_reelle}.xlsx")
+
+                # HTML
+                html_report = df_report.to_html(index=False).replace('<table', '<table style="width:100%; border:1px solid black;"')
+                col_ht.download_button(label="📄 Télécharger HTML", data=html_report, file_name=f"Rapport_{promo_sel}_{date_reelle}.html", mime="text/html")
+
+                # --- ENVOI EMAIL (MAILTO) ---
+                st.divider()
+                st.write("### 📧 Notification aux Responsables")
+                
+                subject = urllib.parse.quote(f"Rapport d'avancement et assiduité - {promo_sel}")
+                body = urllib.parse.quote(
+                    f"Bonjour,\n\nVoici le rapport du cours :\n"
+                    f"- Enseignant: {enseignant_sel}\n"
+                    f"- Matière: {matiere_sel}\n"
+                    f"- Promotion: {promo_sel}\n"
+                    f"- État d'avancement: {label_avancement}\n"
+                    f"- Absents: {texte_absents}\n"
+                    f"- Observations: {note_obs}\n\nCordialement."
+                )
+                
+                # Adresses fictives à remplacer par les vraies
+                mail_to = "chef-adjoint@univ-sba.dz,responsable-formation@univ-sba.dz"
+                mailto_link = f"mailto:{mail_to}?subject={subject}&body={body}"
+                
+                st.markdown(f'<a href="{mailto_link}" style="display: inline-block; padding: 12px 20px; background-color: #D4442E; color: white; text-align: center; text-decoration: none; font-size: 16px; border-radius: 8px;">📧 Envoyer par Email au Chef de Dépt & Responsable</a>', unsafe_allow_html=True)
+                
+            else:
+                st.error("⚠️ Code de validation incorrect.")
 else:
-    st.write("👋 Veuillez sélectionner votre nom d'enseignant pour afficher vos cours.")
+    st.info("Sélectionnez un enseignant pour commencer.")
