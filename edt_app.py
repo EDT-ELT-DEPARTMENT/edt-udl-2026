@@ -798,7 +798,7 @@ with tab_t6:
 # 📋 VUE ADMIN : PROMOTION
 # ============================================================
 
-elif is_admin and mode_view == "Promotion":
+if is_admin and mode_view == "Promotion":
     st.subheader("📋 Vue par Promotion")
 
     promos_dispo = sorted(df["Promotion"].unique())
@@ -841,3 +841,4 @@ elif is_admin and mode_view == "Promotion":
         grid_p.columns = jours_list
 
         st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
+
