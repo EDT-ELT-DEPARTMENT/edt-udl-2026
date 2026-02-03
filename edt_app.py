@@ -774,14 +774,16 @@ if df is not None:
         st.subheader("📋 Vue par Promotion")
         promos_dispo = sorted(df["Promotion"].unique())
         p_sel = st.selectbox("Choisir Promotion :", promos_dispo)
-        df_p = df[df["Promotion"] == p_sel]        
-            def fmt_p(rows):
-                items = []
-                for _, r in rows.iterrows():
-                    nat = '📘 COURS' if 'COURS' in str(r['Code']).upper() else '📗 TD' if 'TD' in str(r['Code']).upper() else '📙 TP'
-                    items.append(f"<b>{nat} : {r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>")
-                return "<div class='separator'></div>".join(items)
-                
+        df_p = df[df["Promotion"] == p_sel]
+        
+        def fmt_p(rows):
+            items = []
+            for _, r in rows.iterrows():
+                nat = '📘 COURS' if 'COURS' in str(r['Code']).upper() else '📗 TD' if 'TD' in str(r['Code']).upper() else '📙 TP'
+                items.append(f"<b>{nat} : {r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>")
+            return "<div class='separator'></div>".join(items)
+        
+        if not df_p.empty:
             grid_p = df_p.groupby(['h_norm', 'j_norm']).apply(fmt_p, include_groups=False).unstack('j_norm')
             grid_p = grid_p.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
             grid_p.index = horaires_list
@@ -1136,6 +1138,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
