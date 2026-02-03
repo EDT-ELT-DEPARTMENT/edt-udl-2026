@@ -657,15 +657,15 @@ st.markdown("<div style='border-bottom: 3px solid #D4AF37; margin-bottom: 10px;'
 st.markdown(f"<div class='portal-badge'>MODE ACTIF : {portail.upper()}</div>", unsafe_allow_html=True)
 
 # --- LOGIQUE PRINCIPALE ---
-if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
-        # --- INITIALISATION DE LA CIBLE ---
+# --- DÉBUT DU BLOC ENSEIGNANT / PERSONNEL ---
+    if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
         if mode_view == "Personnel":
             cible = user['nom_officiel']
         else:
             enseignants_liste = sorted(df["Enseignants"].unique())
             cible = st.selectbox("Sélectionner l'Enseignant :", enseignants_liste)
         
-        # --- FILTRAGE DES DONNÉES ---
+        # Préparation des données pour la cible choisie
         df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
         
         def get_nature(code):
@@ -675,7 +675,6 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
             if "TP" in val: return "📙 TP"
             return "📑"
 
-        # Calculs préparatoires
         df_f['Type'] = df_f['Code'].apply(lambda x: "COURS" if "COURS" in str(x).upper() else ("TD" if "TD" in str(x).upper() else "TP"))
         df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
         df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
@@ -685,25 +684,16 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
         h_sup = charge_reelle - charge_reg
         color_sup = "#e74c3c" if h_sup > 0 else "#27ae60"
 
-        # --- CRÉATION DES ONGLETS ---
+        # --- ONGLETS ---
         tab_view, tab_t6 = st.tabs(["📅 Mon Emploi du Temps", "📝 Suivi de Séance (T6)"])
 
         with tab_view:
             st.markdown(f"### 📊 Bilan Horaire : {cible}")
             
-            st.markdown(f"""<div class="stat-container">
-                <div class="stat-box bg-cours">📘 {len(df_u[df_u['Type'] == 'COURS'])} Séances Cours</div>
-                <div class="stat-box bg-td">📗 {len(df_u[df_u['Type'] == 'TD'])} Séances TD</div>
-                <div class="stat-box bg-tp">📙 {len(df_u[df_u['Type'] == 'TP'])} Séances TP</div>
-            </div>""", unsafe_allow_html=True)
-
             c_m1, c_m2, c_m3 = st.columns(3)
-            with c_m1: 
-                st.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
-            with c_m2: 
-                st.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
-            with c_m3: 
-                st.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup.<br><h2 style='color:{color_sup};'>{h_sup} h</h2></div>", unsafe_allow_html=True)
+            with c_m1: st.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
+            with c_m2: st.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
+            with c_m3: st.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup.<br><h2 style='color:{color_sup};'>{h_sup} h</h2></div>", unsafe_allow_html=True)
 
             def format_case(rows):
                 items = []
@@ -718,65 +708,35 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
                 grid.index = [map_h.get(i, i) for i in grid.index]
                 grid.columns = [map_j.get(c, c) for c in grid.columns]
                 st.write(grid.to_html(escape=False), unsafe_allow_html=True)
-            else:
-                st.info("Aucun cours trouvé pour cet enseignant.")
 
         with tab_t6:
             st.subheader("📝 Registre Numérique de Séance (T6)")
-            st.info(f"Enseignant : **{cible}** | Plateforme de gestion des EDTs-S2-2026")
+            st.info(f"Enseignant : **{cible}** | S2-2026")
             
             pwd_t6 = st.text_input("🔑 Code Session :", type="password", key="secu_t6")
             if pwd_t6 == "2026":
-                mat_t6 = st.selectbox("📚 Séance de :", sorted(df_f["Enseignements"].unique()))
-                promo_t6 = df_f[df_f["Enseignements"] == mat_t6]["Promotion"].iloc[0]
-                
-                if os.path.exists("Liste des étudiants-2025-2026.xlsx"):
-                    df_et = pd.read_excel("Liste des étudiants-2025-2026.xlsx")
-                    df_ma_promo = df_et[df_et["Promotion"] == promo_t6].copy()
-                    df_ma_promo["Full"] = df_ma_promo["Nom"].str.upper() + " " + df_ma_promo["Prénom"]
-                    liste_et = sorted(df_ma_promo["Full"].tolist())
+                if not df_f.empty:
+                    mat_t6 = st.selectbox("📚 Séance de :", sorted(df_f["Enseignements"].unique()))
+                    promo_t6 = df_f[df_f["Enseignements"] == mat_t6]["Promotion"].iloc[0]
                     
-                    absents = st.multiselect("🚫 Étudiants Absents :", options=liste_et)
-                    c_n1, c_n2 = st.columns(2)
-                    with c_n1: et_note = st.selectbox("⭐ Noter un étudiant :", [""] + liste_et)
-                    with c_n2: val_note = st.text_input("Note :")
-
-                    if st.button("🚀 Valider & Enregistrer la séance", use_container_width=True):
+                    if st.button("🚀 Valider la séance (Supabase)", use_container_width=True):
                         try:
-                            # Table suivi général
-                            data_t6 = {
-                                "enseignant": cible, "matiere": mat_t6, "promotion": promo_t6,
-                                "absents": ", ".join(absents), "note_etudiant": val_note,
-                                "etudiant_note": et_note, "date_heure": datetime.now().strftime("%Y-%m-%d %H:%M")
-                            }
-                            supabase.table("suivi_assiduite_2026").insert(data_t6).execute()
-                            st.success("✅ Données enregistrées !")
-                        except Exception as e: st.error(f"Erreur Suivi : {e}")
-
-                    st.divider()
-                    st.subheader("📤 Finalisation & Rapport Officiel")
-                    
-                    col_dl1, col_dl2, col_send = st.columns(3)
-                    with col_send:
-                        if st.button("📧 Envoyer au Département", type="primary", use_container_width=True):
-                            try:
-                                payload_report = {
-                                    "expediteur": cible,
-                                    "promotion": promo_t6,
-                                    "matiere": mat_t6,
-                                    "absents": ", ".join(absents) if absents else "Aucun absent",
-                                    "evaluation": f"{et_note}: {val_note}" if et_note else "Néant",
-                                    "titre_plateforme": "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
-                                }
-                                supabase.table("rapports_assiduite").insert(payload_report).execute()
-                                st.success("📩 Rapport transmis officiellement !")
-                                st.balloons()
-                            except Exception as e:
-                                st.error(f"Échec : {e}")
+                            payload = {"expediteur": cible, "promotion": promo_t6, "matiere": mat_t6}
+                            supabase.table("rapports_assiduite").insert(payload).execute()
+                            st.success("✅ Séance enregistrée !")
+                        except Exception as e:
+                            st.error(f"Erreur : {e}")
                 else:
-                    st.error("Fichier Excel des étudiants introuvable.")
+                    st.warning("Aucune donnée disponible pour cet enseignant.")
             else:
                 st.warning("Veuillez saisir le code '2026'.")
+
+    # --- FIN DU BLOC ENSEIGNANT / DÉBUT DU BLOC ADMIN ---
+    # CE ELIF DOIT ÊTRE ALIGNÉ SUR LE PREMIER "IF" (LIGNE 662)
+    elif is_admin and mode_view == "Promotion":
+        st.subheader("📋 Vue par Promotion")
+        p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
+        # ... suite de votre code promotion ...
 
     # --- SORTIE DU BLOC ENSEIGNANT / ENTREE DANS LE BLOC ADMIN ---
     
@@ -1148,6 +1108,7 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
