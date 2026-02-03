@@ -758,6 +758,64 @@ if df is not None:
                             }
                             supabase.table("suivi_assiduite_2026").insert(data_t6).execute()
                             st.success("Données enregistrées !")
+                            # --- NOUVELLE SECTION : EXPORTS ET RAPPORT ---
+                        st.divider()
+                        st.subheader("📤 Finalisation & Rapport Officiel")
+                        
+                        # Création des données du rapport
+                        report_data = {
+                            "Matière": [mat_t6],
+                            "Enseignant": [cible],
+                            "Promotion": [promo_t6],
+                            "Date": [datetime.now().strftime("%d/%m/%Y %H:%M")],
+                            "Liste des Absents": [", ".join(absents)],
+                            "Note attribuée": [f"{val_note} à {et_note}" if et_note else "Néant"]
+                        }
+                        df_report = pd.DataFrame(report_data)
+
+                        col_dl1, col_dl2, col_send = st.columns(3)
+
+                        with col_dl1:
+                            # Téléchargement EXCEL
+                            buf = io.BytesIO()
+                            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                                df_report.to_excel(writer, index=False, sheet_name='Rapport_Assiduité')
+                            st.download_button(
+                                label="📥 Télécharger EXCEL",
+                                data=buf.getvalue(),
+                                file_name=f"Rapport_T6_{promo_t6}_{mat_t6}.xlsx",
+                                mime="application/vnd.ms-excel",
+                                use_container_width=True
+                            )
+
+                        with col_dl2:
+                            # Téléchargement HTML
+                            html_report = df_report.to_html(classes='table table-striped', index=False)
+                            st.download_button(
+                                label="🌐 Télécharger HTML",
+                                data=html_report,
+                                file_name=f"Rapport_T6_{promo_t6}_{mat_t6}.html",
+                                mime="text/html",
+                                use_container_width=True
+                            )
+
+                        with col_send:
+                            # ENVOI AU CHEF DE DÉPARTEMENT / RESPONSABLE
+                            if st.button("📧 Envoyer Rapport Détaillé", type="primary", use_container_width=True):
+                                try:
+                                    # Préparation du rapport pour Supabase (Table Rapports_Officiels)
+                                    payload_report = {
+                                        "expediteur": cible,
+                                        "promotion": promo_t6,
+                                        "matiere": mat_t6,
+                                        "contenu_html": html_report,
+                                        "destinataires": "Chef de Dept Adjoint, Responsable Formation",
+                                        "statut": "Envoyé"
+                                    }
+                                    supabase.table("rapports_assiduite").insert(payload_report).execute()
+                                    st.success("📩 Rapport transmis officiellement à la direction.")
+                                except Exception as e:
+                                    st.error("L'envoi a échoué. Vérifiez la table 'rapports_assiduite'.")
                     else:
                         st.error("Fichier Excel des étudiants introuvable.")
                 else:
@@ -1151,6 +1209,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
