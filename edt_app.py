@@ -737,7 +737,8 @@ with tab_t6:
             st.warning("Aucune donnée disponible pour cet enseignant.")
     else:
         st.warning("Veuillez saisir le code '2026'.")
-    elif is_admin and mode_view == "Promotion":
+    
+elif is_admin and mode_view == "Promotion":
     st.subheader("📋 Vue par Promotion")
     
     # Récupération des promotions uniques et triées
@@ -1106,4 +1107,5 @@ elif portail == "🎓 Portail Étudiants":
                 df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                 st.success("✅ Modifications enregistrées !"); st.rerun()
             except Exception as e: st.error(f"Erreur : {e}")
+
 
