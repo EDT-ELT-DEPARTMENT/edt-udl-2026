@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 
-# --- CONFIGURATION & TITRE ---
+# --- CONFIGURATION ---
 st.set_page_config(page_title="Assiduité ELT", layout="wide")
 TITRE = "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
 
@@ -11,61 +11,71 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# --- CHARGEMENT DES DONNÉES EXCEL (Depuis GitHub) ---
 @st.cache_data
 def load_data():
-    # Chargement des matières et enseignants
+    # Chargement de l'EDT pour les profs/matières
     df_edt = pd.read_excel("DATA-ASSUIDUITE-2026.xlsx")
-    # Chargement de la liste des étudiants
+    # Chargement des étudiants
     df_etudiants = pd.read_excel("Liste des étudiants-2025-2026.xlsx")
-    # Création d'une colonne Nom Complet
     df_etudiants['Nom_Complet'] = df_etudiants['Nom'].astype(str) + " " + df_etudiants['Prénom'].astype(str)
     return df_edt, df_etudiants
 
 df_edt, df_etudiants = load_data()
 
-# --- INTERFACE ---
 st.markdown(f"### {TITRE}")
 st.header("📝 Registre d'Assiduité Numérique")
 
-with st.form("form_assiduite"):
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Liste déroulante des enseignants depuis votre Excel
-        liste_profs = sorted(df_edt['Enseignants'].dropna().unique())
-        enseignant_sel = st.selectbox("👤 Enseignant :", liste_profs)
-        
-        # Liste des promotions
-        liste_promos = sorted(df_etudiants['Promotion'].dropna().unique())
-        promo_sel = st.selectbox("🎓 Promotion :", liste_promos)
+# --- LOGIQUE DE FILTRAGE HORS FORMULAIRE POUR RÉACTIVITÉ ---
 
-    with col2:
-        # Liste des matières
-        liste_matieres = sorted(df_edt['Enseignements'].dropna().unique())
-        matiere_sel = st.selectbox("📖 Matière :", liste_matieres)
-        
-        date_jour = st.date_input("📅 Date de la séance :")
+col1, col2 = st.columns(2)
 
-    st.divider()
+with col1:
+    # 1. Sélection Enseignant
+    liste_profs = sorted(df_edt['Enseignants'].dropna().unique())
+    enseignant_sel = st.selectbox("👤 Choisir Enseignant :", ["-- Sélectionner --"] + liste_profs)
+
+with col2:
+    # 2. Filtrage des Matières selon l'Enseignant choisi
+    if enseignant_sel != "-- Sélectionner --":
+        matieres_dispo = sorted(df_edt[df_edt['Enseignants'] == enseignant_sel]['Enseignements'].unique())
+    else:
+        matieres_dispo = []
+    matiere_sel = st.selectbox("📖 Matière (Filtrée) :", matieres_dispo)
+
+col3, col4 = st.columns(2)
+
+with col3:
+    # 3. Sélection Promotion
+    liste_promos = sorted(df_etudiants['Promotion'].dropna().unique())
+    promo_sel = st.selectbox("🎓 Promotion :", ["-- Sélectionner --"] + liste_promos)
+
+with col4:
+    date_jour = st.date_input("📅 Date :")
+
+st.divider()
+
+# --- SÉLECTION DES ÉTUDIANTS ---
+if promo_sel != "-- Sélectionner --":
+    # Filtrer les étudiants de la promo choisie
+    liste_etudiants_promo = sorted(df_etudiants[df_etudiants['Promotion'] == promo_sel]['Nom_Complet'].tolist())
     
-    # --- SÉLECTION DES ABSENTS ---
-    # On filtre les étudiants selon la promotion choisie
-    etudiants_promo = df_etudiants[df_etudiants['Promotion'] == promo_sel]['Nom_Complet'].tolist()
-    absents_sel = st.multiselect("❌ Sélectionner les étudiants ABSENTS :", etudiants_promo)
-    
+    # Multiselect qui s'affiche seulement si une promo est choisie
+    absents_sel = st.multiselect(f"❌ Sélectionner les étudiants ABSENTS de {promo_sel} :", liste_etudiants_promo)
+else:
+    st.info("💡 Veuillez sélectionner une promotion pour afficher la liste des étudiants.")
+    absents_sel = []
+
+# --- VALIDATION DANS UN FORMULAIRE ---
+with st.form("validation_appel"):
     note_obs = st.text_area("🗒️ Observations / Thème de la séance :")
-    
     code_verif = st.text_input("🔑 Code Validation :", type="password")
     
     submit = st.form_submit_button("🚀 Valider l'appel et enregistrer", use_container_width=True)
 
 if submit:
-    if code_verif == "2026":
+    if code_verif == "2026" and enseignant_sel != "-- Sélectionner --" and promo_sel != "-- Sélectionner --":
         try:
-            # Préparation des données pour Supabase
-            # On transforme la liste des absents en texte séparé par des virgules
-            liste_absents_txt = ", ".join(absents_sel)
+            liste_absents_txt = ", ".join(absents_sel) if absents_sel else "Aucun absent"
             
             data = {
                 "enseignant": enseignant_sel,
@@ -76,8 +86,8 @@ if submit:
             }
             
             supabase.table("suivi_assiduite_2026").insert(data).execute()
-            st.success(f"✅ Appel enregistré ! {len(absents_sel)} étudiant(s) marqué(s) absent(s).")
+            st.success(f"✅ Appel enregistré pour {matiere_sel} ({promo_sel}).")
         except Exception as e:
-            st.error(f"Erreur lors de l'envoi : {e}")
+            st.error(f"Erreur : {e}")
     else:
-        st.error("❌ Code incorrect.")
+        st.error("❌ Veuillez remplir tous les champs et vérifier le code.")
