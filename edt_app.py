@@ -734,10 +734,7 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
                     st.warning("Aucune donnée disponible pour cet enseignant.")
             else:
                 st.warning("Veuillez saisir le code '2026'.")
-
-    # --- FIN DU BLOC ENSEIGNANT / DÉBUT DU BLOC ADMIN ---
-    # CE ELIF DOIT ÊTRE ALIGNÉ SUR LE PREMIER "IF" (LIGNE 662)
-    
+      
     elif is_admin and mode_view == "Promotion":
         st.subheader("📋 Vue par Promotion")
         
@@ -1112,6 +1109,7 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
