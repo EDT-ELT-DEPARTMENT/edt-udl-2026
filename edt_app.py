@@ -737,14 +737,17 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
 
     # --- FIN DU BLOC ENSEIGNANT / DÉBUT DU BLOC ADMIN ---
     # CE ELIF DOIT ÊTRE ALIGNÉ SUR LE PREMIER "IF" (LIGNE 662)
-    elif is_admin and mode_view == "Promotion":
-        st.subheader("📋 Vue par Promotion")
-        p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
     
     elif is_admin and mode_view == "Promotion":
         st.subheader("📋 Vue par Promotion")
+        
+        # Récupération des promotions uniques et triées
         promos_dispo = sorted(df["Promotion"].unique())
+        
+        # Widget de sélection de la promotion
         p_sel = st.selectbox("Choisir Promotion :", promos_dispo)
+        
+        # Filtrage du DataFrame pour la promotion sélectionnée
         df_p = df[df["Promotion"] == p_sel]
         
         def fmt_p(rows):
@@ -1109,6 +1112,7 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
