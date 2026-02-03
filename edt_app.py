@@ -657,16 +657,20 @@ st.markdown("<div style='border-bottom: 3px solid #D4AF37; margin-bottom: 10px;'
 st.markdown(f"<div class='portal-badge'>MODE ACTIF : {portail.upper()}</div>", unsafe_allow_html=True)
 
 # --- LOGIQUE PRINCIPALE ---
+
 # --- DÉBUT DU BLOC ENSEIGNANT / PERSONNEL ---
-    if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
-        if mode_view == "Personnel":
-            cible = user['nom_officiel']
-        else:
-            enseignants_liste = sorted(df["Enseignants"].unique())
-            cible = st.selectbox("Sélectionner l'Enseignant :", enseignants_liste)
-        
-        # Préparation des données pour la cible choisie
-        df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
+if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
+    if mode_view == "Personnel":
+        # Récupère le nom de l'utilisateur connecté
+        cible = user['nom_officiel']
+    else:
+        # Affiche la liste déroulante pour l'administrateur
+        enseignants_liste = sorted(df["Enseignants"].unique())
+        cible = st.selectbox("Sélectionner l'Enseignant :", enseignants_liste)
+    
+    # Préparation des données filtrées pour l'enseignant sélectionné
+    # Utilisation de .copy() pour éviter les avertissements de modification sur vue
+    df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
         
         def get_nature(code):
             val = str(code).upper()
@@ -1108,6 +1112,7 @@ st.markdown(f"<div class='portal-badge'>MODE ACTIF : {portail.upper()}</div>", u
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
