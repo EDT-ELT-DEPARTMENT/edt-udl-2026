@@ -660,54 +660,53 @@ st.markdown(f"<div class='portal-badge'>MODE ACTIF : {portail.upper()}</div>", u
 if df is not None:
     if portail == "📖 Emploi du Temps":
         if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
-            if mode_view == "Personnel":
-                cible = user['nom_officiel']
-            else:
-                cible = st.selectbox("Sélectionner l'Enseignant :", sorted(df["Enseignants"].unique()))
-            
-            df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
-            
-            def get_nature(code):
-                val = str(code).upper()
-                if "COURS" in val: return "📘 COURS"
-                if "TD" in val: return "📗 TD"
-                if "TP" in val: return "📙 TP"
-                return "📑"
+        if mode_view == "Personnel":
+            cible = user['nom_officiel']
+        else:
+            cible = st.selectbox("Sélectionner l'Enseignant :", sorted(df["Enseignants"].unique()))
+        
+        # Filtrage et préparation des données
+        df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
+        
+        def get_nature(code):
+            val = str(code).upper()
+            if "COURS" in val: return "📘 COURS"
+            if "TD" in val: return "📗 TD"
+            if "TP" in val: return "🧡 TP"
+            return "📑"
 
-            df_f['Type'] = df_f['Code'].apply(lambda x: "COURS" if "COURS" in str(x).upper() else ("TD" if "TD" in str(x).upper() else "TP"))
-            df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
-            df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
-            
+        df_f['Type'] = df_f['Code'].apply(lambda x: "COURS" if "COURS" in str(x).upper() else ("TD" if "TD" in str(x).upper() else "TP"))
+        df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
+        df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
+        
+        charge_reelle = df_u['h_val'].sum()
+        charge_reg = 3.0 if poste_sup else 6.0
+        h_sup = charge_reelle - charge_reg
+        color_sup = "#e74c3c" if h_sup > 0 else "#27ae60"
+
+        # --- CRÉATION DES ONGLETS (DOIVENT ÊTRE ALIGNÉS SUR CIBLE) ---
+        tab_view, tab_t6 = st.tabs(["📅 Mon Emploi du Temps", "📝 Suivi de Séance (T6)"])
+
+        with tab_view:
             st.markdown(f"### 📊 Bilan Horaire : {cible}")
+            
+            # Affichage des statistiques visuelles
             st.markdown(f"""<div class="stat-container">
                 <div class="stat-box bg-cours">📘 {len(df_u[df_u['Type'] == 'COURS'])} Séances Cours</div>
                 <div class="stat-box bg-td">📗 {len(df_u[df_u['Type'] == 'TD'])} Séances TD</div>
                 <div class="stat-box bg-tp">📙 {len(df_u[df_u['Type'] == 'TP'])} Séances TP</div>
             </div>""", unsafe_allow_html=True)
 
-            c1, c2, c3 = st.columns(3)
-            charge_reelle = df_u['h_val'].sum()
-            charge_reg = 3.0 if poste_sup else 6.0
-            # --- CALCUL DES HEURES SUP ---
-            h_sup = charge_reelle - charge_reg
-            color_sup = "#e74c3c" if h_sup > 0 else "#27ae60"
-
-            # --- CRÉATION DES ONGLETS (NIVEAU ENSEIGNANT) ---
-        tab_view, tab_t6 = st.tabs(["📅 Mon Emploi du Temps", "📝 Suivi de Séance (T6)"])
-
-        with tab_view:
-            st.markdown(f"### 📊 Bilan Horaire : {cible}")
-            
             # Affichage des Metric Cards
             c_m1, c_m2, c_m3 = st.columns(3)
-            with c_m1: st.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
-            with c_m2: st.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
-            
-            h_sup = charge_reelle - charge_reg
-            color_sup = "#e74c3c" if h_sup > 0 else "#27ae60"
-            with c_m3: st.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup.<br><h2 style='color:{color_sup};'>{h_sup} h</h2></div>", unsafe_allow_html=True)
+            with c_m1: 
+                st.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
+            with c_m2: 
+                st.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
+            with c_m3: 
+                st.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup.<br><h2 style='color:{color_sup};'>{h_sup} h</h2></div>", unsafe_allow_html=True)
 
-            # --- DÉFINITION DE LA FONCTION AVANT L'APPEL ---
+            # Définition de la fonction de formatage
             def format_case(rows):
                 items = []
                 for _, r in rows.iterrows():
@@ -715,13 +714,15 @@ if df is not None:
                     items.append(txt)
                 return "<div class='separator'></div>".join(items)
 
-            # --- APPEL DE LA FONCTION ---
+            # Affichage de la grille EDT
             if not df_f.empty:
                 grid = df_f.groupby(['h_norm', 'j_norm']).apply(format_case, include_groups=False).unstack('j_norm')
                 grid = grid.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
                 grid.index = [map_h.get(i, i) for i in grid.index]
                 grid.columns = [map_j.get(c, c) for c in grid.columns]
                 st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+            else:
+                st.info("Aucun cours trouvé pour cet enseignant.")
 
         with tab_t6:
             st.subheader("📝 Registre Numérique de Séance (T6)")
@@ -1150,6 +1151,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
