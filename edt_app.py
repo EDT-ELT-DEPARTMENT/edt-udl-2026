@@ -760,15 +760,17 @@ if df is not None:
                 grid.columns = [map_j.get(c, c) for c in grid.columns]
                 st.write(grid.to_html(escape=False), unsafe_allow_html=True)
 
-        with tab_t6:
+       with tab_t6:
             st.subheader("📝 Registre Numérique de Séance (T6)")
             st.info(f"Enseignant : **{cible}** | Plateforme de gestion des EDTs-S2-2026")
             
             pwd_t6 = st.text_input("🔑 Code Session :", type="password", key="secu_t6")
             if pwd_t6 == "2026":
+                # Formulaire T6
                 mat_t6 = st.selectbox("📚 Séance de :", sorted(df_f["Enseignements"].unique()))
                 promo_t6 = df_f[df_f["Enseignements"] == mat_t6]["Promotion"].iloc[0]
                 
+                # Lecture de la liste des étudiants
                 if os.path.exists("Liste des étudiants-2025-2026.xlsx"):
                     df_et = pd.read_excel("Liste des étudiants-2025-2026.xlsx")
                     df_ma_promo = df_et[df_et["Promotion"] == promo_t6].copy()
@@ -778,15 +780,21 @@ if df is not None:
                     absents = st.multiselect("🚫 Étudiants Absents :", options=liste_et)
                     
                     c_n1, c_n2 = st.columns(2)
-                    with c_n1: et_note = st.selectbox("⭐ Noter un étudiant :", [""] + liste_et)
-                    with c_n2: val_note = st.text_input("Note :")
+                    with c_n1: 
+                        et_note = st.selectbox("⭐ Noter un étudiant :", [""] + liste_et)
+                    with c_n2: 
+                        val_note = st.text_input("Note :")
 
                     if st.button("🚀 Valider & Enregistrer la séance", use_container_width=True):
                         try:
                             data_t6 = {
-                                "enseignant": cible, "matiere": mat_t6, "promotion": promo_t6,
-                                "absents": ", ".join(absents), "note_etudiant": val_note,
-                                "etudiant_note": et_note, "date_heure": datetime.now().strftime("%Y-%m-%d %H:%M")
+                                "enseignant": cible, 
+                                "matiere": mat_t6, 
+                                "promotion": promo_t6,
+                                "absents": ", ".join(absents), 
+                                "note_etudiant": val_note,
+                                "etudiant_note": et_note, 
+                                "date_heure": datetime.now().strftime("%Y-%m-%d %H:%M")
                             }
                             supabase.table("suivi_assiduite_2026").insert(data_t6).execute()
                             st.success("✅ Données enregistrées dans le suivi global !")
@@ -798,7 +806,9 @@ if df is not None:
                     
                     # Préparation du DataFrame pour l'export
                     report_data = {
-                        "Matière": [mat_t6], "Enseignant": [cible], "Promotion": [promo_t6],
+                        "Matière": [mat_t6], 
+                        "Enseignant": [cible], 
+                        "Promotion": [promo_t6],
                         "Date": [datetime.now().strftime("%d/%m/%Y %H:%M")],
                         "Liste des Absents": [", ".join(absents)],
                         "Note attribuée": [f"{val_note} à {et_note}" if et_note else "Néant"]
@@ -806,6 +816,7 @@ if df is not None:
                     df_report = pd.DataFrame(report_data)
 
                     col_dl1, col_dl2, col_send = st.columns(3)
+                    
                     with col_dl1:
                         buf = io.BytesIO()
                         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
@@ -820,7 +831,9 @@ if df is not None:
                         if st.button("📧 Envoyer au Département", type="primary", use_container_width=True):
                             try:
                                 payload_report = {
-                                    "expediteur": cible, "promotion": promo_t6, "matiere": mat_t6,
+                                    "expediteur": cible, 
+                                    "promotion": promo_t6, 
+                                    "matiere": mat_t6,
                                     "absents": ", ".join(absents),
                                     "evaluation": f"{et_note}: {val_note}" if et_note else "Néant",
                                     "titre_plateforme": "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
@@ -833,16 +846,18 @@ if df is not None:
                 else:
                     st.error("Fichier Excel des étudiants introuvable.")
             else:
-                    st.warning("Veuillez saisir le code '2026' pour accéder au formulaire.")
-            
-            # --- FIN DU BLOC ONGLET T6 ---
-        
-        # --- FIN DU BLOC ENSEIGNANT (IMPORTANT : s'aligner sur le if portail...) ---
+                st.warning("Veuillez saisir le code '2026' pour accéder au formulaire.")
 
+    # --- SORTIE DU BLOC ENSEIGNANT / ENTREE DANS LE BLOC ADMIN ---
+    
     elif is_admin and mode_view == "Promotion":
         st.subheader("📋 Vue par Promotion")
-        p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
-            df_p = df[df["Promotion"] == p_sel]
+        promos_dispo = sorted(df["Promotion"].unique())
+        p_sel = st.selectbox("Choisir Promotion :", promos_dispo)
+        df_p = df[df["Promotion"] == p_sel]
+        
+        # Affichage du tableau EDT pour la promotion
+        # (votre code d'affichage grid_p ici...)
             
             def fmt_p(rows):
                 items = []
@@ -1205,6 +1220,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
