@@ -983,7 +983,7 @@ if df is not None:
                             msg = MIMEMultipart()
                             msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
                             msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
-                            corps_html = f"<html><body><h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2><p>Sallem,<p>Veuillez recevoir votre emploie du temps du semestre 02.</p></p>{df_mail.to_html(index=False, border=1, justify='center')}<br><p>Cordialement.</p><p><b>Service d'enseignement du département d'électrotechnique.</b></p></body></html>"
+                            corps_html = f"<html><body><h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2><p>Sallem, Veuillez recevoir votre emploie du temps du semestre 02</p>{df_mail.to_html(index=False, border=1, justify='center')}<br><p>Cordialement.</p><p><b>Service d'enseignement du département d'électrotechnique.</b></p></body></html>"
                             msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
                             supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
                     server.quit(); st.success("✅ Envoi groupé terminé !"); st.rerun()
@@ -1078,6 +1078,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
