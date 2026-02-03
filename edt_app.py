@@ -740,9 +740,6 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
     elif is_admin and mode_view == "Promotion":
         st.subheader("📋 Vue par Promotion")
         p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
-        # ... suite de votre code promotion ...
-
-    # --- SORTIE DU BLOC ENSEIGNANT / ENTREE DANS LE BLOC ADMIN ---
     
     elif is_admin and mode_view == "Promotion":
         st.subheader("📋 Vue par Promotion")
@@ -1112,6 +1109,7 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
