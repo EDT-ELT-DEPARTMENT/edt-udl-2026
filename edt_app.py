@@ -671,13 +671,13 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
     # Préparation des données filtrées pour l'enseignant sélectionné
     # Utilisation de .copy() pour éviter les avertissements de modification sur vue
     df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
-        
-        def get_nature(code):
-            val = str(code).upper()
-            if "COURS" in val: return "📘 COURS"
-            if "TD" in val: return "📗 TD"
-            if "TP" in val: return "📙 TP"
-            return "📑"
+
+    def get_nature(code):
+        val = str(code).upper()
+        if "COURS" in val: return "📘 COURS"
+        if "TD" in val: return "📗 TD"
+        if "TP" in val: return "📙 TP"
+        return "📑"
 
         df_f['Type'] = df_f['Code'].apply(lambda x: "COURS" if "COURS" in str(x).upper() else ("TD" if "TD" in str(x).upper() else "TP"))
         df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
@@ -1112,6 +1112,7 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
