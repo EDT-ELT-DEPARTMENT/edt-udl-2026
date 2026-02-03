@@ -735,7 +735,7 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
             else:
                 st.warning("Veuillez saisir le code '2026'.")
       
-    elif is_admin and mode_view == "Promotion":
+   elif is_admin and mode_view == "Promotion":
         st.subheader("📋 Vue par Promotion")
         
         # Récupération des promotions uniques et triées
@@ -1109,6 +1109,7 @@ if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
