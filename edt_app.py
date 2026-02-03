@@ -834,6 +834,7 @@ if df is not None:
                     st.error("Fichier Excel des étudiants introuvable.")
             else:
                 st.warning("Veuillez saisir le code '2026' pour accéder au formulaire.")
+        
         elif is_admin and mode_view == "Promotion":
             p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
             df_p = df[df["Promotion"] == p_sel]
@@ -1199,6 +1200,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
