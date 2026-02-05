@@ -16,7 +16,7 @@ FICHIER_EDT = "dataEDT-ELT-S2-2026.xlsx"
 FICHIER_ETUDIANTS = "Liste des étudiants-2025-2026.xlsx"
 
 # 📧 EMAILS ADMIN
-EMAIL_CHEF_DEPT = "milouafarid@gmail.com"
+EMAIL_CHEF_DEPT = "chef.department.elt.fge@gmail.com"
 EMAIL_CHEF_ADJOINT = "nass_ka@yahoo.fr"
 EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
 
@@ -258,3 +258,4 @@ with tab_hist:
 if st.sidebar.button("🚪 Déconnexion"):
     st.session_state["user_data"] = None
     st.rerun()
+
