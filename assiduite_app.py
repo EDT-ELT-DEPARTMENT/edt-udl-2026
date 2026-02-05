@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import os
 import hashlib
 import smtplib
 from datetime import datetime
@@ -8,52 +7,59 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from supabase import create_client
 
-# --- 1. CONFIGURATION ET TITRE ---
-st.set_page_config(page_title="EDT UDL 2026", layout="wide")
+# --- 1. CONFIGURATION DE LA PAGE ---
+st.set_page_config(
+    page_title="Gestion EDT - UDL SBA",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-TITRE_OFFICIEL = "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
-
-# Fichiers sources
+# --- 2. CONSTANTES ET TITRE ---
+TITRE_PLATEFORME = "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
 FICHIER_EDT = "dataEDT-ELT-S2-2026.xlsx"
 FICHIER_ETUDIANTS = "Liste des étudiants-2025-2026.xlsx"
 
-# Configuration Email Admin
-EMAIL_SENDER = "votre_email@gmail.com"  # À configurer
-EMAIL_PASSWORD = "votre_code_application" # Code 16 lettres Google
+# Configuration SMTP (Pour les rapports et récupération de code)
+EMAIL_SENDER = "votre_email@gmail.com"  
+EMAIL_PASSWORD = "votre_code_application_google" # Code à 16 lettres
 EMAIL_ADMIN = "milouafarid@gmail.com"
 
-# --- 2. CONNEXION SUPABASE ---
+# --- 3. CONNEXION SUPABASE ---
+# Assurez-vous que ces clés sont dans vos Secrets Streamlit
 URL = st.secrets["SUPABASE_URL"]
 KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(URL, KEY)
 
-# --- 3. FONCTIONS TECHNIQUES ---
+# --- 4. FONCTIONS TECHNIQUES ---
 def hash_pw(password):
+    """Crypte le mot de passe pour la comparaison"""
     return hashlib.sha256(str.encode(password)).hexdigest()
 
-def send_report_email(subject, body):
+def send_email(destinataire, sujet, corps):
+    """Envoie un email via le serveur Gmail"""
     try:
         msg = MIMEMultipart()
         msg['From'] = EMAIL_SENDER
-        msg['To'] = EMAIL_ADMIN
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
+        msg['To'] = destinataire
+        msg['Subject'] = sujet
+        msg.attach(MIMEText(corps, 'plain'))
+        
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
         server.send_message(msg)
         server.quit()
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 @st.cache_data
-def load_and_clean_data():
-    # Lecture
+def load_and_clean_all_data():
+    """Charge les fichiers Excel et nettoie les données"""
     df_e = pd.read_excel(FICHIER_EDT)
     df_s = pd.read_excel(FICHIER_ETUDIANTS)
     
-    # Nettoyage des colonnes (suppression espaces et forcçage texte)
+    # Nettoyage des noms de colonnes
     df_e.columns = [str(c).strip() for c in df_e.columns]
     df_s.columns = [str(c).strip() for c in df_s.columns]
     
@@ -64,150 +70,170 @@ def load_and_clean_data():
             
     return df_e, df_s
 
-# --- 4. CHARGEMENT DES DONNÉES ---
+# --- 5. CHARGEMENT DES DONNÉES ---
 try:
-    df_edt, df_etudiants = load_and_clean_data()
+    df_edt, df_etudiants = load_and_clean_all_data()
 except Exception as e:
-    st.error(f"Erreur de fichiers : {e}")
+    st.error(f"Erreur lors du chargement des fichiers Excel : {e}")
     st.stop()
 
-# --- 5. SYSTÈME D'AUTHENTIFICATION ---
+# --- 6. SYSTÈME D'AUTHENTIFICATION ---
 if "user_data" not in st.session_state:
     st.session_state["user_data"] = None
 
 if not st.session_state["user_data"]:
     st.markdown(f"### 🔑 Validation Enseignant")
-    email_in = st.text_input("Entrez votre Email professionnel :")
-    pass_in = st.text_input("Entrez votre mot de passe :", type="password")
+    tab_login, tab_recovery = st.tabs(["Connexion", "Code Unique oublié ?"])
     
-    if st.button("Accéder à la plateforme", use_container_width=True):
-        res = supabase.table("enseignants_auth").select("*").eq("email", email_in).eq("password_hash", hash_pw(pass_in)).execute()
-        if res.data:
-            st.session_state["user_data"] = res.data[0]
-            st.rerun()
-        else:
-            st.error("Email ou mot de passe incorrect.")
+    with tab_login:
+        email_in = st.text_input("Entrez votre Email professionnel :")
+        pass_in = st.text_input("Entrez votre mot de passe / Code Unique :", type="password")
+        
+        if st.button("Accéder à la plateforme", use_container_width=True):
+            # Vérification dans Supabase
+            res = supabase.table("enseignants_auth").select("*").eq("email", email_in).eq("password_hash", hash_pw(pass_in)).execute()
+            if res.data:
+                st.session_state["user_data"] = res.data[0]
+                st.rerun()
+            else:
+                st.error("Email ou Code Unique incorrect.")
+
+    with tab_recovery:
+        st.write("Si vous avez oublié votre code, entrez votre email pour notifier l'administration.")
+        email_recup = st.text_input("Votre Email professionnel :", key="recup_email")
+        if st.button("Envoyer une demande de réinitialisation"):
+            if email_recup:
+                succes = send_email(EMAIL_ADMIN, "DEMANDE DE RÉINITIALISATION DE CODE", f"L'enseignant {email_recup} a oublié son code d'accès.")
+                if succes:
+                    st.success("Demande envoyée à M. Miloua.")
+                else:
+                    st.error("Erreur d'envoi. Veuillez contacter l'admin directement.")
     st.stop()
 
-# --- 6. INTERFACE PRINCIPALE ---
+# --- 7. INTERFACE PRINCIPALE (Connecté) ---
 user = st.session_state["user_data"]
-st.markdown(f"**{TITRE_OFFICIEL}**")
+st.markdown(f"<div style='background-color:#003366; color:white; padding:15px; border-radius:10px; text-align:center; font-weight:bold; font-size:1.2em;'>{TITRE_PLATEFORME}</div>", unsafe_allow_html=True)
 
-# Sélection Enseignant (Pré-rempli selon le login)
+# Sélection Enseignant
 st.markdown("### 👤 1. Sélectionner l'Enseignant :")
-profs_list = sorted(df_edt['Enseignants'].unique())
-default_idx = profs_list.index(user['nom_officiel']) if user['nom_officiel'] in profs_list else 0
-enseignant_sel = st.selectbox("", profs_list, index=default_idx)
+liste_enseignants = sorted(df_edt['Enseignants'].unique())
+# On tente de présélectionner l'utilisateur connecté
+try:
+    idx_default = liste_enseignants.index(user['nom_officiel'])
+except:
+    idx_default = 0
+enseignant_sel = st.selectbox("", liste_enseignants, index=idx_default)
 
-# Onglets
-tab_saisie, tab_hist = st.tabs(["📝 Saisie Séance", "📜 Historique"])
+# --- ONGLETS ---
+tab_saisie, tab_historique = st.tabs(["📝 Saisie Séance", "📜 Historique"])
 
 with tab_saisie:
-    # Ligne 1 : Promotion et Matière
-    c1, c2 = st.columns(2)
-    with c1:
-        # On filtre les promos pour cet enseignant uniquement
-        promos_prof = df_edt[df_edt['Enseignants'] == enseignant_sel]['Promotion'].unique()
-        promo_sel = st.selectbox("🎓 Promotion (Obligatoire) :", sorted(promos_prof))
+    col_prom, col_mat = st.columns(2)
     
-    with c2:
-        # On filtre les matières pour cet enseignant et cette promo
-        mats_prof = df_edt[(df_edt['Enseignants'] == enseignant_sel) & (df_edt['Promotion'] == promo_sel)]['Enseignements'].unique()
-        matiere_sel = st.selectbox("📖 Matière (Obligatoire) :", sorted(mats_prof))
+    with col_prom:
+        promos_dispo = sorted(df_edt[df_edt['Enseignants'] == enseignant_sel]['Promotion'].unique())
+        promo_sel = st.selectbox("🎓 Promotion (Obligatoire) :", promos_dispo)
+        
+    with col_mat:
+        mats_dispo = sorted(df_edt[(df_edt['Enseignants'] == enseignant_sel) & (df_edt['Promotion'] == promo_sel)]['Enseignements'].unique())
+        matiere_sel = st.selectbox("📖 Matière (Obligatoire) :", mats_dispo)
 
-    # --- SÉCURITÉ CONTRE LE CRASH (IndexError) ---
-    search_res = df_edt[(df_edt['Enseignants'] == enseignant_sel) & (df_edt['Enseignements'] == matiere_sel)]
+    # --- AFFICHAGE INFOS SÉANCE (Anti-crash) ---
+    res_seance = df_edt[(df_edt['Enseignants'] == enseignant_sel) & (df_edt['Enseignements'] == matiere_sel) & (df_edt['Promotion'] == promo_sel)]
     
-    if not search_res.empty:
-        info = search_res.iloc[0]
+    if not res_seance.empty:
+        info = res_seance.iloc[0]
         st.info(f"📍 {info['Jours']} | {info['Horaire']} | Lieu: {info['Lieu']}")
     else:
-        st.warning("⚠️ Séance non répertoriée dans l'emploi du temps pour ce choix.")
+        st.warning("⚠️ Séance non trouvée dans l'emploi du temps pour cette sélection.")
 
     st.markdown("### 📈 État d'Avancement & Appel")
     
-    # Filtrage Etudiants
-    df_p = df_etudiants[df_etudiants['Promotion'] == promo_sel]
+    # Filtrage des étudiants
+    df_etud_promo = df_etudiants[df_etudiants['Promotion'] == promo_sel]
     
-    col_g, col_sg = st.columns(2)
-    with col_g:
-        groupe_sel = st.selectbox("👥 Sélectionner le Groupe :", sorted(df_p['Groupe'].unique()) if not df_p.empty else ["-"])
-    with col_sg:
-        df_g = df_p[df_p['Groupe'] == groupe_sel]
-        sg_sel = st.selectbox("🔢 Sélectionner le Sous-groupe :", sorted(df_g['Sous groupe'].unique()) if not df_g.empty else ["-"])
+    cg, csg = st.columns(2)
+    with cg:
+        groupes_list = sorted(df_etud_promo['Groupe'].unique()) if not df_etud_promo.empty else ["N/A"]
+        groupe_sel = st.selectbox("👥 Sélectionner le Groupe :", groupes_list)
+        
+    with csg:
+        df_etud_g = df_etud_promo[df_etud_promo['Groupe'] == groupe_sel]
+        sgroupes_list = sorted(df_etud_g['Sous groupe'].unique()) if not df_etud_g.empty else ["N/A"]
+        sg_sel = st.selectbox("🔢 Sélectionner le Sous-groupe :", sgroupes_list)
 
     # --- STATISTIQUES ---
     st.markdown("#### 📊 Statistiques de présence")
-    stat1, stat2, stat3 = st.columns(3)
+    st1, st2, st3 = st.columns(3)
+    df_etud_final = df_etud_g[df_etud_g['Sous groupe'] == sg_sel]
     
-    df_sg_final = df_g[df_g['Sous groupe'] == sg_sel]
-    
-    stat1.metric("Effectif Promotion", len(df_p))
-    stat2.metric(f"Effectif {groupe_sel}", len(df_g))
-    stat3.metric(f"Effectif {sg_sel}", len(df_sg_final))
+    st1.metric("Effectif Promotion", len(df_etud_promo))
+    st2.metric(f"Effectif {groupe_sel}", len(df_etud_g))
+    st3.metric(f"Effectif {sg_sel}", len(df_etud_final))
 
-    # --- UNITÉ ---
+    # --- DÉTAILS UNITÉ ---
     st.divider()
     cu1, cu2 = st.columns(2)
     with cu1:
-        u_type = st.selectbox("Type d'unité :", ["Chapitre", "TP Numéro", "TD Série", "Autre"])
+        type_unite = st.selectbox("Type d'unité :", ["Chapitre", "TP Numéro", "TD Série", "Examen", "Autre"])
     with cu2:
-        u_num = st.text_input("Numéro :")
+        num_unite = st.text_input("Numéro :")
 
-    # --- LISTE D'APPEL ---
+    # --- APPEL DES ÉTUDIANTS ---
     st.markdown(f"### ❌ Sélectionner les ABSENTS :")
-    st.write(f"Liste des {len(df_sg_final)} étudiants du {sg_sel}")
+    st.write(f"Liste des {len(df_etud_final)} étudiants du {sg_sel}")
     
-    # Création de l'affichage Nom Prénom
-    if not df_sg_final.empty:
-        df_sg_final['Full_Name'] = df_sg_final['Nom'].astype(str) + " " + df_sg_final['Prénom'].astype(str)
-        absents_choisis = st.multiselect("Cochez les absents :", options=df_sg_final['Full_Name'].tolist())
+    if not df_etud_final.empty:
+        df_etud_final['NomComplet'] = df_etud_final['Nom'].astype(str) + " " + df_etud_final['Prénom'].astype(str)
+        liste_absents = st.multiselect("Cochez les étudiants absents :", options=df_etud_final['NomComplet'].tolist())
     else:
-        st.write("Aucun étudiant trouvé pour ce sous-groupe.")
-        absents_choisis = []
+        st.write("Aucun étudiant trouvé.")
+        liste_absents = []
 
-    # --- VALIDATION ET EMAIL ---
+    # --- VALIDATION ---
     st.divider()
-    d1, d2 = st.columns(2)
-    with d1:
-        date_seance = st.date_input("📅 Date réelle de la séance :")
-    with d2:
-        obs = st.text_area("🗒️ Observations (Obligatoire) :")
+    cdat, cobs = st.columns(2)
+    with cdat:
+        date_reelle = st.date_input("📅 Date réelle de la séance :")
+    with cobs:
+        observations = st.text_area("🗒️ Observations (Obligatoire) :")
         
-    s1, s2 = st.columns(2)
-    with s1:
-        sign = st.text_input("✍️ Signature Nom Prénom (Obligatoire) :")
-    with s2:
-        code_v = st.text_input("🔑 Entrez votre Code Unique :", type="password")
+    csig, ccode = st.columns(2)
+    with csig:
+        nom_signature = st.text_input("✍️ Signature Nom Prénom (Obligatoire) :")
+    with ccode:
+        code_verif = st.text_input("🔑 Entrez votre Code Unique :", type="password")
 
+    # --- BOUTON FINAL ---
     if st.button("🚀 VALIDER ET ENVOYER LE RAPPORT", use_container_width=True, type="primary"):
-        if not obs or not sign or not code_v:
+        if not observations or not nom_signature or not code_verif:
             st.error("Veuillez remplir tous les champs obligatoires.")
+        elif hash_pw(code_verif) != user['password_hash']:
+            st.error("Code Unique incorrect. Signature refusée.")
         else:
-            # Préparation du rapport
-            rapport = f"""
-            RAPPORT D'ASSIDUITÉ - {TITRE_OFFICIEL}
-            -----------------------------------------
-            Enseignant : {enseignant_sel}
-            Matière : {matiere_sel}
-            Promotion : {promo_sel} | Groupe : {groupe_sel} | SG : {sg_sel}
-            Contenu : {u_type} n°{u_num}
-            Date : {date_seance}
-            
-            ABSENTS ({len(absents_choisis)}) :
-            {', '.join(absents_choisis) if absents_choisis else "Aucun"}
-            
-            Observations : {obs}
-            Signé par : {sign}
+            # Construction du rapport
+            corps_rapport = f"""
+            RAPPORT DE SÉANCE - {TITRE_PLATEFORME}
+            --------------------------------------------------
+            ENSEIGNANT : {enseignant_sel}
+            SÉANCE : {matiere_sel} ({type_unite} n°{num_unite})
+            PROMOTION : {promo_sel} | GROUPE : {groupe_sel} | SG : {sg_sel}
+            DATE : {date_reelle}
+            --------------------------------------------------
+            ABSENTS ({len(liste_absents)}) :
+            {', '.join(liste_absents) if liste_absents else 'Aucun absent'}
+            --------------------------------------------------
+            OBSERVATIONS : {observations}
+            SIGNATURE : {nom_signature}
             """
             
-            with st.spinner("Transmission à l'administration..."):
-                ok = send_report_email(f"Présence - {promo_sel} - {enseignant_sel}", rapport)
-                if ok:
-                    st.success("✅ Rapport envoyé avec succès à milouafarid@gmail.com")
+            with st.spinner("Envoi du rapport en cours..."):
+                succes_mail = send_email(EMAIL_ADMIN, f"Présence {promo_sel} - {enseignant_sel}", corps_rapport)
+                if succes_mail:
+                    st.success("✅ Séance validée et rapport envoyé à l'administration !")
                     st.balloons()
                 else:
-                    st.warning("⚠️ Rapport validé, mais l'envoi de l'email a échoué (vérifiez vos paramètres SMTP).")
+                    st.warning("⚠️ Séance enregistrée, mais l'envoi de l'email a échoué.")
 
-with tab_hist:
-    st.write("L'historique des séances sera disponible prochainement.")
+with tab_historique:
+    st.info("L'historique des séances sera chargé depuis la base de données prochainement.")
