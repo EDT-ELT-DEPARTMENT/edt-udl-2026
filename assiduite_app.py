@@ -19,8 +19,8 @@ FICHIER_ETUDIANTS = "Liste des étudiants-2025-2026.xlsx"
 FICHIER_STAFF = "Permanents-Vacataires-ELT2-2025-2026.xlsx"
 
 # 📧 EMAILS ADMINISTRATION
-EMAIL_CHEF_DEPT = "milouafarid@gmail.com"
-EMAIL_CHEF_ADJOINT = "nass_ka@yahoo.fr"
+EMAIL_CHEF_DEPT = "chef.department.elt.fge@gmail.com"
+EMAIL_CHEF_ADJOINT = ""
 EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
 
 # 🔑 CONFIGURATION SMTP
@@ -316,3 +316,4 @@ with tab_hist:
         buf_glob = io.BytesIO()
         df_glob.to_excel(buf_glob, index=False)
         st.download_button("📊 Exporter toute la base de données", buf_glob.getvalue(), "Archives_Globales_2026.xlsx")
+
