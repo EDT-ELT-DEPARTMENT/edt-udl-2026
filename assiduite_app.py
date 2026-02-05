@@ -11,7 +11,7 @@ from supabase import create_client
 # --- 1. CONFIGURATION ---
 st.set_page_config(page_title="EDT UDL 2026", layout="wide")
 
-TITRE_PLATEFORME = ""Plateforme de gestion du département d'électrotechnique-2025-2026 - États d'avancement des enseignements - Assiduité des étudiants""
+TITRE_PLATEFORME = "Plateforme de gestion du département d'électrotechnique-2025-2026 - États d'avancement des enseignements - Assiduité des étudiants"
 FICHIER_EDT = "dataEDT-ELT-S2-2026.xlsx"
 FICHIER_ETUDIANTS = "Liste des étudiants-2025-2026.xlsx"
 
@@ -203,4 +203,5 @@ with tab_hist:
 if st.sidebar.button("Se déconnecter"):
     st.session_state["user_data"] = None
     st.rerun()
+
 
