@@ -17,7 +17,7 @@ FICHIER_ETUDIANTS = "Liste des étudiants-2025-2026.xlsx"
 
 # 📧 EMAILS ADMIN
 EMAIL_CHEF_DEPT = "milouafarid@gmail.com"
-EMAIL_CHEF_ADJOINT = "nass_ka@yahoo.fr"
+EMAIL_CHEF_ADJOINT = ""
 EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
 
 # 🔑 CONFIGURATION SMTP
@@ -203,5 +203,6 @@ with tab_hist:
 if st.sidebar.button("Se déconnecter"):
     st.session_state["user_data"] = None
     st.rerun()
+
 
 
