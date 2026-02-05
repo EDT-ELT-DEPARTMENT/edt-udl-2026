@@ -19,11 +19,11 @@ FICHIER_ETUDIANTS = "Liste des étudiants-2025-2026.xlsx"
 FICHIER_STAFF = "Permanents-Vacataires-ELT2-2025-2026.xlsx"
 
 # 📧 EMAILS ADMINISTRATION
-EMAIL_CHEF_DEPT = "chef.department.elt.fge@gmail.com"
-EMAIL_CHEF_ADJOINT = ""
+EMAIL_CHEF_DEPT = "milouafarid@gmail.com"
+EMAIL_CHEF_ADJOINT = "nass_ka@yahoo.fr"
 EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
 
-# 🔑 CONFIGURATION SMTP
+# 🔑 CONFIGURATION SMTP (GMAIL)
 EMAIL_SENDER = "milouafarid@gmail.com"
 EMAIL_PASSWORD = "kmtk zmkd kwpd cqzz" 
 
@@ -33,7 +33,7 @@ try:
     KEY = st.secrets["SUPABASE_KEY"]
     supabase = create_client(URL, KEY)
 except Exception as e:
-    st.error("⚠️ Erreur de configuration Supabase dans les Secrets.")
+    st.error("⚠️ Erreur de configuration Supabase. Vérifiez vos Secrets.")
     st.stop()
 
 # --- 3. FONCTIONS TECHNIQUES ---
@@ -68,7 +68,7 @@ def load_data():
                 df[col] = df[col].astype(str).str.strip().replace(['nan', 'None', 'NAN'], '')
         return df_e, df_s, df_staff
     except Exception as e:
-        st.error(f"Erreur Excel : {e}")
+        st.error(f"Erreur de lecture des fichiers Excel : {e}")
         st.stop()
 
 df_edt, df_etudiants, df_staff = load_data()
@@ -91,8 +91,8 @@ if not st.session_state["user_data"]:
     t_login, t_signup, t_forgot = st.tabs(["🔐 Connexion", "📝 Inscription", "❓ Code oublié"])
     
     with t_login:
-        email_log = st.text_input("Email professionnel :", key="log_e")
-        pass_log = st.text_input("Code Unique :", type="password", key="log_p")
+        email_log = st.text_input("Email professionnel :", key="l_email")
+        pass_log = st.text_input("Code Unique :", type="password", key="l_pass")
         if st.button("Se connecter", use_container_width=True):
             res = supabase.table("enseignants_auth").select("*").eq("email", email_log).eq("password_hash", hash_pw(pass_log)).execute()
             if res.data:
@@ -103,31 +103,31 @@ if not st.session_state["user_data"]:
 
     with t_signup:
         df_staff['Full'] = df_staff['NOM'] + " " + df_staff['PRÉNOM']
-        choix = st.selectbox("Qui êtes-vous ?", sorted(df_staff['Full'].unique()))
-        info = df_staff[df_staff['Full'] == choix].iloc[0]
-        st.info(f"Profil détecté : {info['NOM']} | Grade : {info['Grade']}")
-        reg_mail = st.text_input("Email :", value=info['Email'])
-        reg_pass = st.text_input("Code Unique :", type="password")
-        if st.button("Créer mon compte"):
+        choix = st.selectbox("Sélectionnez votre nom :", sorted(df_staff['Full'].unique()))
+        info_s = df_staff[df_staff['Full'] == choix].iloc[0]
+        st.info(f"Profil : {info_s['NOM']} | Grade : {info_s['Grade']}")
+        reg_mail = st.text_input("Email :", value=info_s['Email'])
+        reg_pass = st.text_input("Créer Code Unique :", type="password")
+        if st.button("Valider l'inscription"):
             try:
                 supabase.table("enseignants_auth").insert({
                     "email": reg_mail, "password_hash": hash_pw(reg_pass),
-                    "nom_officiel": info['NOM'], "prenom_officiel": info['PRÉNOM'],
-                    "statut_enseignant": info['Qualité'], "grade_enseignant": info['Grade']
+                    "nom_officiel": info_s['NOM'], "prenom_officiel": info_s['PRÉNOM'],
+                    "statut_enseignant": info_s['Qualité'], "grade_enseignant": info_s['Grade']
                 }).execute()
                 st.success("Compte créé !")
             except:
-                st.error("Erreur d'inscription.")
+                st.error("Email déjà utilisé.")
 
     with t_forgot:
-        f_email = st.text_input("Email du compte :")
-        if st.button("Récupérer mon code"):
+        f_email = st.text_input("Email pour récupération :")
+        if st.button("Envoyer un nouveau code"):
             res = supabase.table("enseignants_auth").select("*").eq("email", f_email).execute()
             if res.data:
                 new_c = ''.join(random.choices(string.digits, k=6))
                 supabase.table("enseignants_auth").update({"password_hash": hash_pw(new_c)}).eq("email", f_email).execute()
                 send_mail(f_email, "Nouveau Code UDL", f"Votre nouveau code est : {new_c}")
-                st.success("Code envoyé par email.")
+                st.success("Vérifiez vos emails !")
     st.stop()
 
 # --- 5. INTERFACE PRINCIPALE ---
@@ -146,11 +146,7 @@ with st.sidebar:
     
     if is_admin:
         st.success("🛡️ MODE ADMIN")
-        enseignant_vue = st.selectbox("Vue Admin :", sorted(df_edt['Enseignants'].unique()))
-        if st.button("🚨 Reset Archives"):
-            if st.text_input("Code de sécurité :", type="password") == "RESET2026":
-                supabase.table("archives_absences").delete().neq("id", 0).execute()
-                st.success("Archives vidées.")
+        enseignant_vue = st.selectbox("Vue Admin (Filtrer EDT) :", sorted(df_edt['Enseignants'].unique()))
     else:
         enseignant_vue = user['nom_officiel']
 
@@ -161,20 +157,25 @@ with st.sidebar:
 tab_saisie, tab_hist = st.tabs(["📝 Saisie Séance", "📜 Archive & Export"])
 
 with tab_saisie:
+    # 1. Infos de base
     c1, c2, c3 = st.columns(3)
-    cat_s = c1.selectbox("🏷️ Séance :", ["Cours", "TD", "TP", "Examen", "Rattrapage"])
-    reg_s = c2.selectbox("⏳ Régime :", ["Charge Horaire", "Heures Supplémentaires"])
-    date_s = c3.date_input("📅 Date :")
+    cat_seance = c1.selectbox("🏷️ Séance :", ["Cours", "TD", "TP", "Examen", "Rattrapage"])
+    regime_seance = c2.selectbox("⏳ Régime :", ["Charge Horaire", "Heures Supplémentaires"])
+    date_seance = c3.date_input("📅 Date réelle :", value=datetime.now())
 
+    # 2. Promotion & Matière
     cp, cm = st.columns(2)
     mask = df_edt['Enseignants'].str.contains(enseignant_vue, na=False, case=False)
-    list_p = sorted(df_edt[mask]['Promotion'].unique())
-    p_sel = cp.selectbox("🎓 Promotion :", list_p if list_p else sorted(df_edt['Promotion'].unique()))
-    list_m = sorted(df_edt[mask & (df_edt['Promotion'] == p_sel)]['Enseignements'].unique())
-    m_sel = cm.selectbox("📖 Matière :", list_m if list_m else ["-"])
+    list_promos = sorted(df_edt[mask]['Promotion'].unique())
+    p_sel = cp.selectbox("🎓 Promotion :", list_promos if list_promos else sorted(df_edt['Promotion'].unique()))
+    
+    list_mats = sorted(df_edt[mask & (df_edt['Promotion'] == p_sel)]['Enseignements'].unique())
+    m_sel = cm.selectbox("📖 Matière :", list_mats if list_mats else ["-"])
 
-    # 3. STATISTIQUES ET APPEL
     st.markdown("---")
+    st.markdown("### 📈 Appel & Notation")
+
+    # 3. Effectifs Numériques
     df_p_full = df_etudiants[df_etudiants['Promotion'] == p_sel]
     cg, csg = st.columns(2)
     g_sel = cg.selectbox("👥 Groupe :", sorted(df_p_full['Groupe'].unique()) if not df_p_full.empty else ["G1"])
@@ -182,39 +183,90 @@ with tab_saisie:
     sg_sel = csg.selectbox("🔢 Sous-groupe :", sorted(df_g['Sous groupe'].unique()) if not df_g.empty else ["SG1"])
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Effectif Promo", len(df_p_full))
+    m1.metric("Effectif Promotion", len(df_p_full))
     m2.metric(f"Groupe {g_sel}", len(df_g))
     m3.metric(f"S-Groupe {sg_sel}", len(df_g[df_g['Sous groupe'] == sg_sel]))
 
-    df_list = df_g[df_g['Sous groupe'] == sg_sel].copy()
-    df_list['Full'] = df_list['Nom'] + " " + df_list['Prénom']
-    
-    abs_coll = st.checkbox("🚩 ABSENCE COLLECTIVE")
-    absents = df_list['Full'].tolist() if abs_coll else st.multiselect("❌ Absents :", options=df_list['Full'].tolist())
-    
-    obs = st.text_area("🗒️ Observations :")
-    code_v = st.text_input("🔑 Code Unique pour valider :", type="password")
+    # 4. Liste des étudiants pour l'Appel
+    df_appel = df_g[df_g['Sous groupe'] == sg_sel].copy()
+    df_appel['Full_Name'] = df_appel['Nom'] + " " + df_appel['Prénom']
+    liste_noms = df_appel['Full_Name'].tolist()
 
-    if st.button("🚀 VALIDER LE RAPPORT", use_container_width=True, type="primary"):
-        if hash_pw(code_v) == user['password_hash']:
-            # Logique d'archivage
-            meta = {"promotion": p_sel, "matiere": m_sel, "enseignant": f"{current_grade} {user['nom_officiel']}", "date_seance": str(date_seance)}
-            for ab in absents:
-                row = meta.copy()
-                row.update({"etudiant_nom": ab, "note_evaluation": "ABSENCE"})
-                supabase.table("archives_absences").insert(row).execute()
-            
-            # Envoi Email
-            corps = f"Rapport de {current_grade} {user['nom_officiel']}\nPromo: {p_sel}\nMatière: {m_sel}\nAbsents: {len(absents)}"
-            send_mail([EMAIL_CHEF_DEPT, EMAIL_CHEF_ADJOINT, user['email']], f"Rapport {m_sel}", corps)
-            
-            st.success("✅ Rapport envoyé et archivé !")
-            st.balloons()
+    # --- LISTES DÉROULANTES POUR ABSENCES ET NOTATION ---
+    col_abs, col_note = st.columns(2)
+    
+    with col_abs:
+        abs_coll = st.checkbox("🚩 SIGNALER ABSENCE COLLECTIVE")
+        if abs_coll:
+            absents_choisis = liste_noms
+            st.error(f"⚠️ {len(absents_choisis)} étudiants marqués absents.")
         else:
-            st.error("Code incorrect.")
+            absents_choisis = st.multiselect("❌ Sélectionner les Absents :", options=liste_noms)
+
+    with col_note:
+        etudiant_a_noter = st.selectbox("📝 Noter un étudiant (Bonus/Note) :", ["Aucun"] + liste_noms)
+        valeur_note = st.text_input("Valeur (ex: +1, 15/20) :", "0")
+
+    obs = st.text_area("🗒️ Observations / Chapitre traité :")
+    signature = st.text_input("✍️ Signature :", value=f"{current_grade} {user['nom_officiel']}")
+    code_valid = st.text_input("🔑 Code Unique pour archivage :", type="password")
+
+    if st.button("🚀 VALIDER ET ENVOYER LE RAPPORT", use_container_width=True, type="primary"):
+        if hash_pw(code_valid) == user['password_hash']:
+            with st.spinner("Archivage en cours..."):
+                try:
+                    # Préparation des données communes
+                    meta = {
+                        "promotion": p_sel, "matiere": m_sel, 
+                        "enseignant": f"{current_grade} {user['nom_officiel']}",
+                        "date_seance": str(date_seance), "categorie_seance": cat_seance,
+                        "regime_heure": regime_seance, "observations": obs
+                    }
+                    
+                    # 1. Enregistrement des Absences
+                    for ab in absents_choisis:
+                        row_abs = meta.copy()
+                        row_abs.update({"etudiant_nom": ab, "note_evaluation": "ABSENCE"})
+                        supabase.table("archives_absences").insert(row_abs).execute()
+                    
+                    # 2. Enregistrement de la Note (si spécifiée)
+                    if etudiant_a_noter != "Aucun":
+                        row_note = meta.copy()
+                        row_note.update({"etudiant_nom": etudiant_a_noter, "note_evaluation": valeur_note})
+                        supabase.table("archives_absences").insert(row_note).execute()
+
+                    # 3. Envoi de l'Email
+                    corps_html = f"""
+                    <div style="font-family: Arial; border: 1px solid #003366; padding: 15px;">
+                        <h2 style="color: #003366;">Rapport de Séance - UDL</h2>
+                        <p><b>Enseignant :</b> {current_grade} {user['nom_officiel']}</p>
+                        <p><b>Promotion :</b> {p_sel} | <b>Matière :</b> {m_sel}</p>
+                        <p><b>Séance :</b> {cat_seance} ({regime_seance}) le {date_seance}</p>
+                        <hr>
+                        <p><b>Absents ({len(absents_choisis)}) :</b> {", ".join(absents_choisis) if absents_choisis else "Aucun"}</p>
+                        <p><b>Note attribuée :</b> {valeur_note} à {etudiant_a_noter}</p>
+                        <p><b>Observations :</b> {obs}</p>
+                    </div>
+                    """
+                    send_mail([EMAIL_CHEF_DEPT, EMAIL_CHEF_ADJOINT, user['email']], 
+                              f"Rapport {m_sel} - {p_sel} - {user['nom_officiel']}", 
+                              corps_html, is_html=True)
+
+                    st.success("✅ Rapport archivé et envoyé avec succès !")
+                    st.balloons()
+                except Exception as e:
+                    st.error(f"Erreur technique : {e}")
+        else:
+            st.error("Code Unique incorrect.")
 
 with tab_hist:
+    st.markdown("### 📜 Consultation des Archives")
     res_arc = supabase.table("archives_absences").select("*").execute()
     if res_arc.data:
-        st.dataframe(pd.DataFrame(res_arc.data), use_container_width=True)
-
+        df_arc = pd.DataFrame(res_arc.data)
+        st.dataframe(df_arc, use_container_width=True)
+        
+        # Export Excel
+        buf = io.BytesIO()
+        df_arc.to_excel(buf, index=False)
+        st.download_button("📊 Exporter en Excel", buf.getvalue(), "Archives_Assiduite_2026.xlsx")
