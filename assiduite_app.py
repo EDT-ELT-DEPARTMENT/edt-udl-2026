@@ -57,11 +57,15 @@ def load_data():
         df.columns = [str(c).strip() for c in df.columns]
     return df_e, df_s
 
-# --- 4. AUTHENTIFICATION ---
+# --- 4. CHARGEMENT ET AUTHENTIFICATION ---
 df_edt, df_etudiants = load_data()
 
 if "user_data" not in st.session_state:
     st.session_state["user_data"] = None
+
+# Initialisation de l'état de maintenance
+if "maintenance_mode" not in st.session_state:
+    st.session_state["maintenance_mode"] = False
 
 if not st.session_state["user_data"]:
     st.markdown(f"### 🔑 Accès Enseignant")
@@ -83,18 +87,50 @@ if not st.session_state["user_data"]:
 user = st.session_state["user_data"]
 st.markdown(f"<h3 style='text-align:center; color:#003366;'>{TITRE_PLATEFORME}</h3>", unsafe_allow_html=True)
 
+# BARRE LATÉRALE ET MODE MAINTENANCE
 is_admin = (user['email'] == EMAIL_ADMIN_TECH)
-if is_admin:
-    st.sidebar.success("🛡️ Mode Administrateur")
-    enseignant_sel = st.sidebar.selectbox("👤 Sélectionner l'Enseignant :", sorted(df_edt['Enseignants'].unique()))
-else:
-    enseignant_sel = st.sidebar.selectbox("👤 Enseignant :", [user['nom_officiel']], disabled=True)
+
+with st.sidebar:
+    st.markdown(f"**Utilisateur :**\n{user['nom_officiel']}")
+    st.divider()
+    
+    if is_admin:
+        st.success("🛡️ Mode Administrateur")
+        enseignant_sel = st.selectbox("👤 Sélectionner l'Enseignant :", sorted(df_edt['Enseignants'].unique()))
+        
+        # BOUTON MAINTENANCE AVEC CONFIRMATION
+        st.divider()
+        st.warning("⚙️ ZONE TECHNIQUE")
+        if not st.session_state["maintenance_mode"]:
+            if st.button("Activer la Maintenance"):
+                st.session_state["maintenance_confirm"] = True
+            
+            if st.session_state.get("maintenance_confirm"):
+                st.error("Confirmer l'arrêt des saisies ?")
+                if st.button("OUI, ACTIVER MAINTENANT"):
+                    st.session_state["maintenance_mode"] = True
+                    st.session_state["maintenance_confirm"] = False
+                    st.rerun()
+        else:
+            st.error("🔴 MAINTENANCE ACTIVE")
+            if st.button("Désactiver la Maintenance"):
+                st.session_state["maintenance_mode"] = False
+                st.rerun()
+    else:
+        enseignant_sel = st.selectbox("👤 Enseignant :", [user['nom_officiel']], disabled=True)
+
+# LOGIQUE D'AFFICHAGE SELON MAINTENANCE
+if st.session_state["maintenance_mode"] and not is_admin:
+    st.warning("⚠️ La plateforme est actuellement en maintenance pour mise à jour. Les saisies sont temporairement désactivées. Merci de votre patience.")
+    st.stop()
 
 tab_saisie, tab_hist = st.tabs(["📝 Saisie Séance", "📜 Archive des Absences & Notes"])
 
 # --- ONGLET 1 : SAISIE ---
 with tab_saisie:
-    # --- DÉTAILS DE LA SÉANCE ---
+    if st.session_state["maintenance_mode"]:
+        st.error("🛠️ MODE MAINTENANCE : Seul l'administrateur peut tester les saisies.")
+
     c_cat, c_type, c_date = st.columns(3)
     cat_seance = c_cat.selectbox("🏷️ Rapport de séance :", ["Cours", "TD", "TP", "Examen", "Rattrapage"])
     type_seance = c_type.selectbox("📂 État de la séance :", ["Séance Normale", "Séance de Rattrapage"])
@@ -104,7 +140,6 @@ with tab_saisie:
     promo_sel = c1.selectbox("🎓 Promotion :", sorted(df_edt[df_edt['Enseignants'] == enseignant_sel]['Promotion'].unique()))
     matiere_sel = c2.selectbox("📖 Matière :", sorted(df_edt[(df_edt['Enseignants'] == enseignant_sel) & (df_edt['Promotion'] == promo_sel)]['Enseignements'].unique()))
 
-    # Extraction des infos EDT
     res_s = df_edt[(df_edt['Enseignants'] == enseignant_sel) & (df_edt['Enseignements'] == matiere_sel)]
     horaire_v = res_s.iloc[0]['Horaire'] if not res_s.empty else "N/A"
     jour_v = res_s.iloc[0]['Jours'] if not res_s.empty else "N/A"
@@ -134,7 +169,7 @@ with tab_saisie:
         absents = st.multiselect("❌ Sélectionner les ABSENTS :", options=df_f['Full'].tolist())
         st.markdown("#### ⭐ Participation / Note d'examen")
         etudiant_note = st.selectbox("Sélectionner l'étudiant à noter :", ["Aucun"] + df_f['Full'].tolist())
-        note_val = st.text_input("Saisir la note (Ex: 15/20 ou +2 participation) :", value="0")
+        note_val = st.text_input("Saisir la note (Ex: 15/20) :", value="0")
 
     obs = st.text_area("🗒️ Observations :")
     sign = st.text_input("✍️ Signature :", value=user['nom_officiel'])
@@ -142,9 +177,9 @@ with tab_saisie:
 
     if st.button("🚀 VALIDER ET ENVOYER LE RAPPORT", use_container_width=True, type="primary"):
         if hash_pw(code_f) == user['password_hash']:
-            with st.spinner("Archivage et génération du rapport..."):
+            with st.spinner("Archivage..."):
                 try:
-                    # 1. ARCHIVAGE DES ABSENTS
+                    # 1. ARCHIVAGE ABSENCES
                     for etud in absents:
                         supabase.table("archives_absences").insert({
                             "etudiant_nom": etud, "promotion": promo_sel, "groupe": gr_sel,
@@ -154,7 +189,7 @@ with tab_saisie:
                             "absence_collective": abs_collective, "note_evaluation": "ABS"
                         }).execute()
                     
-                    # 2. ARCHIVAGE NOTE PARTICIPATION
+                    # 2. ARCHIVAGE NOTE
                     if not abs_collective and etudiant_note != "Aucun" and etudiant_note not in absents:
                         supabase.table("archives_absences").insert({
                             "etudiant_nom": etudiant_note, "promotion": promo_sel, "groupe": gr_sel,
@@ -164,42 +199,26 @@ with tab_saisie:
                             "absence_collective": False, "note_evaluation": note_val
                         }).execute()
 
-                    # 3. GÉNÉRATION DU BEAU TABLEAU HTML POUR EMAIL
-                    statut_texte = "<span style='color:red;'>⚠️ ABSENCE COLLECTIVE</span>" if abs_collective else "Normal"
-                    
+                    # 3. HTML EMAIL
                     mail_html = f"""
-                    <div style="font-family: Arial, sans-serif; border: 1px solid #003366; padding: 20px; border-radius: 10px; background-color: #f9f9f9;">
-                        <h2 style="color: #003366; text-align: center; border-bottom: 2px solid #003366; padding-bottom: 10px;">Rapport de Séance : {cat_seance}</h2>
-                        <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
-                            <tr style="background-color: #003366; color: white;">
-                                <th colspan="2" style="padding: 10px;">Détails de l'Enseignement</th>
-                            </tr>
-                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Enseignant</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">{enseignant_sel}</td></tr>
-                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Matière</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">{matiere_sel}</td></tr>
-                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Promotion / Groupe</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">{promo_sel} / {gr_sel} - {sg_sel}</td></tr>
-                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Type / État</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">{cat_seance} ({type_seance})</td></tr>
-                            <tr style="background-color: #e6f2ff;">
-                                <td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Date réelle</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">{date_seance}</td>
-                            </tr>
-                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Jour (EDT) / Horaire</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">{jour_v} / {horaire_v}</td></tr>
-                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Lieu</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">{lieu_v}</td></tr>
-                            <tr style="background-color: #fff3f3;">
-                                <td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Nombre d'absents</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">{len(absents)} (Statut: {statut_texte})</td>
-                            </tr>
-                            <tr><td style="padding: 8px; border-bottom: 1px solid #ddd;"><b>Note / Participation</b></td><td style="padding: 8px; border-bottom: 1px solid #ddd;">{note_val} à {etudiant_note if etudiant_note != "Aucun" else "Néant"}</td></tr>
-                            <tr><td style="padding: 8px;"><b>Observations</b></td><td style="padding: 8px;">{obs}</td></tr>
-                        </table>
-                        <p style="margin-top: 20px; text-align: right; font-weight: bold; color: #003366;">Signé numériquement par : {sign}</p>
+                    <div style="font-family: Arial; border: 1px solid #003366; padding: 15px; border-radius: 8px;">
+                        <h2 style="color: #003366;">Rapport de Séance : {cat_seance}</h2>
+                        <p><b>Enseignant :</b> {enseignant_sel}</p>
+                        <p><b>Matière :</b> {matiere_sel}</p>
+                        <p><b>Date :</b> {date_seance} ({jour_v})</p>
+                        <p><b>Lieu :</b> {lieu_v}</p>
+                        <p><b>Absents :</b> {len(absents)}</p>
+                        <p><b>Observations :</b> {obs}</p>
+                        <hr>
+                        <p>Signé : {sign}</p>
                     </div>
                     """
-                    
-                    # Envoi Mail
                     destinataires = [EMAIL_CHEF_DEPT, EMAIL_CHEF_ADJOINT, user['email']]
                     if send_mail(destinataires, f"[{cat_seance}] {promo_sel} - {enseignant_sel}", mail_html, is_html=True):
-                        st.success("✅ Rapport envoyé et archivé !")
+                        st.success("✅ Rapport envoyé !")
                         st.balloons()
                 except Exception as e:
-                    st.error(f"Erreur technique : {e}")
+                    st.error(f"Erreur : {e}")
         else:
             st.error("Code Unique incorrect.")
 
@@ -209,10 +228,13 @@ with tab_hist:
     res = supabase.table("archives_absences").select("*").execute()
     if res.data:
         df_arc = pd.DataFrame(res.data)
-        # Nettoyage et tri
         cols_display = ['date_seance', 'jour_nom', 'horaire', 'etudiant_nom', 'promotion', 'categorie_seance', 'note_evaluation', 'lieu_seance']
         st.dataframe(df_arc[cols_display], use_container_width=True)
         
         buf = io.BytesIO()
         df_arc.to_excel(buf, index=False)
-        st.download_button("📊 Télécharger EXCEL", buf.getvalue(), "Archives_Assiduite_UDL.xlsx", use_container_width=True)
+        st.download_button("📊 Télécharger EXCEL", buf.getvalue(), "Archives_Assiduite_UDL.xlsx")
+
+if st.sidebar.button("🚪 Déconnexion"):
+    st.session_state["user_data"] = None
+    st.rerun()
