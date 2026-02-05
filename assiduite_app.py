@@ -19,8 +19,8 @@ FICHIER_ETUDIANTS = "Liste des étudiants-2025-2026.xlsx"
 FICHIER_STAFF = "Permanents-Vacataires-ELT2-2025-2026.xlsx"
 
 # 📧 EMAILS ADMINISTRATION
-EMAIL_CHEF_DEPT = "milouafarid@gmail.com"
-EMAIL_CHEF_ADJOINT = "nass_ka@yahoo.fr"
+EMAIL_CHEF_DEPT = "chef.department.elt.fge@gmail.com"
+EMAIL_CHEF_ADJOINT = ""
 EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
 
 # 🔑 CONFIGURATION SMTP
@@ -217,3 +217,4 @@ with tab_hist:
     res_arc = supabase.table("archives_absences").select("*").execute()
     if res_arc.data:
         st.dataframe(pd.DataFrame(res_arc.data), use_container_width=True)
+
