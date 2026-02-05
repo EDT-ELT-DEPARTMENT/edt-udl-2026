@@ -16,7 +16,7 @@ FICHIER_ETUDIANTS = "Liste des étudiants-2025-2026.xlsx"
 
 # 📧 ADRESSES EMAILS HIÉRARCHIQUES
 EMAIL_CHEF_DEPT = "milouafarid@gmail.com"  # Chef de Département (1er)
-EMAIL_CHEF_ADJOINT = "nass_ka@yahoo.fr"    # Chef de Département Adjoint (2e)
+EMAIL_CHEF_ADJOINT = ""    # Chef de Département Adjoint (2e)
 EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
 
 # 🔑 CONFIGURATION SMTP (GMAIL)
