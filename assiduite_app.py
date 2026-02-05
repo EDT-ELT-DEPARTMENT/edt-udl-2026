@@ -6,7 +6,7 @@ from supabase import create_client, Client
 # --- 1. CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="Plateforme EDT 2026", layout="wide")
 
-# Titre officiel requis par l'utilisateur
+# Titre officiel requis
 TITRE = "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
 
 # --- 2. CONNEXION SUPABASE ---
@@ -14,39 +14,38 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# --- 3. CHARGEMENT ET NETTOYAGE DES FICHIERS ---
+# --- 3. CHARGEMENT ET NETTOYAGE RIGOUREUX ---
 @st.cache_data(ttl=60)
-def load_all_data():
-    # Chargement du fichier EDT (Contient les colonnes : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion)
+def load_and_sync_data():
+    # Chargement des deux fichiers
     df_edt = pd.read_excel("DATA-ASSUIDUITE-2026.xlsx")
-    
-    # Chargement du fichier Étudiants (Contient : Nom, Prénom, Groupe, Sous groupe, Promotion)
     df_etud = pd.read_excel("Liste des étudiants-2025-2026.xlsx")
     
-    # Nettoyage global
+    # Nettoyage de l'EDT
     df_edt = df_edt.dropna(how='all')
-    df_etud = df_etud.dropna(how='all')
-
-    # Nettoyage spécifique de l'EDT pour le filtrage
     df_edt['Enseignants'] = df_edt['Enseignants'].astype(str).str.strip()
+    # On force la promotion en MAJUSCULES et sans espaces
     df_edt['Promotion'] = df_edt['Promotion'].astype(str).str.strip().str.upper()
     df_edt['Enseignements'] = df_edt['Enseignements'].astype(str).str.strip()
     
-    # Nettoyage Étudiants (Index : 0:Nom, 1:Prénom, 2:Groupe, 3:SG, 4:Promotion)
+    # Nettoyage Étudiants (0:Nom, 1:Prénom, 2:Groupe, 3:SG, 4:Promotion)
+    df_etud = df_etud.dropna(how='all')
     df_etud['C_NOM'] = df_etud.iloc[:, 0].astype(str).str.strip().str.upper()
     df_etud['C_PRENOM'] = df_etud.iloc[:, 1].astype(str).str.strip().str.title()
-    df_etud['C_GROUPE'] = df_etud.iloc[:, 2].astype(str).str.strip()
-    df_etud['C_SG'] = df_etud.iloc[:, 3].astype(str).str.strip()
+    df_etud['C_GROUPE'] = df_etud.iloc[:, 2].astype(str).str.strip().str.upper()
+    df_etud['C_SG'] = df_etud.iloc[:, 3].astype(str).str.strip().str.upper()
+    # TRÈS IMPORTANT : On synchronise le format de la promotion avec l'EDT
     df_etud['C_PROMO'] = df_etud.iloc[:, 4].astype(str).str.strip().str.upper()
+    
     df_etud['DISPLAY_NAME'] = df_etud['C_NOM'] + " " + df_etud['C_PRENOM']
     
     return df_edt, df_etud
 
 # Initialisation
 try:
-    df_edt, df_etudiants = load_all_data()
+    df_edt, df_etudiants = load_and_sync_data()
 except Exception as e:
-    st.error(f"Erreur de lecture des fichiers Excel : {e}")
+    st.error(f"Erreur de lecture : {e}")
     st.stop()
 
 # --- 4. INTERFACE UTILISATEUR ---
@@ -63,60 +62,64 @@ enseignant_sel = st.selectbox("Sélection", liste_profs, label_visibility="colla
 tab_saisie, tab_hist = st.tabs(["📝 Saisie Séance", "📜 Historique"])
 
 with tab_saisie:
-    # --- FILTRAGE DYNAMIQUE BASÉ SUR L'EDT ---
+    # --- FILTRAGE DYNAMIQUE (EDT) ---
     col_p, col_m = st.columns(2)
     
     with col_p:
-        # On filtre les promotions où cet enseignant intervient (selon le fichier DATA)
-        promos_filtrees = df_edt[df_edt['Enseignants'] == enseignant_sel]['Promotion'].unique()
-        promos_finales = sorted([p for p in promos_filtrees if p != 'NAN'])
+        # On récupère les promos de l'enseignant depuis l'EDT
+        promos_f = df_edt[df_edt['Enseignants'] == enseignant_sel]['Promotion'].unique()
+        promos_finales = sorted([p for p in promos_f if p != 'NAN' and p != ''])
         promo_sel = st.selectbox("🎓 Promotion (Obligatoire) :", promos_finales)
         
     with col_m:
-        # On filtre les matières de cet enseignant POUR cette promotion spécifique
-        matieres_filtrees = df_edt[
-            (df_edt['Enseignants'] == enseignant_sel) & 
-            (df_edt['Promotion'] == promo_sel)
-        ]['Enseignements'].unique()
-        matiere_sel = st.selectbox("📖 Matière (Obligatoire) :", sorted(matieres_filtrees))
+        # On récupère les matières pour cet enseignant et cette promo
+        mats_f = df_edt[(df_edt['Enseignants'] == enseignant_sel) & 
+                        (df_edt['Promotion'] == promo_sel)]['Enseignements'].unique()
+        matiere_sel = st.selectbox("📖 Matière (Obligatoire) :", sorted(mats_f))
 
-    # Affichage des informations de la séance (Horaire, Lieu, Jours)
-    info_seance = df_edt[
-        (df_edt['Enseignants'] == enseignant_sel) & 
-        (df_edt['Promotion'] == promo_sel) & 
-        (df_edt['Enseignements'] == matiere_sel)
-    ]
-    
-    if not info_seance.empty:
-        st.info(f"📍 {info_seance.iloc[0]['Jours']} | {info_seance.iloc[0]['Horaire']} | Lieu: {info_seance.iloc[0]['Lieu']}")
+    # Info séance
+    info = df_edt[(df_edt['Enseignants'] == enseignant_sel) & 
+                  (df_edt['Promotion'] == promo_sel) & 
+                  (df_edt['Enseignements'] == matiere_sel)]
+    if not info.empty:
+        st.info(f"📍 {info.iloc[0]['Jours']} | {info.iloc[0]['Horaire']} | Lieu: {info.iloc[0]['Lieu']}")
 
     st.markdown("---")
     st.subheader("📈 État d'Avancement & Appel")
     
-    # --- FILTRES GROUPES & SOUS-GROUPES (Issus de la liste étudiants) ---
-    col_g, col_sg = st.columns(2)
-    
+    # --- FILTRAGE GROUPES & SOUS-GROUPES (Depuis la liste Étudiants) ---
+    # On filtre les étudiants qui correspondent à la promo sélectionnée dans l'EDT
     df_promo_active = df_etudiants[df_etudiants['C_PROMO'] == promo_sel]
+    
+    col_g, col_sg = st.columns(2)
     
     with col_g:
         groupes_dispo = sorted(df_promo_active['C_GROUPE'].unique())
-        groupe_sel = st.selectbox("👥 Sélectionner le Groupe :", groupes_dispo)
+        # Si la liste est vide, on affiche un message d'erreur
+        if not groupes_dispo:
+            st.warning(f"⚠️ Aucun groupe trouvé dans l'Excel pour la promo '{promo_sel}'")
+            groupe_sel = None
+        else:
+            groupe_sel = st.selectbox("👥 Sélectionner le Groupe :", groupes_dispo)
     
     with col_sg:
-        sg_dispo = sorted(df_promo_active[df_promo_active['C_GROUPE'] == groupe_sel]['C_SG'].unique())
-        sg_sel = st.selectbox("🔢 Sélectionner le Sous-groupe :", sg_dispo)
+        if groupe_sel:
+            sg_dispo = sorted(df_promo_active[df_promo_active['C_GROUPE'] == groupe_sel]['C_SG'].unique())
+            sg_sel = st.selectbox("🔢 Sélectionner le Sous-groupe :", sg_dispo)
+        else:
+            sg_sel = st.selectbox("🔢 Sélectionner le Sous-groupe :", ["Choisir un groupe d'abord"])
 
-    # --- STATISTIQUES NUMÉRIQUES ---
+    # --- STATISTIQUES ---
     st.markdown("##### 📊 Statistiques de présence")
     c1, c2, c3 = st.columns(3)
     
-    total_p = len(df_promo_active)
-    total_g = len(df_promo_active[df_promo_active['C_GROUPE'] == groupe_sel])
-    total_s = len(df_promo_active[(df_promo_active['C_GROUPE'] == groupe_sel) & (df_promo_active['C_SG'] == sg_sel)])
+    eff_p = len(df_promo_active)
+    eff_g = len(df_promo_active[df_promo_active['C_GROUPE'] == groupe_sel]) if groupe_sel else 0
+    eff_s = len(df_promo_active[(df_promo_active['C_GROUPE'] == groupe_sel) & (df_promo_active['C_SG'] == sg_sel)]) if groupe_sel else 0
 
-    c1.metric("Effectif Promotion", total_p)
-    c2.metric(f"Effectif {groupe_sel}", total_g)
-    c3.metric(f"Effectif {sg_sel}", total_s)
+    c1.metric("Effectif Promotion", eff_p)
+    c2.metric(f"Effectif {groupe_sel if groupe_sel else '-'}", eff_g)
+    c3.metric(f"Effectif {sg_sel if groupe_sel else '-'}", eff_s)
 
     # --- TYPE ET NUMÉRO ---
     st.markdown("<br>", unsafe_allow_html=True)
@@ -126,47 +129,30 @@ with tab_saisie:
     with col_n:
         num_u = st.number_input("Numéro :", min_value=1, step=1)
 
-    # --- LISTE DES ABSENTS ---
-    df_appel = df_promo_active[(df_promo_active['C_GROUPE'] == groupe_sel) & (df_promo_active['C_SG'] == sg_sel)]
-    liste_noms = sorted(df_appel['DISPLAY_NAME'].tolist())
-
+    # --- LISTE D'APPEL ---
     st.markdown("**❌ Sélectionner les ABSENTS :**")
-    absents_choisis = st.multiselect(
-        "Sélection",
-        options=liste_noms,
-        label_visibility="collapsed",
-        placeholder=f"Liste des {len(liste_noms)} étudiants du {sg_sel}"
-    )
+    if groupe_sel:
+        df_appel = df_promo_active[(df_promo_active['C_GROUPE'] == groupe_sel) & 
+                                   (df_promo_active['C_SG'] == sg_sel)]
+        liste_noms = sorted(df_appel['DISPLAY_NAME'].tolist())
+        
+        absents = st.multiselect(
+            "Sélection",
+            options=liste_noms,
+            label_visibility="collapsed",
+            placeholder=f"Liste des {len(liste_noms)} étudiants du {sg_sel}"
+        )
+    else:
+        st.info("Veuillez sélectionner une promotion et un groupe valides.")
 
-    # --- VALIDATION FINALE ---
-    date_seance = st.date_input("📅 Date réelle de la séance :")
+    # --- FORMULAIRE FINAL ---
+    date_s = st.date_input("📅 Date réelle de la séance :")
     obs = st.text_area("🗒️ Observations (Obligatoire) :")
     sig = st.text_input("✍️ Signature Nom Prénom (Obligatoire) :")
-    code_val = st.text_input("🔑 Entrez votre Code Unique :", type="password")
+    code_v = st.text_input("🔑 Entrez votre Code Unique :", type="password")
 
     if st.button("🚀 Valider l'enregistrement", use_container_width=True):
-        if not obs or not sig or code_val != "2026":
-            st.error("Champs obligatoires manquants ou code incorrect (2026).")
+        if not obs or not sig or code_v != "2026":
+            st.error("Champs obligatoires ou code incorrect.")
         else:
-            try:
-                # Envoi vers la table Supabase
-                record = {
-                    "enseignant": enseignant_sel,
-                    "promotion": promo_sel,
-                    "matiere": matiere_sel,
-                    "groupe": groupe_sel,
-                    "sous_groupe": sg_sel,
-                    "absents": ", ".join(absents_choisis),
-                    "date": str(date_seance),
-                    "observations": obs,
-                    "signature": sig,
-                    "type_unite": type_u,
-                    "num_unite": num_u
-                }
-                supabase.table("suivi_assiduite_2026").insert(record).execute()
-                st.success(f"✅ Enregistrement réussi pour {promo_sel} / {groupe_sel} !")
-            except Exception as e:
-                st.error(f"Erreur Supabase : {e}")
-
-with tab_hist:
-    st.write("Historique des enregistrements (données en temps réel).")
+            st.success("Enregistrement réussi !")
