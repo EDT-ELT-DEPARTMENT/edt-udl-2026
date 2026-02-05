@@ -17,7 +17,7 @@ FICHIER_ETUDIANTS = "Liste des étudiants-2025-2026.xlsx"
 
 # 📧 EMAILS ADMIN
 EMAIL_CHEF_DEPT = "milouafarid@gmail.com"
-EMAIL_CHEF_ADJOINT = ""
+EMAIL_CHEF_ADJOINT = "nass_ka@yahoo.fr"
 EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
 
 # 🔑 CONFIGURATION SMTP
@@ -89,23 +89,20 @@ if not st.session_state["user_data"]:
                 supabase.table("enseignants_auth").insert(data_user).execute()
                 st.success("Inscription réussie ! Connectez-vous.")
             except:
-                st.error("Email déjà utilisé ou erreur de base de données.")
+                st.error("Email déjà utilisé.")
 
     with t_perdu:
-        st.warning("En cas d'oubli, une demande sera envoyée à l'administrateur.")
+        st.warning("Une demande sera envoyée à l'administrateur.")
         mail_oublie = st.text_input("Entrez votre email de compte :")
-        if st.button("Envoyer la demande de récupération"):
-            if send_mail(EMAIL_ADMIN_TECH, "RÉCUPÉRATION CODE UNIQUE", f"L'enseignant {mail_oublie} a oublié son code."):
-                st.success("Demande envoyée à M. Miloua.")
-            else:
-                st.error("Erreur d'envoi.")
+        if st.button("Envoyer la demande"):
+            send_mail(EMAIL_ADMIN_TECH, "RÉCUPÉRATION CODE", f"L'enseignant {mail_oublie} a oublié son code.")
+            st.success("Demande envoyée.")
     st.stop()
 
 # --- 5. INTERFACE PRINCIPALE ---
 user = st.session_state["user_data"]
 st.markdown(f"<h3 style='text-align:center; color:#003366;'>{TITRE_PLATEFORME}</h3>", unsafe_allow_html=True)
 
-# LOGIQUE DE FILTRAGE DES NOMS
 is_admin = (user['email'] == EMAIL_ADMIN_TECH)
 profs_list = sorted(df_edt['Enseignants'].unique())
 
@@ -113,27 +110,25 @@ if is_admin:
     st.sidebar.success("Mode Administrateur")
     enseignant_sel = st.selectbox("👤 Sélectionner l'Enseignant (Admin) :", profs_list)
 else:
-    # L'enseignant ne voit QUE son nom
     enseignant_sel = st.selectbox("👤 Enseignant :", [user['nom_officiel']], disabled=True)
 
 tab_saisie, tab_hist = st.tabs(["📝 Saisie Séance", "📜 Archive des Absences"])
 
-# --- ONGLET 1 : SAISIE ---
 with tab_saisie:
+    # --- TYPE DE SEANCE ET CALENDRIER ---
+    c_type, c_date = st.columns(2)
+    type_seance = c_type.selectbox("📂 Type de séance :", ["Séance Normale", "Séance de Rattrapage"])
+    date_seance = c_date.date_input("📅 Date de la séance :", datetime.now())
+
     c1, c2 = st.columns(2)
-    with c1:
-        promos = sorted(df_edt[df_edt['Enseignants'] == enseignant_sel]['Promotion'].unique())
-        promo_sel = st.selectbox("🎓 Promotion :", promos)
-    with c2:
-        mats = sorted(df_edt[(df_edt['Enseignants'] == enseignant_sel) & (df_edt['Promotion'] == promo_sel)]['Enseignements'].unique())
-        matiere_sel = st.selectbox("📖 Matière :", mats)
+    promos = sorted(df_edt[df_edt['Enseignants'] == enseignant_sel]['Promotion'].unique())
+    promo_sel = c1.selectbox("🎓 Promotion :", promos)
+    mats = sorted(df_edt[(df_edt['Enseignants'] == enseignant_sel) & (df_edt['Promotion'] == promo_sel)]['Enseignements'].unique())
+    matiere_sel = c2.selectbox("📖 Matière :", mats)
 
-    # Info séance
     res_s = df_edt[(df_edt['Enseignants'] == enseignant_sel) & (df_edt['Enseignements'] == matiere_sel)]
-    horaire_v = res_s.iloc[0]['Horaire'] if not res_s.empty else "N/A"
-    if not res_s.empty:
-        st.info(f"📍 {res_s.iloc[0]['Jours']} | {horaire_v} | {res_s.iloc[0]['Lieu']}")
-
+    horaire_v = res_s.iloc[0]['Horaire'] if not res_s.empty else "Rattrapage (H. non définie)"
+    
     st.markdown("### 📈 Appel & Absences")
     df_p = df_etudiants[df_etudiants['Promotion'] == promo_sel]
     cg, csg = st.columns(2)
@@ -141,68 +136,76 @@ with tab_saisie:
     df_g = df_p[df_p['Groupe'] == gr_sel]
     sg_sel = csg.selectbox("🔢 Sous-groupe :", sorted(df_g['Sous groupe'].unique()) if not df_g.empty else ["-"])
 
+    # --- OPTION ABSENCE COLLECTIVE ---
+    abs_collective = st.checkbox("🚩 SIGNALER UNE ABSENCE COLLECTIVE (Tous les étudiants du groupe)")
+
     df_f = df_g[df_g['Sous groupe'] == sg_sel].copy()
     df_f['Full'] = df_f['Nom'].astype(str) + " " + df_f['Prénom'].astype(str)
-    absents = st.multiselect("❌ Sélectionner les ABSENTS :", options=df_f['Full'].tolist())
+    
+    if abs_collective:
+        absents = df_f['Full'].tolist()
+        st.warning(f"⚠️ {len(absents)} étudiants seront marqués absents collectivement.")
+    else:
+        absents = st.multiselect("❌ Sélectionner les étudiants ABSENTS :", options=df_f['Full'].tolist())
 
-    d_col, o_col = st.columns(2)
-    date_seance = d_col.date_input("📅 Date réelle :")
-    obs = o_col.text_area("🗒️ Observations :")
+    obs = st.text_area("🗒️ Observations (Ex: Motif du rattrapage ou de l'absence collective) :")
     
     s_col, k_col = st.columns(2)
     signature = s_col.text_input("✍️ Signature :")
-    code_final = k_col.text_input("🔑 Confirmez votre Code Unique :", type="password")
+    code_final = k_col.text_input("🔑 Code Unique :", type="password")
 
-    if st.button("🚀 VALIDER, ARCHIVER ET ENVOYER", use_container_width=True, type="primary"):
+    if st.button("🚀 VALIDER ET ENVOYER LE RAPPORT", use_container_width=True, type="primary"):
         if hash_pw(code_final) == user['password_hash']:
             # 1. ARCHIVAGE SUPABASE
+            mention_abs = "OUI" if not abs_collective else "COLLECTIVE"
             for etud in absents:
                 supabase.table("archives_absences").insert({
-                    "etudiant_nom": etud, "promotion": promo_sel, "groupe": gr_sel,
-                    "sous_groupe": sg_sel, "matiere": matiere_sel, "enseignant": enseignant_sel,
-                    "date_seance": str(date_seance), "horaire": horaire_v
+                    "etudiant_nom": etud, 
+                    "promotion": promo_sel, 
+                    "groupe": gr_sel,
+                    "sous_groupe": sg_sel, 
+                    "matiere": matiere_sel, 
+                    "enseignant": enseignant_sel,
+                    "date_seance": str(date_seance), 
+                    "horaire": horaire_v,
+                    "type_seance": type_seance,
+                    "absence_collective": abs_collective
                 }).execute()
 
-            # 2. EMAIL HTML AVEC TABLEAU
-            tab_html = f"<table border='1'><tr><th>Nom</th><th>Promo</th><th>Matière</th></tr>"
-            for e in absents: tab_html += f"<tr><td>{e}</td><td>{promo_sel}</td><td>{matiere_sel}</td></tr>"
-            tab_html += "</table>"
-            
-            mail_body = f"<h2>Rapport d'absence</h2>{tab_html}<p>Signé: {signature}</p>"
+            # 2. EMAIL
+            msg_coll = "⚠️ ABSENCE COLLECTIVE" if abs_collective else "Absences individuelles"
+            mail_body = f"""
+            <h2>Rapport de Séance - {type_seance}</h2>
+            <p><b>Statut :</b> {msg_coll}</p>
+            <p><b>Enseignant :</b> {enseignant_sel} | <b>Matière :</b> {matiere_sel}</p>
+            <p><b>Nombre d'absents :</b> {len(absents)}</p>
+            <p><b>Observations :</b> {obs}</p>
+            <p><b>Signé :</b> {signature}</p>
+            """
             destinataires = [EMAIL_CHEF_DEPT, EMAIL_CHEF_ADJOINT, user['email']]
-            
-            if send_mail(destinataires, f"Absences {promo_sel} - {enseignant_sel}", mail_body, is_html=True):
-                st.success("✅ Données archivées et emails envoyés !")
+            if send_mail(destinataires, f"[{type_seance}] {promo_sel} - {enseignant_sel}", mail_body, is_html=True):
+                st.success("✅ Séance archivée et rapport envoyé !")
                 st.balloons()
         else:
             st.error("Code Unique incorrect.")
 
-# --- ONGLET 2 : ARCHIVES ---
 with tab_hist:
-    st.markdown("### 📋 Archive Global des Absences")
+    st.markdown("### 📋 Historique Global")
     try:
         data_arc = supabase.table("archives_absences").select("*").execute()
         if data_arc.data:
-            df_arc = pd.DataFrame(data_arc.data)[[
-                'etudiant_nom', 'promotion', 'groupe', 'sous_groupe', 
-                'matiere', 'enseignant', 'date_seance', 'horaire'
-            ]]
-            st.dataframe(df_arc, use_container_width=True)
+            df_arc = pd.DataFrame(data_arc.data)
+            # Affichage ordonné
+            cols_to_show = ['etudiant_nom', 'promotion', 'groupe', 'matiere', 'enseignant', 'date_seance', 'type_seance']
+            st.dataframe(df_arc[cols_to_show], use_container_width=True)
             
-            # Téléchargements
-            col_ex, col_ht = st.columns(2)
-            
+            # Export
             buf = io.BytesIO()
             df_arc.to_excel(buf, index=False)
-            col_ex.download_button("📊 Télécharger EXCEL", buf.getvalue(), "Archives_Absents.xlsx", "application/vnd.ms-excel")
-            
-            col_ht.download_button("🌐 Télécharger HTML", df_arc.to_html(index=False), "Archives.html", "text/html")
+            st.download_button("📊 Télécharger EXCEL", buf.getvalue(), "Archives_Complet.xlsx")
     except:
-        st.info("Aucune archive disponible.")
+        st.info("Aucune archive.")
 
 if st.sidebar.button("Se déconnecter"):
     st.session_state["user_data"] = None
     st.rerun()
-
-
-
