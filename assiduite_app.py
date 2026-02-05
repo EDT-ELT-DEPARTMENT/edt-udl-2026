@@ -103,9 +103,9 @@ if not st.session_state["user_data"]:
 
     with t_signup:
         df_staff['Full'] = df_staff['NOM'] + " " + df_staff['PRÉNOM']
-        choix = st.selectbox("Nom :", sorted(df_staff['Full'].unique()))
+        choix = st.selectbox("Sélectionnez votre nom :", sorted(df_staff['Full'].unique()))
         info_s = df_staff[df_staff['Full'] == choix].iloc[0]
-        st.info(f"Grade : {info_s['Grade']}")
+        st.info(f"Profil : {info_s['NOM']} | Grade : {info_s['Grade']}")
         reg_mail = st.text_input("Email :", value=info_s['Email'])
         reg_pass = st.text_input("Code Unique :", type="password")
         if st.button("Créer compte"):
@@ -146,7 +146,7 @@ with st.sidebar:
     
     if is_admin:
         st.success("🛡️ MODE ADMIN")
-        enseignant_vue = st.selectbox("Filtrer EDT :", sorted(df_edt['Enseignants'].unique()))
+        enseignant_vue = st.selectbox("Vue Admin (Filtrer EDT) :", sorted(df_edt['Enseignants'].unique()))
     else:
         enseignant_vue = user['nom_officiel']
 
@@ -157,19 +157,20 @@ with st.sidebar:
 tab_saisie, tab_hist = st.tabs(["📝 Saisie Séance", "📜 Archive & Export"])
 
 with tab_saisie:
-    # 1. Infos séance
+    # 1. Infos de base
     c1, c2, c3 = st.columns(3)
-    cat_s = c1.selectbox("🏷️ Séance :", ["Cours", "TD", "TP", "Examen", "Rattrapage"])
-    reg_s = c2.selectbox("⏳ Régime :", ["Charge Horaire", "Heures Supplémentaires"])
-    date_s = c3.date_input("📅 Date réelle :", value=datetime.now())
+    cat_seance = c1.selectbox("🏷️ Séance :", ["Cours", "TD", "TP", "Examen", "Rattrapage"])
+    regime_seance = c2.selectbox("⏳ Régime :", ["Charge Horaire", "Heures Supplémentaires"])
+    date_seance = c3.date_input("📅 Date réelle :", value=datetime.now())
 
-    # 2. Promo & Matière
+    # 2. Promotion & Matière
     cp, cm = st.columns(2)
     mask = df_edt['Enseignants'].str.contains(enseignant_vue, na=False, case=False)
-    list_p = sorted(df_edt[mask]['Promotion'].unique())
-    p_sel = cp.selectbox("🎓 Promotion :", list_p if list_p else sorted(df_edt['Promotion'].unique()))
-    list_m = sorted(df_edt[mask & (df_edt['Promotion'] == p_sel)]['Enseignements'].unique())
-    m_sel = cm.selectbox("📖 Matière :", list_m if list_m else ["-"])
+    list_promos = sorted(df_edt[mask]['Promotion'].unique())
+    p_sel = cp.selectbox("🎓 Promotion :", list_promos if list_promos else sorted(df_edt['Promotion'].unique()))
+    
+    list_mats = sorted(df_edt[mask & (df_edt['Promotion'] == p_sel)]['Enseignements'].unique())
+    m_sel = cm.selectbox("📖 Matière :", list_mats if list_mats else ["-"])
 
     st.markdown("---")
     st.markdown("### 📈 Appel & Notation")
@@ -189,60 +190,81 @@ with tab_saisie:
     # 4. Listes pour l'Appel
     df_appel = df_g[df_g['Sous groupe'] == sg_sel].copy()
     df_appel['Full'] = df_appel['Nom'] + " " + df_appel['Prénom']
-    noms = df_appel['Full'].tolist()
+    liste_noms = df_appel['Full'].tolist()
 
     col_abs, col_note = st.columns(2)
     with col_abs:
         abs_coll = st.checkbox("🚩 SIGNALER ABSENCE COLLECTIVE")
-        absents = noms if abs_coll else st.multiselect("❌ Absents :", options=noms)
+        absents_choisis = liste_noms if abs_coll else st.multiselect("❌ Sélectionner les Absents :", options=liste_noms)
     with col_note:
-        et_noter = st.selectbox("📝 Noter un étudiant :", ["Aucun"] + noms)
-        val_note = st.text_input("Valeur (ex: +1) :", "0")
+        etudiant_a_noter = st.selectbox("📝 Noter un étudiant (Bonus/Note) :", ["Aucun"] + liste_noms)
+        valeur_note = st.text_input("Valeur (ex: +1, 15/20) :", "0")
 
     obs_txt = st.text_area("🗒️ Observations / Chapitre traité :")
-    sign_val = st.text_input("✍️ Signature :", value=f"{current_grade} {user['nom_officiel']}")
-    code_v = st.text_input("🔑 Code Unique pour valider :", type="password")
+    signature = st.text_input("✍️ Signature :", value=f"{current_grade} {user['nom_officiel']}")
+    code_valid = st.text_input("🔑 Code Unique pour archivage :", type="password")
 
     if st.button("🚀 VALIDER ET ENVOYER LE RAPPORT", use_container_width=True, type="primary"):
-        if hash_pw(code_v) == user['password_hash']:
+        if hash_pw(code_valid) == user['password_hash']:
             with st.spinner("Archivage en cours..."):
                 try:
-                    # Préparation des données de base
-                    meta = {
-                        "promotion": p_sel, "matiere": m_sel, 
+                    # 1. PRÉPARATION DES DONNÉES (Structure souple)
+                    # On crée d'abord le dictionnaire avec toutes les colonnes souhaitées
+                    data_full = {
+                        "promotion": p_sel, 
+                        "matiere": m_sel, 
                         "enseignant": f"{current_grade} {user['nom_officiel']}",
-                        "date_seance": str(date_s), "categorie_seance": cat_s,
-                        "regime_heure": reg_s
+                        "date_seance": str(date_seance), 
+                        "categorie_seance": cat_seance,
+                        "regime_heure": regime_seance,
+                        "observations": obs_txt
                     }
-                    
-                    # TENTATIVE D'INSERTION (Gère l'erreur de colonne observations)
-                    def insert_row(data_row):
-                        # Essai avec observations
-                        data_with_obs = data_row.copy()
-                        data_with_obs["observations"] = obs_txt
+
+                    # Fonction pour insérer intelligemment (ignore les colonnes manquantes en DB)
+                    def robust_insert(base_meta, nom_etudiant, note):
+                        row = base_meta.copy()
+                        row.update({"etudiant_nom": nom_etudiant, "note_evaluation": note})
+                        
                         try:
-                            supabase.table("archives_absences").insert(data_with_obs).execute()
+                            # Essai d'insertion complète
+                            supabase.table("archives_absences").insert(row).execute()
                         except:
-                            # Si échec (colonne manquante), on envoie sans observations
-                            supabase.table("archives_absences").insert(data_row).execute()
+                            # Si échec, on réduit aux colonnes "SÉCURISÉES" qui existent forcément
+                            row_safe = {
+                                "promotion": row["promotion"],
+                                "matiere": row["matiere"],
+                                "enseignant": row["enseignant"],
+                                "date_seance": row["date_seance"],
+                                "etudiant_nom": row["etudiant_nom"],
+                                "note_evaluation": row["note_evaluation"]
+                            }
+                            supabase.table("archives_absences").insert(row_safe).execute()
 
-                    # 1. Absences
-                    for ab in absents:
-                        row = meta.copy()
-                        row.update({"etudiant_nom": ab, "note_evaluation": "ABSENCE"})
-                        insert_row(row)
+                    # 2. ENREGISTREMENT
+                    for ab in absents_choisis:
+                        robust_insert(data_full, ab, "ABSENCE")
                     
-                    # 2. Note
-                    if et_noter != "Aucun":
-                        row_n = meta.copy()
-                        row_n.update({"etudiant_nom": et_noter, "note_evaluation": val_note})
-                        insert_row(row_n)
+                    if etudiant_a_noter != "Aucun":
+                        robust_insert(data_full, etudiant_a_noter, valeur_note)
 
-                    # 3. Email
-                    corps = f"<h3>Rapport UDL</h3><b>Enseignant:</b> {current_grade} {user['nom_officiel']}<br><b>Matière:</b> {m_sel}<br><b>Absents:</b> {len(absents)}<br><b>Obs:</b> {obs_txt}"
-                    send_mail([EMAIL_CHEF_DEPT, EMAIL_CHEF_ADJOINT, user['email']], f"Rapport {m_sel}", corps, is_html=True)
+                    # 3. EMAIL (Lui, il contient TOUT car il ne dépend pas de Supabase)
+                    corps_html = f"""
+                    <div style="font-family: Arial; border: 1px solid #003366; padding: 15px;">
+                        <h2 style="color: #003366;">Rapport de Séance - UDL SBA</h2>
+                        <p><b>Enseignant :</b> {current_grade} {user['nom_officiel']}</p>
+                        <p><b>Matière :</b> {m_sel} ({cat_seance})</p>
+                        <p><b>Régime :</b> {regime_seance}</p>
+                        <p><b>Date :</b> {date_seance}</p>
+                        <hr>
+                        <p><b>Absents :</b> {", ".join(absents_choisis) if absents_choisis else "Aucun"}</p>
+                        <p><b>Note :</b> {valeur_note} pour {etudiant_a_noter}</p>
+                        <p><b>Observations :</b> {obs_txt}</p>
+                    </div>
+                    """
+                    send_mail([EMAIL_CHEF_DEPT, EMAIL_CHEF_ADJOINT, user['email']], 
+                              f"Rapport {m_sel} - {user['nom_officiel']}", corps_html, is_html=True)
 
-                    st.success("✅ Séance archivée (Note: Si les observations n'apparaissent pas en base, la colonne 'observations' doit être créée sur Supabase).")
+                    st.success("✅ Rapport envoyé par email et archivé (champs additionnels ignorés si absents en DB).")
                     st.balloons()
                 except Exception as e:
                     st.error(f"Erreur technique : {e}")
@@ -250,7 +272,7 @@ with tab_saisie:
             st.error("Code Unique incorrect.")
 
 with tab_hist:
+    st.markdown("### 📜 Archives")
     res_arc = supabase.table("archives_absences").select("*").execute()
     if res_arc.data:
         st.dataframe(pd.DataFrame(res_arc.data), use_container_width=True)
-
