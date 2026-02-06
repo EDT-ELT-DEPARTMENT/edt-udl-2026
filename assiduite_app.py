@@ -26,7 +26,7 @@ EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
 EMAIL_CHEF_DEPT = "chef.department.elt.fge@gmail.com"
 EMAIL_ADJOINT = "milouafarid@gmail.com"
 EMAIL_SENDER = "milouafarid@gmail.com"
-EMAIL_PASSWORD = "kmtk zmkd kwpd cqzz"
+EMAIL_PASSWORD = "kmtk zmkd kwpd cqzz" 
 
 # --- 2. CONNEXION SUPABASE ---
 try:
@@ -66,7 +66,7 @@ def load_data():
         for df in [df_e, df_s, df_staff]:
             df.columns = [str(c).strip() for c in df.columns]
             for col in df.select_dtypes(include=['object']):
-                df[col] = df[col].astype(str).str.strip().replace(['nan', 'None', 'none', 'NAN', ''], 'Non spécifié')
+                df[col] = df[col].astype(str).str.strip().replace(['nan', 'None', 'none', 'NAN'], '')
         
         # Création du nom complet pour le staff
         if 'NOM' in df_staff.columns and 'PRÉNOM' in df_staff.columns:
@@ -80,13 +80,13 @@ df_edt, df_etudiants, df_staff = load_data()
 df_etudiants['Full_N'] = (df_etudiants['Nom'] + " " + df_etudiants['Prénom']).str.upper().str.strip()
 
 def color_edt(val):
-    if not val or val == "Non spécifié": return ""
+    if not val or val == "": return ""
     if "Cours" in val: return 'background-color: #d1e7dd; color: #084298; font-weight: bold;'
     if "Td" in val or "TD" in val: return 'background-color: #fff3cd; color: #856404; font-weight: bold;'
     if "TP" in val: return 'background-color: #cfe2ff; color: #004085; font-weight: bold;'
     return ''
 
-# --- 4. AUTHENTIFICATION & ESPACES PUBLICS ---
+# --- 4. AUTHENTIFICATION ---
 if "user_data" not in st.session_state:
     st.session_state["user_data"] = None
 
@@ -121,31 +121,28 @@ if not st.session_state["user_data"]:
         nom_st = st.selectbox("Rechercher votre nom :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
         if nom_st != "--":
             profil = df_etudiants[df_etudiants['Full_N'] == nom_st].iloc[0]
-            res_abs = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_st).execute()
-            nb_abs = len(pd.DataFrame(res_abs.data)) if res_abs.data else 0
-            
             st.markdown(f"### 👤 {nom_st}")
-            c1, c2 = st.columns(2)
-            c1.metric("Promotion", profil['Promotion'])
-            c2.metric("Absences cumulées", nb_abs)
-            
-            st.info(f"Groupe : {profil['Groupe']} | Sous-groupe : {profil['Sous groupe']}")
+            st.info(f"Promotion : {profil['Promotion']} | Groupe : {profil['Groupe']} | Sous-groupe : {profil['Sous groupe']}")
+            res_abs = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_st).execute()
+            if res_abs.data:
+                st.table(pd.DataFrame(res_abs.data)[['date_seance', 'matiere', 'note_evaluation']])
+            else: st.info("Aucun historique.")
     st.stop()
 
 # --- 5. ESPACE ENSEIGNANT ---
 user = st.session_state["user_data"]
 is_admin = (user['email'] == EMAIL_ADMIN_TECH)
 
-# Récupération précise du grade
-grade_final = user.get('grade_enseignant', 'Enseignant')
-statut_final = user.get('statut_enseignant', 'Permanent')
+# Récupération dynamique du grade et statut
+grade_fix = user.get('grade_enseignant', 'Enseignant')
+statut_fix = user.get('statut_enseignant', 'Permanent')
 
 st.markdown(f"<h4 style='text-align:center;'>{TITRE_PLATEFORME}</h4>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown(f"### 👤 {user['nom_officiel']}")
-    st.success(f"**Grade :** {grade_final}")
-    st.warning(f"**Statut :** {statut_final}")
+    st.success(f"**Grade :** {grade_fix}")
+    st.warning(f"**Statut :** {statut_fix}")
     st.divider()
     ens_actif = st.selectbox("Simulation (Admin) :", sorted(df_edt['Enseignants'].unique())) if is_admin else user['nom_officiel']
     if st.button("🚪 Déconnexion", use_container_width=True):
@@ -197,84 +194,58 @@ with t_saisie:
     valeur = cn3.text_input("Note/Observation :")
     obs_input = st.text_area("🗒️ Observations générales :")
 
-    # --- PARTIE ENVOI DU RAPPORT ---
     st.markdown("### ✉️ Diffusion du Rapport")
     staff_options = {row['Full_S']: row['Email'] for _, row in df_staff.iterrows() if 'Full_S' in df_staff.columns}
     
-    # Champ réservé pour le Responsable de spécialité
-    resp_spe_nom = st.selectbox("Responsable de l'équipe de spécialité :", ["Aucun"] + sorted(list(staff_options.keys())))
+    # --- CHAMP RÉSERVÉ RESPONSABLE ÉQUIPE ---
+    resp_nom = st.selectbox("Responsable de l'équipe de spécialité :", ["Aucun"] + sorted(list(staff_options.keys())))
     
-    code_v = st.text_input("🔑 Code Unique pour validation :", type="password")
+    code_v = st.text_input("🔑 Code Unique :", type="password")
     
     if st.button("🚀 VALIDER ET ENVOYER LE RAPPORT", use_container_width=True, type="primary"):
         if hash_pw(code_v) == user['password_hash']:
-            # Archivage Supabase
+            # 1. Archivage Supabase
             for name in absents_final:
                 supabase.table("archives_absences").insert({
-                    "promotion": p_sel, "matiere": m_sel, "enseignant": f"{grade_final} {user['nom_officiel']}",
+                    "promotion": p_sel, "matiere": m_sel, "enseignant": f"{grade_fix} {user['nom_officiel']}",
                     "date_seance": str(date_s), "etudiant_nom": name, "note_evaluation": type_abs,
                     "observations": obs_input, "categorie_seance": charge, "type_seance": type_seance
                 }).execute()
             
-            # Préparation des destinataires (Chef de Dept + Adjoint systématiques)
-            destinataires_mails = [EMAIL_CHEF_DEPT, EMAIL_ADJOINT]
+            # 2. Envoi Emails
+            destinataires = [EMAIL_CHEF_DEPT, EMAIL_ADJOINT]
+            if resp_nom != "Aucun":
+                destinataires.append(staff_options[resp_nom])
             
-            # Ajout du responsable de spécialité si sélectionné
-            if resp_spe_nom != "Aucun":
-                destinataires_mails.append(staff_options[resp_spe_nom])
-            
-            corps_mail = f"""
+            corps = f"""
             RAPPORT DE SÉANCE - {TITRE_PLATEFORME}
             --------------------------------------------------
-            Enseignant : {grade_final} {user['nom_officiel']} {user['prenom_officiel']}
+            Enseignant : {grade_fix} {user['nom_officiel']}
             Date : {date_s}
-            Promotion : {p_sel}
-            Matière : {m_sel}
-            Type : {type_seance} ({charge})
-            
-            STATISTIQUES :
-            - Nombre d'absents : {len(absents_final)}
-            - Nature : {type_abs}
-            
-            NOTES / PARTICIPATION :
-            - Étudiant ciblé : {etudiant_note}
-            - Critère : {critere}
-            - Valeur : {valeur}
-            
-            OBSERVATIONS :
-            {obs_input}
-            --------------------------------------------------
-            Rapport généré automatiquement le {datetime.now().strftime('%d/%m/%Y à %H:%M')}.
+            Matière : {m_sel} ({type_seance})
+            Absents : {len(absents_final)} ({type_abs})
+            Observation : {obs_input}
             """
-            
-            envoi_ok = send_email_rapport(destinataires_mails, f"Rapport {type_seance} - {m_sel} - {user['nom_officiel']}", corps_mail)
-            
-            if envoi_ok:
-                st.success("✅ Rapport archivé et diffusé avec succès !"); st.balloons()
-            else:
-                st.warning("✅ Archivé, mais erreur lors de l'envoi des emails.")
-        else:
-            st.error("Code unique incorrect.")
+            send_email_rapport(destinataires, f"Rapport {m_sel} - {user['nom_officiel']}", corps)
+            st.success("✅ Rapport archivé et diffusé !"); st.balloons()
+        else: st.error("Code de validation incorrect.")
 
 # --- ONGLET 2 : SUIVI ÉTUDIANT ---
 with t_suivi:
     st.markdown("### 🔍 Fiche de Suivi Individuelle")
-    p_suivi = st.selectbox("1️⃣ Promotion :", sorted(df_etudiants['Promotion'].unique()), key="suivi_p")
+    p_suivi = st.selectbox("1️⃣ Promotion :", sorted(df_etudiants['Promotion'].unique()))
     etudiants_promo = df_etudiants[df_etudiants['Promotion'] == p_suivi]
-    nom_suivi = st.selectbox("2️⃣ Étudiant :", ["--"] + sorted(etudiants_promo['Full_N'].unique()), key="suivi_n")
+    nom_suivi = st.selectbox("2️⃣ Étudiant :", ["--"] + sorted(etudiants_promo['Full_N'].unique()))
     
     if nom_suivi != "--":
-        res_suivi = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_suivi).execute()
-        if res_suivi.data:
-            st.table(pd.DataFrame(res_suivi.data)[['date_seance', 'matiere', 'note_evaluation', 'enseignant']])
-        else:
-            st.info("Aucun historique pour cet étudiant.")
+        res = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_suivi).execute()
+        if res.data:
+            st.table(pd.DataFrame(res.data)[['date_seance', 'matiere', 'note_evaluation', 'enseignant']])
+        else: st.info("Aucune donnée.")
 
 # --- ONGLET 3 : ADMIN ---
 with t_admin:
     if is_admin:
-        res_all = supabase.table("archives_absences").select("*").execute()
-        if res_all.data:
-            st.dataframe(pd.DataFrame(res_all.data), use_container_width=True)
-    else:
-        st.error("Accès réservé à l'administration.")
+        res = supabase.table("archives_absences").select("*").execute()
+        if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
+    else: st.error("Accès réservé.")
