@@ -301,15 +301,70 @@ with t_saisie:
 
 # --- ONGLET SUIVI ---
 with t_suivi:
-    st.subheader("🔍 Suivi Étudiant")
-    search = st.selectbox("Rechercher un étudiant :", ["--"] + sorted(df_etudiants['Full_N'].unique()), key="search_suivi")
-    if search != "--":
-        if supabase:
-            res = supabase.table("archives_absences").select("*").eq("etudiant_nom", search).execute()
-            if res.data:
-                st.dataframe(pd.DataFrame(res.data)[['date_seance', 'matiere', 'note_evaluation', 'enseignant']], use_container_width=True)
+    st.subheader("🔍 Suivi des Étudiants (Vos Promotions)")
+
+    # 1. Identifier les promotions de l'enseignant connecté
+    # On regarde dans le fichier EDT où son nom (ens_actif) apparaît
+    mask_ens = df_edt['Enseignants'].str.contains(ens_actif, na=False, case=False)
+    ses_promotions = sorted(df_edt[mask_ens]['Promotion'].unique())
+
+    if not ses_promotions:
+        st.warning("⚠️ Vous n'êtes assigné à aucune promotion dans le fichier EDT actuel.")
+    else:
+        # 2. Filtrer la liste des étudiants pour ne garder que ceux de ses promotions
+        df_etudiants_accessibles = df_etudiants[df_etudiants['Promotion'].isin(ses_promotions)]
+        
+        # 3. Sélecteur de l'étudiant parmi ceux autorisés
+        search = st.selectbox(
+            "Rechercher un étudiant de vos promotions :", 
+            ["--"] + sorted(df_etudiants_accessibles['Full_N'].unique()), 
+            key="search_suivi"
+        )
+
+        if search != "--":
+            if supabase:
+                try:
+                    # 4. Récupération des données depuis Supabase
+                    res = supabase.table("archives_absences").select("*").eq("etudiant_nom", search).execute()
+                    
+                    if res.data:
+                        # Conversion en DataFrame pour manipulation
+                        df_suivi = pd.DataFrame(res.data)
+
+                        # 5. Mise en forme des colonnes pour l'enseignant
+                        # On s'assure que les colonnes demandées existent
+                        colonnes_affichage = [
+                            'date_seance', 
+                            'matiere', 
+                            'observations',   # Contient l'horaire et le régime (configuré lors de la saisie)
+                            'note_evaluation', # Contient l'absence ou la note
+                            'enseignant'
+                        ]
+
+                        # Renommer pour plus de clarté dans le tableau
+                        df_suivi_propre = df_suivi[colonnes_affichage].rename(columns={
+                            'date_seance': 'Date',
+                            'matiere': 'Matière',
+                            'observations': 'Détails / Horaire',
+                            'note_evaluation': 'Statut / Note',
+                            'enseignant': 'Enseignant'
+                        })
+
+                        # 6. Affichage du résultat
+                        st.markdown(f"**Historique pour : {search}**")
+                        st.dataframe(df_suivi_propre, use_container_width=True)
+
+                        # Optionnel : petit résumé
+                        nb_abs = len(df_suivi[df_suivi['note_evaluation'].str.contains("Absence", na=False, case=False)])
+                        st.info(f"💡 Total d'absences enregistrées pour cet étudiant : {nb_abs}")
+
+                    else:
+                        st.success(f"✅ Aucun incident ou absence à signaler pour {search}.")
+                
+                except Exception as e:
+                    st.error(f"Erreur lors de la récupération des données : {e}")
             else:
-                st.success("Aucun incident à signaler pour cet étudiant.")
+                st.error("Connexion à la base de données indisponible.")
 
 # --- ONGLET ADMIN ---
 with t_admin:
@@ -329,3 +384,4 @@ with t_admin:
                 st.download_button("📊 Télécharger le registre (Excel)", output.getvalue(), "Archives_EDT_S2_2026.xlsx")
     else:
         st.warning("🔒 Cet espace est réservé à l'administration du département.")
+
