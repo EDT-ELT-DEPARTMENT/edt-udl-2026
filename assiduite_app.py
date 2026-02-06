@@ -47,14 +47,12 @@ def generate_qr_segno(data):
     return out.getvalue()
 
 def send_notification_admin(details):
-    """Envoi d'email au Chef de Département et à l'Adjoint"""
     destinataires = [EMAIL_CHEF_DEPT, EMAIL_ADJOINT]
     try:
         msg = MIMEMultipart()
         msg['From'] = f"EDT-UDL-SYSTEM <{EMAIL_SENDER}>"
         msg['To'] = ", ".join(destinataires)
         msg['Subject'] = f"ALERTE : Rapport de Séance - {details['promotion']}"
-        
         corps = f"""
         Bonjour,
         Un nouveau rapport de séance a été validé :
@@ -72,7 +70,7 @@ def send_notification_admin(details):
         server.send_message(msg)
         server.quit()
     except Exception as e:
-        st.warning(f"Notification email non envoyée : {e}")
+        pass
 
 @st.cache_data
 def load_data():
@@ -104,7 +102,7 @@ def safe_insert(table_name, data_dict):
     except Exception as e:
         st.error(f"Erreur DB : {e}")
 
-# --- 4. AUTHENTIFICATION ---
+# --- 4. AUTHENTIFICATION ET ACCÈS ---
 if "user_data" not in st.session_state:
     st.session_state["user_data"] = None
 
@@ -120,24 +118,23 @@ if not st.session_state["user_data"]:
             if res.data:
                 st.session_state["user_data"] = res.data[0]; st.rerun()
             else: st.error("Identifiants incorrects.")
-        with st.expander("❓ Problème de connexion ?"):
-            st.info(f"Contactez l'administrateur : {EMAIL_ADMIN_TECH}")
+        with st.expander("❓ Problème ?"):
+            st.info(f"Admin technique : {EMAIL_ADMIN_TECH}")
 
     with t_signup:
         df_staff['Full_S'] = df_staff['NOM'] + " " + df_staff['PRÉNOM']
-        choix_nom = st.selectbox("Sélectionnez votre nom dans la liste :", sorted(df_staff['Full_S'].unique()))
+        choix_nom = st.selectbox("Votre nom :", sorted(df_staff['Full_S'].unique()))
         inf_s = df_staff[df_staff['Full_S'] == choix_nom].iloc[0]
-        st.warning(f"Profil détecté : {inf_s['Grade']} - {inf_s['Qualité']}")
-        
-        reg_e = st.text_input("Confirmez votre Email :", value=inf_s['Email'])
-        reg_p = st.text_input("Créez votre Code Unique :", type="password")
-        if st.button("Finaliser l'inscription"):
+        st.write(f"Grade : {inf_s['Grade']} | {inf_s['Qualité']}")
+        reg_e = st.text_input("Email :", value=inf_s['Email'])
+        reg_p = st.text_input("Nouveau Code Unique :", type="password")
+        if st.button("S'inscrire"):
             supabase.table("enseignants_auth").insert({
                 "email": reg_e, "password_hash": hash_pw(reg_p),
                 "nom_officiel": inf_s['NOM'], "prenom_officiel": inf_s['PRÉNOM'],
                 "statut_enseignant": inf_s['Qualité'], "grade_enseignant": inf_s['Grade']
             }).execute()
-            st.success("Compte créé avec succès !")
+            st.success("Compte créé !")
 
     with t_student:
         nom_st = st.selectbox("Recherchez votre Nom & Prénom :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
@@ -145,42 +142,46 @@ if not st.session_state["user_data"]:
             profil = df_etudiants[df_etudiants['Full_N'] == nom_st].iloc[0]
             st.markdown(f"#### 📌 {profil['Promotion']} | Groupe : {profil['Groupe']} | Sous-groupe : {profil['Sous groupe']}")
             
-            def filtrer_edt_etudiant(row):
-                if str(row['Promotion']).strip().upper() != str(profil['Promotion']).strip().upper(): return False
-                ens, code, lieu = str(row['Enseignements']).upper(), str(row['Code']).upper(), str(row['Lieu']).upper()
+            def filtrer_edt_robuste(row):
+                if str(row['Promotion']).upper() != str(profil['Promotion']).upper(): return False
+                ens, cod, lie = str(row['Enseignements']).upper(), str(row['Code']).upper(), str(row['Lieu']).upper()
                 if "COURS" in ens: return True
-                num_g = re.findall(r'\d+', str(profil['Groupe']))[0] if re.findall(r'\d+', str(profil['Groupe'])) else ""
+                num_g = re.findall(r'\d+', str(profil['Groupe']))[0] if re.findall(r'\d+', str(profil['Groupe'])) else "X"
                 if "TD" in ens:
-                    if str(profil['Groupe']).upper() in (ens + lieu + code): return True
-                    if num_g == "1" and "-A" in code: return True
-                    if num_g == "2" and "-B" in code: return True
-                num_sg = re.findall(r'\d+', str(profil['Sous groupe']))[0] if re.findall(r'\d+', str(profil['Sous groupe'])) else ""
+                    if str(profil['Groupe']).upper() in (ens+cod+lie): return True
+                    if num_g == "1" and "-A" in cod: return True
+                    if num_g == "2" and "-B" in cod: return True
+                num_sg = re.findall(r'\d+', str(profil['Sous groupe']))[0] if re.findall(r'\d+', str(profil['Sous groupe'])) else "X"
                 if "TP" in ens:
-                    if str(profil['Sous groupe']).upper() in (ens + lieu + code): return True
-                    suffixe = "A" if num_sg == "1" else "B" if num_sg == "2" else "C" if num_sg == "3" else ""
-                    if f"-{suffixe}" in code: return True
+                    if str(profil['Sous groupe']).upper() in (ens+cod+lie): return True
+                    suff = "A" if num_sg == "1" else "B" if num_sg == "2" else "C" if num_sg == "3" else "Z"
+                    if f"-{suff}" in cod: return True
                 return False
 
-            edt_final = df_edt[df_edt.apply(filtrer_edt_etudiant, axis=1)].copy()
-            if not edt_final.empty:
-                grid = edt_final.pivot_table(index='Horaire', columns='Jours', values='Enseignements', aggfunc=lambda x: ' / '.join(x)).fillna("")
+            edt_f = df_edt[df_edt.apply(filtrer_edt_robuste, axis=1)].copy()
+            if not edt_f.empty:
+                grid = edt_f.pivot_table(index='Horaire', columns='Jours', values='Enseignements', aggfunc=lambda x: ' / '.join(x)).fillna("")
                 jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
                 cols = [j for j in jours if j in grid.columns]
                 grid = grid[cols]
-                grid['h'] = grid.index.map(lambda x: int(re.search(r'\d+', str(x)).group(1)) if re.search(r'\d+', str(x)) else 0)
-                grid = grid.sort_values('h').drop(columns='h')
-                st.dataframe(grid.style.applymap(color_edt), use_container_width=True)
-            else: st.warning("Emploi du temps non disponible.")
+                
+                # --- TRI CHRONOLOGIQUE SÉCURISÉ (Fix IndexError) ---
+                def get_sort_hour(val):
+                    matches = re.findall(r'\d+', str(val))
+                    return int(matches[0]) if matches else 99
+                
+                grid_sorted = grid.iloc[grid.index.map(get_sort_hour).argsort()]
+                st.dataframe(grid_sorted.style.applymap(color_edt), use_container_width=True)
+            else: st.warning("Pas d'EDT trouvé.")
 
-            st.markdown("### ❌ Bilan des Absences")
-            res_abs = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_st).eq("note_evaluation", "ABSENCE").execute()
-            if res_abs.data:
-                st.table(pd.DataFrame(res_abs.data).groupby(['matiere', 'enseignant']).size().reset_index(name='Total Absences'))
-            else: st.info("Aucune absence signalée.")
-            st.image(generate_qr_segno(f"ST:{nom_st}"), width=100)
+            st.markdown("### ❌ Absences")
+            res_a = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_st).eq("note_evaluation", "ABSENCE").execute()
+            if res_a.data:
+                st.table(pd.DataFrame(res_a.data).groupby(['matiere', 'enseignant']).size().reset_index(name='Total'))
+            else: st.info("0 absence.")
     st.stop()
 
-# --- 5. INTERFACE ENSEIGNANT & ADMINISTRATEUR ---
+# --- 5. INTERFACE ENSEIGNANT & ADMIN ---
 user = st.session_state["user_data"]
 is_admin = (user['email'] == EMAIL_ADMIN_TECH)
 
@@ -189,99 +190,56 @@ st.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom: 2px so
 with st.sidebar:
     st.markdown(f"### 👤 {user.get('nom_officiel','')} {user.get('prenom_officiel','')}")
     st.info(f"Grade : {user.get('grade_enseignant','')} \nStatut : {user.get('statut_enseignant','')}")
-    
-    if is_admin:
-        st.success("🛡️ VUE ADMINISTRATEUR ACTIVE")
-        ens_actif = st.selectbox("Simuler un enseignant :", sorted(df_edt['Enseignants'].unique()))
-    else:
-        ens_actif = user.get('nom_officiel','')
-
+    ens_actif = st.selectbox("Simuler :", sorted(df_edt['Enseignants'].unique())) if is_admin else user.get('nom_officiel','')
     if st.button("🔄 Reset / Actualiser"): st.rerun()
-    if st.button("🚪 Déconnexion", use_container_width=True):
-        st.session_state["user_data"] = None; st.rerun()
+    if st.button("🚪 Déconnexion"): st.session_state["user_data"] = None; st.rerun()
 
-t_saisie, t_suivi, t_admin = st.tabs(["📝 Saisie Rapport", "🔍 Suivi Étudiant", "🛡️ Panneau Admin"])
+t_saisie, t_suivi, t_admin = st.tabs(["📝 Saisie", "🔍 Suivi Étudiant", "🛡️ Panneau Admin"])
 
-# --- ONGLET 1 : SAISIE ---
 with t_saisie:
     c1, c2, c3 = st.columns(3)
-    date_s = c3.date_input("Date du jour :", value=datetime.now())
+    dt_s = c3.date_input("Date :", value=datetime.now())
     mask_e = df_edt['Enseignants'].str.contains(ens_actif, na=False, case=False)
     p_sel = st.selectbox("Promotion :", sorted(df_edt[mask_e]['Promotion'].unique()) if any(mask_e) else sorted(df_edt['Promotion'].unique()))
-    
     df_p = df_etudiants[df_etudiants['Promotion'] == p_sel]
     g_sel = st.selectbox("Groupe :", sorted(df_p['Groupe'].unique()))
     sg_sel = st.selectbox("Sous-groupe :", sorted(df_p[df_p['Groupe']==g_sel]['Sous groupe'].unique()))
-    
-    eff_list = df_p[(df_p['Groupe']==g_sel) & (df_p['Sous groupe']==sg_sel)]
-    st.markdown(f"📊 **Affichage Numérique : {len(eff_list)}** étudiants attendus.")
-    
+    eff = df_p[(df_p['Groupe']==g_sel) & (df_p['Sous groupe']==sg_sel)]
+    st.markdown(f"📊 **Affichage Numérique : {len(eff)}** étudiants attendus.")
     m_sel = st.selectbox("Matière :", sorted(df_edt[mask_e & (df_edt['Promotion'] == p_sel)]['Enseignements'].unique()) if any(mask_e) else ["-"])
-    abs_sel = st.multiselect("❌ Sélectionner les Absents :", options=eff_list['Full_N'].tolist())
-    obs = st.text_area("Observations éventuelles :")
-    code_v = st.text_input("🔑 Votre Code Unique :", type="password")
-    
-    if st.button("🚀 VALIDER LE RAPPORT", use_container_width=True, type="primary"):
+    abs_sel = st.multiselect("❌ Absents :", options=eff['Full_N'].tolist())
+    obs = st.text_area("Observations :")
+    code_v = st.text_input("🔑 Code :", type="password")
+    if st.button("🚀 VALIDER"):
         if hash_pw(code_v) == user['password_hash']:
-            details = {
-                "promotion": p_sel, "matiere": m_sel, "enseignant": user['nom_officiel'], 
-                "statut": user['statut_enseignant'], "date_seance": str(date_s), 
-                "nb_absents": len(abs_sel), "obs": obs
-            }
-            for student in abs_sel:
-                safe_insert("archives_absences", {**details, "etudiant_nom": student, "note_evaluation": "ABSENCE"})
-            
-            # Alerte Chef de Dept et Adjoint
-            send_notification_admin(details)
-            st.success("Séance enregistrée et notifications envoyées !"); st.balloons()
-        else: st.error("Code incorrect.")
+            details = {"promotion": p_sel, "matiere": m_sel, "enseignant": user['nom_officiel'], "statut": user['statut_enseignant'], "date_seance": str(dt_s), "nb_absents": len(abs_sel), "obs": obs}
+            for student in abs_sel: safe_insert("archives_absences", {**details, "etudiant_nom": student, "note_evaluation": "ABSENCE"})
+            send_notification_admin(details); st.success("Validé !"); st.balloons()
+        else: st.error("Code faux.")
 
-# --- ONGLET 2 : SUIVI ---
 with t_suivi:
-    target = st.selectbox("Choisir un étudiant :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
+    target = st.selectbox("Étudiant :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
     if target != "--":
         adm_i = df_etudiants[df_etudiants['Full_N'] == target].iloc[0]
-        st.write(f"**Profil :** {adm_i['Promotion']} | {adm_i['Groupe']} | {adm_i['Sous groupe']}")
         res_s = supabase.table("archives_absences").select("*").eq("etudiant_nom", target).eq("note_evaluation", "ABSENCE").execute()
-        if res_s.data:
+        if res_a.data:
             df_r = pd.DataFrame(res_s.data)
             recap = []
             for mat, count in df_r['matiere'].value_counts().items():
                 info = df_edt[(df_edt['Promotion'] == adm_i['Promotion']) & (df_edt['Enseignements'] == mat)]
-                recap.append({
-                    "Matière": mat, "Total Absences": count,
-                    "Enseignant": info.iloc[0]['Enseignants'] if not info.empty else "N/A",
-                    "Jour": info.iloc[0]['Jours'] if not info.empty else "N/A"
-                })
+                recap.append({"Matière": mat, "Total": count, "Enseignant": info.iloc[0]['Enseignants'] if not info.empty else "N/A"})
             st.table(pd.DataFrame(recap))
-        else: st.success("Aucune absence.")
 
-# --- ONGLET 3 : PANNEAU ADMIN (VUE CHEF DE DÉPARTEMENT) ---
 with t_admin:
     if is_admin:
-        st.markdown("### 🛡️ Gestion des Archives et Statistiques")
         res_g = supabase.table("archives_absences").select("*").execute()
         if res_g.data:
-            df_global = pd.DataFrame(res_g.data)
-            
-            # Affichage Numérique des Statistiques
+            df_g = pd.DataFrame(res_g.data)
             k1, k2, k3 = st.columns(3)
-            k1.metric("Total Rapports", len(df_global['date_seance'].unique()))
-            k2.metric("Total Absences", len(df_global))
-            k3.metric("Étudiants Touchés", len(df_global['etudiant_nom'].unique()))
-            
-            st.divider()
-            st.markdown("#### 📂 Registre complet")
-            st.dataframe(df_global, use_container_width=True)
-            
-            # Exportation
-            buf = io.BytesIO()
-            df_global.to_excel(buf, index=False)
-            st.download_button("📥 Télécharger Excel Global", buf.getvalue(), "Registre_Departement_2026.xlsx")
-            
-            if st.button("🗑️ Vider les archives (Action irréversible)", type="secondary"):
-                st.error("Cette fonction est désactivée par mesure de sécurité.")
-        else:
-            st.info("Aucune donnée archivée pour le moment.")
-    else:
-        st.error("Accès réservé à l'administration technique et au Chef de Département.")
+            k1.metric("Rapports", len(df_g['date_seance'].unique()))
+            k2.metric("Absences", len(df_g))
+            k3.metric("Effectif Impacté", len(df_g['etudiant_nom'].unique()))
+            st.dataframe(df_g, use_container_width=True)
+            buf = io.BytesIO(); df_g.to_excel(buf, index=False)
+            st.download_button("📥 Excel Global", buf.getvalue(), "Archives_2026.xlsx")
+    else: st.error("Accès Admin requis.")
