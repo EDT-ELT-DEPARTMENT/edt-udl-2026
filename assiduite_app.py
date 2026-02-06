@@ -39,11 +39,9 @@ except Exception as e:
 
 # --- 3. FONCTIONS TECHNIQUES ---
 def hash_pw(password):
-    """Hachage pour sécuriser les codes."""
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 def send_mail(destinataires, subject, body, is_html=False):
-    """Envoi de mail via Gmail."""
     try:
         msg = MIMEMultipart()
         msg['From'] = f"Gestion EDT UDL <{EMAIL_SENDER}>"
@@ -61,7 +59,6 @@ def send_mail(destinataires, subject, body, is_html=False):
 
 @st.cache_data
 def load_data():
-    """Chargement des fichiers Excel."""
     try:
         df_e = pd.read_excel(FICHIER_EDT)
         df_s = pd.read_excel(FICHIER_ETUDIANTS)
@@ -78,7 +75,6 @@ def load_data():
 df_edt, df_etudiants, df_staff = load_data()
 
 def get_live_grade(user_nom, user_email):
-    """Récupère le grade actuel dans le fichier staff."""
     match = df_staff[df_staff['Email'].str.lower() == user_email.lower()]
     if match.empty:
         match = df_staff[df_staff['NOM'].str.upper() == user_nom.upper()]
@@ -186,7 +182,6 @@ with st.sidebar:
 tab_saisie, tab_suivi, tab_hist = st.tabs(["📝 Saisie Séance", "🔍 Suivi Étudiant", "📜 Archive Globale"])
 
 with tab_saisie:
-    # --- PARTIE INFOS SÉANCE ---
     c1, c2, c3 = st.columns(3)
     cat_s = c1.selectbox("🏷️ Séance :", ["Cours", "TD", "TP", "Examen", "Rattrapage"])
     reg_s = c2.selectbox("⏳ Régime :", ["Charge Horaire", "Heures Supplémentaires"])
@@ -200,24 +195,17 @@ with tab_saisie:
     m_sel = cm.selectbox("📖 Matière :", list_mats if list_mats else ["-"])
 
     st.divider()
-    
-    # --- PARTIE AFFICHAGE NUMÉRIQUE (MÉTRIQUES) ---
     df_p_full = df_etudiants[df_etudiants['Promotion'] == p_sel]
     cg, csg = st.columns(2)
     g_sel = cg.selectbox("👥 Groupe :", sorted(df_p_full['Groupe'].unique()) if not df_p_full.empty else ["G1"])
     sg_sel = csg.selectbox("🔢 Sous-groupe :", sorted(df_p_full[df_p_full['Groupe']==g_sel]['Sous groupe'].unique()) if not df_p_full.empty else ["SG1"])
 
-    # Calcul des effectifs pour l'affichage numérique
-    count_promo = len(df_p_full)
-    count_groupe = len(df_p_full[df_p_full['Groupe'] == g_sel])
-    count_sg = len(df_p_full[(df_p_full['Groupe'] == g_sel) & (df_p_full['Sous groupe'] == sg_sel)])
-
+    # --- AFFICHAGE NUMÉRIQUE DES EFFECTIFS ---
     m1, m2, m3 = st.columns(3)
-    m1.metric("Effectif Promotion", count_promo)
-    m2.metric(f"Effectif Groupe {g_sel}", count_groupe)
-    m3.metric(f"Effectif S-Groupe {sg_sel}", count_sg)
+    m1.metric("Effectif Promotion", len(df_p_full))
+    m2.metric(f"Effectif Groupe {g_sel}", len(df_p_full[df_p_full['Groupe'] == g_sel]))
+    m3.metric(f"Effectif S-Groupe {sg_sel}", len(df_p_full[(df_p_full['Groupe'] == g_sel) & (df_p_full['Sous groupe'] == sg_sel)]))
 
-    # --- APPEL ---
     df_appel = df_p_full[(df_p_full['Groupe']==g_sel) & (df_p_full['Sous groupe']==sg_sel)].copy()
     df_appel['Full'] = df_appel['Nom'] + " " + df_appel['Prénom']
     
@@ -238,4 +226,34 @@ with tab_saisie:
 with tab_suivi:
     st.markdown("### 🔍 Fiche et Suivi Individuel")
     df_etudiants['Search_Full'] = df_etudiants['Nom'] + " " + df_etudiants['Prénom']
-    et_sel = st.selectbox("🎯 Rechercher
+    et_sel = st.selectbox("🎯 Rechercher un étudiant :", ["--"] + sorted(df_etudiants['Search_Full'].unique()))
+    
+    if et_sel != "--":
+        info = df_etudiants[df_etudiants['Search_Full'] == et_sel].iloc[0]
+        res = supabase.table("archives_absences").select("*").eq("etudiant_nom", et_sel).execute()
+        df_abs_et = pd.DataFrame(res.data)
+
+        if not df_abs_et.empty and 'note_evaluation' in df_abs_et.columns:
+            nb_abs = len(df_abs_et[df_abs_et['note_evaluation'] == "ABSENCE"])
+        else:
+            nb_abs = 0
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Promo", info['Promotion'])
+        m2.metric("Groupe", info['Groupe'])
+        m3.metric("SG", info['Sous groupe'])
+        m4.metric("TOTAL ABSENCES", nb_abs)
+
+        st.divider()
+        st.write(f"**Identité :** {et_sel} | **Promotion :** {info['Promotion']}")
+        
+        if not df_abs_et.empty:
+            st.table(df_abs_et[['date_seance', 'matiere', 'enseignant', 'categorie_seance']])
+        else:
+            st.info("Aucune absence enregistrée pour cet étudiant.")
+
+with tab_hist:
+    st.markdown("### 📜 Archive Globale")
+    all_res = supabase.table("archives_absences").select("*").execute()
+    if all_res.data:
+        st.dataframe(pd.DataFrame(all_res.data), use_container_width=True)
