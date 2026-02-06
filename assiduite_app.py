@@ -63,19 +63,29 @@ def load_data():
         df_e = pd.read_excel(FICHIER_EDT)
         df_s = pd.read_excel(FICHIER_ETUDIANTS)
         df_staff = pd.read_excel(FICHIER_STAFF)
+        
         for df in [df_e, df_s, df_staff]:
             df.columns = [str(c).strip() for c in df.columns]
             for col in df.select_dtypes(include=['object']):
                 df[col] = df[col].astype(str).str.strip().replace(['nan', 'None', 'none', 'NAN'], '')
         
+        # --- LOGIQUE DE CORRESPONDANCE NOM/PRÉNOM ---
         if 'NOM' in df_staff.columns and 'PRÉNOM' in df_staff.columns:
             df_staff['Full_S'] = (df_staff['NOM'] + " " + df_staff['PRÉNOM']).str.upper()
+            
+            # Création d'un dictionnaire { 'NOM': 'NOM PRÉNOM' }
+            mapping_noms = {
+                str(row['NOM']).strip().upper(): row['Full_S'] 
+                for _, row in df_staff.iterrows()
+            }
+            
+            # On met à jour la colonne 'Enseignants' du fichier EDT pour inclure le prénom
+            if 'Enseignants' in df_e.columns:
+                df_e['Enseignants'] = df_e['Enseignants'].str.upper().map(mapping_noms).fillna(df_e['Enseignants'])
         
         return df_e, df_s, df_staff
     except Exception as e:
         st.error(f"Erreur de lecture Excel : {e}"); st.stop()
-
-df_edt, df_etudiants, df_staff = load_data()
 df_etudiants['Full_N'] = (df_etudiants['Nom'] + " " + df_etudiants['Prénom']).str.upper().str.strip()
 
 def color_edt(val):
@@ -203,6 +213,7 @@ is_admin = (user.get('email') == EMAIL_ADMIN_TECH)
 # 1. Extraction des identifiants session
 nom_session = str(user.get('nom_officiel', '')).strip().upper()
 prenom_session = str(user.get('prenom_officiel', '')).strip().upper()
+nom_complet_session = f"{nom_session} {prenom_session}"
 
 # 2. PARCOURS DE LA LISTE POUR LE GRADE
 match_staff = df_staff[
@@ -223,7 +234,8 @@ else:
 st.sidebar.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom:2px solid #003366;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h4>", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown(f"### 👤 {nom_session} {prenom_session}")
+    # AFFICHAGE DU NOM ET PRÉNOM ICI
+    st.markdown(f"### 👤 {nom_complet_session}")
     
     if grade_fix:
         st.success(f"**Grade :** {grade_fix}")
@@ -233,13 +245,15 @@ with st.sidebar:
     
     # Gestion de l'enseignant actif (Filtrage de l'EDT)
     if is_admin:
+        # L'admin sélectionne parmi les noms complets (grâce au mapping fait en chargeant les données)
         ens_actif = st.selectbox(
             "Simulation (Admin) :", 
             sorted(df_edt['Enseignants'].unique()),
             key="unique_admin_sim_key"
         )
     else:
-        ens_actif = nom_session
+        # L'enseignant voit son nom complet
+        ens_actif = nom_complet_session
 
     if st.button("🚪 Déconnexion", use_container_width=True, key="unique_logout_key"):
         st.session_state["user_data"] = None
@@ -348,6 +362,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
