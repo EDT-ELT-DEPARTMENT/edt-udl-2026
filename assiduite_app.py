@@ -230,24 +230,30 @@ if not st.session_state["user_data"]:
 user = st.session_state["user_data"]
 is_admin = (user.get('email') == EMAIL_ADMIN_TECH)
 
-# 1. Extraction et formatage de l'identité
+# 1. Extraction et formatage de l'identité (Récupération directe de Supabase)
 nom_session = str(user.get('nom_officiel', '')).strip().upper()
 prenom_session = str(user.get('prenom_officiel', '')).strip().upper()
-nom_complet_session = f"{nom_session} {prenom_session}"
 
-# 2. Récupération Grade et Statut
-match_staff = df_staff[
-    (df_staff['NOM'].str.upper() == nom_session) & 
-    (df_staff['PRÉNOM'].str.upper() == prenom_session)
-]
-
-if not match_staff.empty:
-    g_val = match_staff.iloc[0]['Grade']
-    q_val = match_staff.iloc[0]['Qualité']
-    grade_fix = str(g_val).strip() if pd.notna(g_val) and str(g_val).strip() != "" else ""
-    statut_fix = str(q_val).strip() if pd.notna(q_val) else "Permanent"
+# Correction pour éviter le "NONE" si le prénom est mal lu
+if prenom_session == "NONE" or not prenom_session:
+    nom_complet_session = nom_session
 else:
-    grade_fix, statut_fix = "", "Permanent"
+    nom_complet_session = f"{nom_session} {prenom_session}"
+
+# 2. Récupération Grade et Statut (Directement depuis les colonnes Supabase)
+# On utilise .get() pour lire les colonnes que vous avez ajoutées
+grade_fix = str(user.get('grade_enseignant', '')).strip()
+statut_fix = str(user.get('statut_enseignant', 'Permanent')).strip()
+
+# Sécurité : si Supabase est vide, on tente un dernier secours sur le fichier staff
+if not grade_fix or grade_fix == "NONE":
+    match_staff = df_staff[
+        (df_staff['NOM'].str.upper() == nom_session) & 
+        (df_staff['PRÉNOM'].str.upper() == prenom_session)
+    ]
+    if not match_staff.empty:
+        grade_fix = str(match_staff.iloc[0]['Grade']).strip()
+        statut_fix = str(match_staff.iloc[0]['Qualité']).strip()
 
 # --- SIDEBAR ---
 st.sidebar.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom:2px solid #003366;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h4>", unsafe_allow_html=True)
@@ -383,6 +389,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
