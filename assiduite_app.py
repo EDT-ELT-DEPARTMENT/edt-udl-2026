@@ -105,16 +105,32 @@ if not st.session_state["user_data"]:
     with t_signup:
         choix_signup = st.selectbox("Sélectionnez votre nom :", sorted(df_staff['Full_S'].unique()))
         inf = df_staff[df_staff['Full_S'] == choix_signup].iloc[0]
+        
         st.info(f"Grade détecté : {inf['Grade']} | Statut : {inf['Qualité']}")
-        reg_e = st.text_input("Email :", value=inf['Email'])
-        reg_p = st.text_input("Créer Code Unique :", type="password")
-        if st.button("Valider l'inscription"):
-            supabase.table("enseignants_auth").insert({
-                "email": reg_e, "password_hash": hash_pw(reg_p),
-                "nom_officiel": inf['NOM'], "prenom_officiel": inf['PRÉNOM'],
-                "statut_enseignant": inf['Qualité'], "grade_enseignant": inf['Grade']
-            }).execute()
-            st.success("Compte créé avec succès !")
+        
+        reg_e = st.text_input("Email Professionnel :", value=inf['Email'])
+        reg_p = st.text_input("Créer votre Code Unique :", type="password", help="Ce code servira à vous connecter et à valider vos rapports.")
+        
+        if st.button("Valider l'inscription", use_container_width=True):
+            try:
+                # Préparation des données pour une correspondance stricte
+                data_to_insert = {
+                    "email": reg_e.strip(),
+                    "password_hash": hash_pw(reg_p),
+                    "nom_officiel": str(inf['NOM']).strip().upper(),
+                    "prenom_officiel": str(inf['PRÉNOM']).strip().upper(),
+                    "statut_enseignant": str(inf['Qualité']).strip(),
+                    "grade_enseignant": str(inf['Grade']).strip()
+                }
+                
+                # Insertion dans Supabase
+                supabase.table("enseignants_auth").insert(data_to_insert).execute()
+                
+                st.success(f"✅ Compte créé avec succès pour {inf['NOM']} {inf['PRÉNOM']} !")
+                st.balloons()
+                st.info("Vous pouvez maintenant passer à l'onglet 'Connexion'.")
+            except Exception as e:
+                st.error(f"Erreur lors de l'inscription : {e}")
 
     with t_student:
         nom_st = st.selectbox("Sélectionner votre nom (Étudiant) :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
@@ -330,5 +346,6 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
