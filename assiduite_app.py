@@ -198,40 +198,56 @@ if not st.session_state["user_data"]:
 
 # --- 5. ESPACE ENSEIGNANT ---
 user = st.session_state["user_data"]
-is_admin = (user['email'] == EMAIL_ADMIN_TECH)
+is_admin = (user.get('email') == EMAIL_ADMIN_TECH)
 
-# Correction sécurisée de la récupération du nom et prénom
-nom = user.get('nom_officiel', '').upper()
-prenom = user.get('prenom_officiel', '').upper()
+# 1. Extraction des identifiants (Stockés dans Supabase lors de l'inscription)
+nom_user = str(user.get('nom_officiel', '')).strip().upper()
+prenom_user = str(user.get('prenom_officiel', '')).strip().upper()
 
-# On construit le nom complet pour la recherche dans le fichier Excel
-if prenom:
-    full_name_user = f"{nom} {prenom}".strip()
+# 2. LOGIQUE DE PARCOURS DE LA LISTE POUR LE GRADE
+# On cherche l'enseignant dans df_staff (la liste que vous venez de fournir)
+match_enseignant = df_staff[
+    (df_staff['NOM'].str.upper() == nom_user) & 
+    (df_staff['PRÉNOM'].str.upper() == prenom_user)
+]
+
+if not match_enseignant.empty:
+    # On récupère le grade directement depuis la liste
+    grade_brut = match_enseignant.iloc[0]['Grade']
+    qualite_brut = match_enseignant.iloc[0]['Qualité']
+    
+    # Si le grade est vide (NaN), on ne met rien (chaîne vide)
+    grade_fix = str(grade_brut).strip() if pd.notna(grade_brut) and str(grade_brut).strip() != "" else ""
+    statut_fix = str(qualite_brut).strip() if pd.notna(qualite_brut) else "Permanent"
 else:
-    full_name_user = nom.strip()
+    # Si l'enseignant n'est pas trouvé dans la liste (cas rare)
+    grade_fix = ""
+    statut_fix = "Permanent"
 
-# Récupération du Grade et Statut
-grade_fix = user.get('grade_enseignant')
-statut_fix = user.get('statut_enseignant')
-
-# Secours : recherche dans le fichier Excel (df_staff) si les données sont vides
-if not grade_fix or str(grade_fix).strip().lower() in ["none", "nan", ""]:
-    match_staff = df_staff[df_staff['Full_S'] == full_name_user]
-    grade_fix = match_staff.iloc[0]['Grade'] if not match_staff.empty else "Enseignant"
-
-if not statut_fix or str(statut_fix).strip().lower() in ["none", "nan", ""]:
-    match_staff = df_staff[df_staff['Full_S'] == full_name_user]
-    statut_fix = match_staff.iloc[0]['Qualité'] if not match_staff.empty else "Permanent"
-
-# --- AFFICHAGE ---
-st.markdown(f"<h4 style='text-align:center; border-bottom: 2px solid #003366; padding-bottom: 10px;'>{TITRE_PLATEFORME}</h4>", unsafe_allow_html=True)
+# --- AFFICHAGE SIDEBAR ---
+# Rappel du titre obligatoire dans la logique de l'interface
+st.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom:2px solid #003366; padding-bottom:5px;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h4>", unsafe_allow_html=True)
 
 with st.sidebar:
-    # Affichage intelligent du nom
-    st.markdown(f"### 👤 {nom} {prenom}")
-    st.success(f"**Grade :** {grade_fix}")
+    st.markdown(f"### 👤 {nom_user} {prenom_user}")
+    
+    # Affichage conditionnel : n'affiche le grade que s'il n'est pas vide
+    if grade_fix:
+        st.success(f"**Grade :** {grade_fix}")
+    
     st.warning(f"**Statut :** {statut_fix}")
     st.divider()
+    
+    # Sélection de l'enseignant actif pour l'EDT
+    if is_admin:
+        ens_actif = st.selectbox("Simulation (Admin) :", sorted(df_edt['Enseignants'].unique()))
+    else:
+        # Correspondance avec la colonne 'Enseignants' de votre tableau EDT
+        ens_actif = nom_user
+
+    if st.button("🚪 Déconnexion", use_container_width=True):
+        st.session_state["user_data"] = None
+        st.rerun()
     
     # Détermination de l'enseignant pour le filtrage de l'EDT
     if is_admin:
@@ -346,6 +362,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
