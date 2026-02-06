@@ -64,44 +64,40 @@ def load_data():
         df_s = pd.read_excel(FICHIER_ETUDIANTS)
         df_staff = pd.read_excel(FICHIER_STAFF)
         
-        # Nettoyage des colonnes et des espaces
+        # Nettoyage global et mise en MAJUSCULES pour éviter les erreurs de frappe
         for df in [df_e, df_s, df_staff]:
             df.columns = [str(c).strip() for c in df.columns]
             for col in df.select_dtypes(include=['object']):
-                df[col] = df[col].astype(str).str.strip().replace(['nan', 'None', 'none', 'NAN'], '')
+                df[col] = df[col].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', ''], '')
         
-        # --- LOGIQUE DE CORRESPONDANCE NOM/PRÉNOM ---
+        # --- GESTION DU STAFF (MILOUA FARID & FETHI) ---
         if 'NOM' in df_staff.columns and 'PRÉNOM' in df_staff.columns:
-            # 1. Création du nom complet dans le staff
-            df_staff['Full_S'] = (df_staff['NOM'].astype(str) + " " + df_staff['PRÉNOM'].astype(str)).str.upper().str.strip()
-            
-            # 2. Création du dictionnaire de correspondance (Mapping)
-            mapping_noms = {
-                str(row['NOM']).strip().upper(): row['Full_S'] 
-                for _, row in df_staff.iterrows()
-            }
-            
-            # 3. Mise à jour de la colonne 'Enseignants' dans l'EDT
-            if 'Enseignants' in df_e.columns:
-                df_e['Enseignants'] = df_e['Enseignants'].str.upper().map(mapping_noms).fillna(df_e['Enseignants'])
+            # On crée le nom complet pour le staff (pour le login/sidebar)
+            df_staff['Full_S'] = df_staff['NOM'] + " " + df_staff['PRÉNOM']
+        
+        # Note : On ne touche plus à df_e['Enseignants'] car il contient déjà 
+        # les prénoms (MILOUA FARID, etc.) dans votre Excel.
         
         return df_e, df_s, df_staff
     except Exception as e:
         st.error(f"Erreur de lecture Excel : {e}"); st.stop()
 
-# --- L'APPEL DES DONNÉES (Indispensable pour définir df_etudiants) ---
+# --- CHARGEMENT ---
 df_edt, df_etudiants, df_staff = load_data()
 
-# --- CRÉATION DES COLONNES ÉTUDIANT (Après l'appel) ---
-if 'Nom' in df_etudiants.columns and 'Prénom' in df_etudiants.columns:
-    df_etudiants['Full_N'] = (df_etudiants['Nom'].astype(str) + " " + df_etudiants['Prénom'].astype(str)).str.upper().str.strip()
+# --- CRÉATION DU FULL_N ÉTUDIANTS ---
+# Attention : vérifiez si votre Excel étudiant utilise 'NOM' ou 'Nom'
+if 'NOM' in df_etudiants.columns and 'PRÉNOM' in df_etudiants.columns:
+    df_etudiants['Full_N'] = (df_etudiants['NOM'] + " " + df_etudiants['PRÉNOM']).str.upper().str.strip()
+elif 'Nom' in df_etudiants.columns and 'Prénom' in df_etudiants.columns:
+    df_etudiants['Full_N'] = (df_etudiants['Nom'] + " " + df_etudiants['Prénom']).str.upper().str.strip()
 
 # --- FONCTION DE COLORATION ---
 def color_edt(val):
     if not val or val == "": return ""
-    v = str(val)
-    if "Cours" in v: return 'background-color: #d1e7dd; color: #084298; font-weight: bold; border: 1px solid #084298;'
-    if "Td" in v or "TD" in v: return 'background-color: #fff3cd; color: #856404; font-weight: bold; border: 1px solid #856404;'
+    v = str(val).upper()
+    if "COURS" in v: return 'background-color: #d1e7dd; color: #084298; font-weight: bold; border: 1px solid #084298;'
+    if "TD" in v: return 'background-color: #fff3cd; color: #856404; font-weight: bold; border: 1px solid #856404;'
     if "TP" in v: return 'background-color: #cfe2ff; color: #004085; font-weight: bold; border: 1px solid #004085;'
     return ''
 
@@ -354,6 +350,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
