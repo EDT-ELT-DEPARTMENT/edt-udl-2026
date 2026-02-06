@@ -88,6 +88,14 @@ def get_live_info(user_nom, user_email):
         return g, s
     return "Enseignant", "Permanent"
 
+def extraire_heure(creneau):
+    """Extrait l'heure de début pour le tri chronologique (ex: '8h-9h30' -> 8.0)"""
+    try:
+        h_str = creneau.split('h')[0].strip()
+        return float(h_str.replace(':', '.'))
+    except:
+        return 99.0
+
 if "user_data" not in st.session_state:
     st.session_state["user_data"] = None
 
@@ -153,35 +161,40 @@ if not st.session_state["user_data"]:
                 # --- LOGIQUE FILTRAGE EDT ---
                 edt_raw = df_edt[df_edt['Promotion'] == p['Promotion']].copy()
                 
-                # Correction TypeError : Utilisation directe de case=False dans str.contains
+                # Filtres : Cours (Tous) OU Séance contenant le Groupe OU Séance contenant le S-Groupe
                 mask_cours = edt_raw['Enseignements'].str.contains("Cours", case=False, na=False)
                 mask_gp = edt_raw['Enseignements'].str.contains(p['Groupe'], na=False)
                 mask_sgp = edt_raw['Enseignements'].str.contains(p['Sous groupe'], na=False)
                 
                 edt_filtre = edt_raw[mask_cours | mask_gp | mask_sgp].copy()
                 
-                st.markdown("#### 📅 Emploi du Temps")
+                st.markdown("#### 📅 Emploi du Temps (Ordre Chronologique)")
                 if not edt_filtre.empty:
-                    # Création de la grille d'affichage
+                    # Ajout d'une colonne de tri pour l'horaire
+                    edt_filtre['tri_h'] = edt_filtre['Horaire'].apply(extraire_heure)
+                    edt_filtre = edt_filtre.sort_values(by='tri_h')
+
+                    # Création de la table pivot (Grille)
                     pivot = edt_filtre.pivot_table(
                         index='Horaire', 
                         columns='Jours', 
                         values='Enseignements', 
-                        aggfunc=lambda x: ' / '.join(x)
+                        aggfunc=lambda x: ' / '.join(list(dict.fromkeys(x))), # Éviter les doublons texte
+                        sort=False # On garde l'ordre chronologique déjà établi
                     )
+                    
+                    # Réorganiser les jours
                     jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
                     cols = [j for j in jours_ordre if j in pivot.columns]
                     st.table(pivot[cols])
                 else:
-                    st.warning("Aucun cours trouvé pour cette promotion.")
+                    st.warning("Aucune donnée trouvée.")
                 
                 # --- ÉTAT DES ABSENCES ---
                 st.markdown("#### 🚩 État des Absences")
                 res_abs = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_in).execute()
                 if res_abs.data:
                     df_abs = pd.DataFrame(res_abs.data)
-                    # Nombre d'absences par matière
-                    st.write("**Total d'absences par matière :**")
                     stats = df_abs.groupby('matiere').size().reset_index(name='Nombre d\'absences')
                     st.table(stats)
                 else:
@@ -214,7 +227,6 @@ with tab_saisie:
     reg_s = c2.selectbox("⏳ Régime :", ["Charge Horaire", "Heures Supplémentaires"])
     date_s = c3.date_input("📅 Date réelle :", value=datetime.now())
 
-    # Promotion et Matière
     cp, cm = st.columns(2)
     ens_vue = user['nom_officiel']
     mask = df_edt['Enseignants'].str.contains(ens_vue, na=False, case=False)
@@ -247,20 +259,7 @@ with tab_saisie:
                     "date_seance": str(date_s), "etudiant_nom": ab, "note_evaluation": "ABSENCE",
                     "categorie_seance": cat_s, "regime_heure": reg_s
                 }).execute()
-            st.success("Données archivées.")
+            st.success("Données archivées avec succès.")
         else: st.error("Code incorrect.")
 
-with tab_suivi:
-    df_etudiants['Search'] = df_etudiants['Nom'] + " " + df_etudiants['Prénom']
-    et_sel = st.selectbox("🎯 Rechercher un étudiant :", ["-- Sélectionner --"] + sorted(df_etudiants['Search'].unique()))
-    if et_sel != "-- Sélectionner --":
-        res = supabase.table("archives_absences").select("*").eq("etudiant_nom", et_sel).execute()
-        if res.data:
-            st.table(pd.DataFrame(res.data)[['date_seance', 'matiere', 'enseignant']])
-        else:
-            st.info("Aucune absence.")
-
-with tab_hist:
-    all_res = supabase.table("archives_absences").select("*").execute()
-    if all_res.data:
-        st.dataframe(pd.DataFrame(all_res.data), use_container_width=True)
+with tab
