@@ -23,8 +23,6 @@ FICHIER_STAFF = "Permanents-Vacataires-ELT2-2025-2026.xlsx"
 # 📧 EMAILS ADMINISTRATION
 EMAIL_CHEF_DEPT = "chef.department.elt.fge@gmail.com"
 EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
-
-# 🔑 CONFIGURATION SMTP
 EMAIL_SENDER = "milouafarid@gmail.com"
 EMAIL_PASSWORD = "kmtk zmkd kwpd cqzz" 
 
@@ -39,11 +37,9 @@ except Exception as e:
 
 # --- 3. FONCTIONS TECHNIQUES ---
 def hash_pw(password):
-    """Sécurisation des codes d'accès."""
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 def send_mail(destinataires, subject, body, is_html=False):
-    """Envoi de notifications par email."""
     try:
         msg = MIMEMultipart()
         msg['From'] = f"Gestion EDT UDL <{EMAIL_SENDER}>"
@@ -56,12 +52,10 @@ def send_mail(destinataires, subject, body, is_html=False):
         server.send_message(msg)
         server.quit()
         return True
-    except:
-        return False
+    except: return False
 
 @st.cache_data
 def load_data():
-    """Chargement et nettoyage rigoureux des fichiers Excel."""
     try:
         df_e = pd.read_excel(FICHIER_EDT)
         df_s = pd.read_excel(FICHIER_ETUDIANTS)
@@ -78,7 +72,6 @@ def load_data():
 df_edt, df_etudiants, df_staff = load_data()
 
 def get_live_info(user_nom, user_email):
-    """Récupère le Grade et le Statut de l'enseignant en temps réel."""
     match = df_staff[df_staff['Email'].str.lower() == user_email.lower()]
     if match.empty:
         match = df_staff[df_staff['NOM'].str.upper() == user_nom.upper()]
@@ -88,13 +81,12 @@ def get_live_info(user_nom, user_email):
         return g, s
     return "Enseignant", "Permanent"
 
-def extraire_heure(creneau):
-    """Extrait l'heure de début pour le tri chronologique (ex: '8h-9h30' -> 8.0)"""
+def extraire_heure_debut(creneau):
+    """Transforme '8h-9h30' en 8.0 pour le tri."""
     try:
-        h_str = creneau.split('h')[0].strip()
-        return float(h_str.replace(':', '.'))
-    except:
-        return 99.0
+        h_part = creneau.split('-')[0].split('h')[0].strip()
+        return float(h_part.replace(':', '.'))
+    except: return 99.0
 
 if "user_data" not in st.session_state:
     st.session_state["user_data"] = None
@@ -105,15 +97,14 @@ if not st.session_state["user_data"]:
     t_login, t_signup, t_forgot, t_student = st.tabs(["🔐 Connexion", "📝 Inscription", "❓ Code oublié", "🎓 Espace Étudiant"])
     
     with t_login:
-        email_log = st.text_input("Email :", key="login_email_main")
-        pass_log = st.text_input("Code Unique :", type="password", key="login_pass_main")
+        email_log = st.text_input("Email :", key="log_email")
+        pass_log = st.text_input("Code Unique :", type="password", key="log_pass")
         if st.button("Se connecter", use_container_width=True):
             res = supabase.table("enseignants_auth").select("*").eq("email", email_log).eq("password_hash", hash_pw(pass_log)).execute()
             if res.data:
                 st.session_state["user_data"] = res.data[0]
                 st.rerun()
-            else:
-                st.error("Identifiants incorrects.")
+            else: st.error("Identifiants incorrects.")
 
     with t_signup:
         df_staff['Full'] = df_staff['NOM'] + " " + df_staff['PRÉNOM']
@@ -133,15 +124,14 @@ if not st.session_state["user_data"]:
             except: st.error("Email déjà utilisé.")
 
     with t_forgot:
-        f_email = st.text_input("Saisissez votre Email professionnel :", key="forgot_email")
-        if st.button("M'envoyer un nouveau code"):
+        f_email = st.text_input("Email professionnel :")
+        if st.button("Envoyer nouveau code"):
             res = supabase.table("enseignants_auth").select("*").eq("email", f_email).execute()
             if res.data:
                 new_c = ''.join(random.choices(string.digits, k=6))
                 supabase.table("enseignants_auth").update({"password_hash": hash_pw(new_c)}).eq("email", f_email).execute()
-                if send_mail(f_email, "Récupération Code - UDL", f"Votre nouveau code est : {new_c}"):
-                    st.success("Nouveau code envoyé par email.")
-            else: st.error("Email non trouvé.")
+                send_mail(f_email, "Code Unique", f"Votre nouveau code : {new_c}")
+                st.success("Code envoyé par email.")
 
     with t_student:
         st.subheader("🎓 Portail Étudiant")
@@ -158,63 +148,46 @@ if not st.session_state["user_data"]:
                 c2.metric("Groupe", p['Groupe'])
                 c3.metric("Sous-Groupe", p['Sous groupe'])
                 
-                # --- LOGIQUE FILTRAGE EDT ---
+                # Filtrage EDT
                 edt_raw = df_edt[df_edt['Promotion'] == p['Promotion']].copy()
-                
-                # Filtres : Cours (Tous) OU Séance contenant le Groupe OU Séance contenant le S-Groupe
                 mask_cours = edt_raw['Enseignements'].str.contains("Cours", case=False, na=False)
                 mask_gp = edt_raw['Enseignements'].str.contains(p['Groupe'], na=False)
                 mask_sgp = edt_raw['Enseignements'].str.contains(p['Sous groupe'], na=False)
-                
                 edt_filtre = edt_raw[mask_cours | mask_gp | mask_sgp].copy()
                 
-                st.markdown("#### 📅 Emploi du Temps (Ordre Chronologique)")
+                st.markdown("#### 📅 Emploi du Temps")
                 if not edt_filtre.empty:
-                    # Ajout d'une colonne de tri pour l'horaire
-                    edt_filtre['tri_h'] = edt_filtre['Horaire'].apply(extraire_heure)
+                    # Tri chronologique
+                    edt_filtre['tri_h'] = edt_filtre['Horaire'].apply(extraire_heure_debut)
                     edt_filtre = edt_filtre.sort_values(by='tri_h')
-
-                    # Création de la table pivot (Grille)
-                    pivot = edt_filtre.pivot_table(
-                        index='Horaire', 
-                        columns='Jours', 
-                        values='Enseignements', 
-                        aggfunc=lambda x: ' / '.join(list(dict.fromkeys(x))), # Éviter les doublons texte
-                        sort=False # On garde l'ordre chronologique déjà établi
-                    )
                     
-                    # Réorganiser les jours
+                    pivot = edt_filtre.pivot_table(
+                        index='Horaire', columns='Jours', values='Enseignements',
+                        aggfunc=lambda x: ' / '.join(list(dict.fromkeys(x))), sort=False
+                    )
                     jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
                     cols = [j for j in jours_ordre if j in pivot.columns]
                     st.table(pivot[cols])
-                else:
-                    st.warning("Aucune donnée trouvée.")
                 
-                # --- ÉTAT DES ABSENCES ---
                 st.markdown("#### 🚩 État des Absences")
                 res_abs = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_in).execute()
                 if res_abs.data:
                     df_abs = pd.DataFrame(res_abs.data)
-                    stats = df_abs.groupby('matiere').size().reset_index(name='Nombre d\'absences')
-                    st.table(stats)
-                else:
-                    st.info("Aucune absence signalée.")
-            else:
-                st.error("Étudiant non reconnu.")
+                    st.table(df_abs.groupby('matiere').size().reset_index(name='Nombre d\'absences'))
+                else: st.info("Aucune absence signalée.")
+            else: st.error("Étudiant non reconnu.")
     st.stop()
 
-# --- 5. INTERFACE ENSEIGNANT CONNECTÉ ---
+# --- 5. INTERFACE ENSEIGNANT ---
 user = st.session_state["user_data"]
 grade_live, statut_live = get_live_info(user['nom_officiel'], user['email'])
 
 st.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom: 2px solid #003366;'>{TITRE_PLATEFORME}</h4>", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown("### 👤 Profil Enseignant")
     st.markdown(f"**Enseignant :** {user['nom_officiel']}")
     st.markdown(f"**Grade :** {grade_live}")
     st.markdown(f"**Statut :** {statut_live}")
-    st.divider()
     if st.button("🚪 Déconnexion", use_container_width=True):
         st.session_state["user_data"] = None
         st.rerun()
@@ -223,33 +196,23 @@ tab_saisie, tab_suivi, tab_hist = st.tabs(["📝 Saisie Séance", "🔍 Suivi É
 
 with tab_saisie:
     c1, c2, c3 = st.columns(3)
-    cat_s = c1.selectbox("🏷️ Séance :", ["Cours", "TD", "TP", "Examen"])
-    reg_s = c2.selectbox("⏳ Régime :", ["Charge Horaire", "Heures Supplémentaires"])
-    date_s = c3.date_input("📅 Date réelle :", value=datetime.now())
+    cat_s = c1.selectbox("Séance :", ["Cours", "TD", "TP", "Examen"])
+    reg_s = c2.selectbox("Régime :", ["Charge Horaire", "Heures Supplémentaires"])
+    date_s = c3.date_input("Date :", value=datetime.now())
 
-    cp, cm = st.columns(2)
     ens_vue = user['nom_officiel']
     mask = df_edt['Enseignants'].str.contains(ens_vue, na=False, case=False)
-    list_promos = sorted(df_edt[mask]['Promotion'].unique())
-    p_sel = cp.selectbox("🎓 Promotion :", list_promos if list_promos else sorted(df_edt['Promotion'].unique()))
-    list_mats = sorted(df_edt[mask & (df_edt['Promotion'] == p_sel)]['Enseignements'].unique())
-    m_sel = cm.selectbox("📖 Matière :", list_mats if list_mats else ["-"])
+    p_sel = st.selectbox("Promotion :", sorted(df_edt[mask]['Promotion'].unique()) if any(mask) else sorted(df_edt['Promotion'].unique()))
+    m_sel = st.selectbox("Matière :", sorted(df_edt[mask & (df_edt['Promotion']==p_sel)]['Enseignements'].unique()) if any(mask) else ["-"])
 
-    st.divider()
-    df_p_full = df_etudiants[df_etudiants['Promotion'] == p_sel]
-    cg, csg = st.columns(2)
-    g_sel = cg.selectbox("👥 Groupe :", sorted(df_p_full['Groupe'].unique()) if not df_p_full.empty else ["G1"])
-    sg_sel = csg.selectbox("🔢 Sous-groupe :", sorted(df_p_full[df_p_full['Groupe']==g_sel]['Sous groupe'].unique()) if not df_p_full.empty else ["SG1"])
+    df_p = df_etudiants[df_etudiants['Promotion'] == p_sel]
+    g_sel = st.selectbox("Groupe :", sorted(df_p['Groupe'].unique()) if not df_p.empty else ["G1"])
+    sg_sel = st.selectbox("Sous-groupe :", sorted(df_p[df_p['Groupe']==g_sel]['Sous groupe'].unique()) if not df_p.empty else ["SG1"])
 
-    m_eff1, m_eff2, m_eff3 = st.columns(3)
-    m_eff1.metric("Effectif Promotion", len(df_p_full))
-    m_eff2.metric(f"Effectif Groupe {g_sel}", len(df_p_full[df_p_full['Groupe'] == g_sel]))
-    m_eff3.metric(f"Effectif S-Groupe {sg_sel}", len(df_p_full[(df_p_full['Groupe'] == g_sel) & (df_p_full['Sous groupe'] == sg_sel)]))
-
-    df_appel = df_p_full[(df_p_full['Groupe']==g_sel) & (df_p_full['Sous groupe']==sg_sel)].copy()
+    df_appel = df_p[(df_p['Groupe']==g_sel) & (df_p['Sous groupe']==sg_sel)].copy()
     df_appel['Full'] = df_appel['Nom'] + " " + df_appel['Prénom']
-    absents = st.multiselect("❌ Sélectionner les Absents :", options=df_appel['Full'].tolist())
-    code_v = st.text_input("🔑 Votre Code Unique (Validation) :", type="password")
+    absents = st.multiselect("Sélectionner les Absents :", options=df_appel['Full'].tolist())
+    code_v = st.text_input("Code Validation :", type="password")
 
     if st.button("🚀 VALIDER LE RAPPORT", use_container_width=True, type="primary"):
         if hash_pw(code_v) == user['password_hash']:
@@ -259,7 +222,16 @@ with tab_saisie:
                     "date_seance": str(date_s), "etudiant_nom": ab, "note_evaluation": "ABSENCE",
                     "categorie_seance": cat_s, "regime_heure": reg_s
                 }).execute()
-            st.success("Données archivées avec succès.")
+            st.success("Données archivées.")
         else: st.error("Code incorrect.")
 
-with tab
+with tab_suivi:
+    df_etudiants['Search'] = df_etudiants['Nom'] + " " + df_etudiants['Prénom']
+    et_sel = st.selectbox("Rechercher un étudiant :", ["--"] + sorted(df_etudiants['Search'].unique()))
+    if et_sel != "--":
+        res = supabase.table("archives_absences").select("*").eq("etudiant_nom", et_sel).execute()
+        if res.data: st.table(pd.DataFrame(res.data)[['date_seance', 'matiere', 'enseignant']])
+
+with tab_hist:
+    all_res = supabase.table("archives_absences").select("*").execute()
+    if all_res.data: st.dataframe(pd.DataFrame(all_res.data), use_container_width=True)
