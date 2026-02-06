@@ -11,14 +11,18 @@ from supabase import create_client
 # --- 1. CONFIGURATION ET TITRE OFFICIEL ---
 st.set_page_config(page_title="Plateforme EDT UDL", layout="wide")
 
+# Définition du titre mémorisé
 TITRE_PLATEFORME = "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
+
+# Fichiers sources
 FICHIER_EDT = "dataEDT-ELT-S2-2026.xlsx"
 FICHIER_ETUDIANTS = "Liste des étudiants-2025-2026.xlsx"
 FICHIER_STAFF = "Permanents-Vacataires-ELT2-2025-2026.xlsx"
 
-# 📧 EMAILS ADMINISTRATION (Envoi automatique)
+# 📧 CONFIGURATION EMAILS (Correction du NameError)
+EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
 EMAIL_CHEF_DEPT = "chef.department.elt.fge@gmail.com"
-EMAIL_ADJOINT = "milouafarid@gmail.com" # À modifier par l'email de l'adjoint si besoin
+EMAIL_ADJOINT = "milouafarid@gmail.com"  # Adresse de l'adjoint
 EMAIL_SENDER = "milouafarid@gmail.com"
 EMAIL_PASSWORD = "kmtk zmkd kwpd cqzz" 
 
@@ -28,7 +32,7 @@ try:
     KEY = st.secrets["SUPABASE_KEY"]
     supabase = create_client(URL, KEY)
 except Exception as e:
-    st.error("⚠️ Erreur de configuration Supabase.")
+    st.error("⚠️ Erreur de configuration Supabase. Vérifiez vos secrets.")
     st.stop()
 
 # --- 3. FONCTIONS TECHNIQUES ---
@@ -36,7 +40,7 @@ def hash_pw(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 def send_notification_admin(details):
-    """Envoie un email automatique au chef de département et à l'adjoint."""
+    """Envoi automatique au Chef de Dept et à l'Adjoint"""
     destinataires = [EMAIL_CHEF_DEPT, EMAIL_ADJOINT]
     try:
         msg = MIMEMultipart()
@@ -47,13 +51,12 @@ def send_notification_admin(details):
         corps = f"""
         Bonjour,
         
-        Un nouveau rapport de séance a été validé sur la plateforme :
+        Un rapport de séance a été validé :
         - Enseignant : {details['enseignant']} ({details['statut_enseignant']})
         - Matière : {details['matiere']}
         - Promotion : {details['promotion']}
         - Date : {details['date_seance']}
-        - Régime : {details['regime_heure']}
-        - Absences : {details['nb_absents']} étudiant(s)
+        - Absents : {details['nb_absents']}
         
         Cordialement.
         """
@@ -63,8 +66,8 @@ def send_notification_admin(details):
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
         server.send_message(msg)
         server.quit()
-    except Exception as e:
-        pass # L'échec de l'email ne doit pas bloquer l'enregistrement
+    except:
+        pass
 
 @st.cache_data
 def load_data():
@@ -78,7 +81,7 @@ def load_data():
                 df[col] = df[col].astype(str).str.strip().replace(['nan', 'None', 'NAN'], '')
         return df_e, df_s, df_staff
     except Exception as e:
-        st.error(f"Erreur chargement Excel : {e}")
+        st.error(f"Erreur Excel : {e}")
         st.stop()
 
 df_edt, df_etudiants, df_staff = load_data()
@@ -95,7 +98,6 @@ def safe_insert(table_name, data_dict):
     try:
         return supabase.table(table_name).insert(data_dict).execute()
     except:
-        # Repli sur colonnes de base si la structure SQL n'est pas à jour
         base_cols = ["promotion", "matiere", "enseignant", "date_seance", "etudiant_nom", "note_evaluation"]
         clean_dict = {k: v for k, v in data_dict.items() if k in base_cols}
         return supabase.table(table_name).insert(clean_dict).execute()
@@ -131,7 +133,7 @@ if not st.session_state["user_data"]:
             st.success("Compte créé.")
     st.stop()
 
-# --- 5. LOGIQUE PROFIL ---
+# --- 5. LOGIQUE PROFIL ET INTERFACE ---
 user = st.session_state["user_data"]
 is_admin = (user['email'] == EMAIL_ADMIN_TECH)
 current_grade, current_statut = get_staff_info(user['nom_officiel'], user['email'])
@@ -141,13 +143,13 @@ with st.sidebar:
     st.divider()
     if is_admin:
         st.success("🛡️ MODE ADMIN")
-        enseignant_vue = st.selectbox("Vue Admin (EDT) :", sorted(df_edt['Enseignants'].unique()), index=sorted(df_edt['Enseignants'].unique()).index(user['nom_officiel']) if user['nom_officiel'] in df_edt['Enseignants'].values else 0)
+        enseignant_vue = st.selectbox("Vue Admin (EDT) :", sorted(df_edt['Enseignants'].unique()))
         st.divider()
         st.warning("🚨 ZONE DANGEREUSE")
         if st.button("Vider les Archives"):
             st.session_state["reset_trigger"] = True
         if st.session_state.get("reset_trigger"):
-            cp = st.text_input("Confirmez avec votre code :", type="password")
+            cp = st.text_input("Code pour confirmer :", type="password")
             if st.button("OUI, RÉINITIALISER"):
                 if hash_pw(cp) == user['password_hash']:
                     supabase.table("archives_absences").delete().neq("id", 0).execute()
@@ -160,9 +162,11 @@ with st.sidebar:
         st.session_state["user_data"] = None
         st.rerun()
 
-# --- 6. ONGLETS PRINCIPAUX ---
+st.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom: 2px solid #003366;'>{TITRE_PLATEFORME}</h4>", unsafe_allow_html=True)
+
 tab_saisie, tab_suivi, tab_hist = st.tabs(["📝 Saisie Séance", "🔍 Suivi Étudiant", "📜 Archive Globale"])
 
+# --- ONGLET 1 : SAISIE ---
 with tab_saisie:
     c1, c2, c3 = st.columns(3)
     cat_s = c1.selectbox("Séance :", ["Cours", "TD", "TP", "Examen"])
@@ -190,7 +194,7 @@ with tab_saisie:
         val_n = st.text_input("Note/Observation :", "0")
 
     obs = st.text_area("Observations :")
-    code_v = st.text_input("🔑 Code Unique :", type="password")
+    code_v = st.text_input("🔑 Code Unique pour archivage :", type="password")
 
     if st.button("🚀 VALIDER ET ENVOYER", use_container_width=True, type="primary"):
         if hash_pw(code_v) == user['password_hash']:
@@ -199,23 +203,20 @@ with tab_saisie:
                 "statut_enseignant": current_statut, "date_seance": str(date_s), "regime_heure": reg_s,
                 "categorie_seance": cat_s, "observations": obs
             }
-            # Enregistrement Absences
             for ab in abs_sel:
                 row = meta.copy(); row.update({"etudiant_nom": ab, "note_evaluation": "ABSENCE"})
                 safe_insert("archives_absences", row)
-            # Enregistrement Note
             if et_n != "Aucun":
                 row_n = meta.copy(); row_n.update({"etudiant_nom": et_n, "note_evaluation": val_n})
                 safe_insert("archives_absences", row_n)
             
-            # Email automatique
             meta['nb_absents'] = len(abs_sel)
             send_notification_admin(meta)
-            
-            st.success(f"✅ Rapport archivé et envoyé au Chef de Dept et Adjoint.")
+            st.success("✅ Rapport envoyé au Chef de Dept et Adjoint.")
             st.balloons()
         else: st.error("Code incorrect.")
 
+# --- ONGLET 2 : SUIVI INDIVIDUEL ---
 with tab_suivi:
     df_etudiants['Full'] = (df_etudiants['Nom'].fillna('') + " " + df_etudiants['Prénom'].fillna('')).str.upper().str.strip()
     et_q = st.selectbox("🎯 Rechercher un étudiant :", ["--"] + sorted(df_etudiants['Full'].unique()))
@@ -226,29 +227,29 @@ with tab_suivi:
             st.table(df_r[['date_seance', 'matiere', 'enseignant', 'note_evaluation', 'observations']])
         else: st.info("Aucune donnée.")
 
+# --- ONGLET 3 : ARCHIVE GLOBALE (SUIVI PROMO/NOM) ---
 with tab_hist:
-    st.markdown("### 📊 Vue d'ensemble des Absences")
-    mode_vue = st.radio("Filtrer par :", ["Toute la base", "Par Promotion", "Par Étudiant (Global)"], horizontal=True)
+    st.markdown("### 📊 Pilotage Global")
+    mode_vue = st.radio("Type de suivi :", ["Vue complète", "Par Promotion", "Par Étudiant (Global)"], horizontal=True)
     
     res_all = supabase.table("archives_absences").select("*").execute()
     if res_all.data:
         df_glob = pd.DataFrame(res_all.data)
         
         if mode_vue == "Par Promotion":
-            prom_choice = st.selectbox("Choisir Promotion :", sorted(df_glob['promotion'].unique()))
+            prom_choice = st.selectbox("Sélectionner Promotion :", sorted(df_glob['promotion'].unique()))
             df_disp = df_glob[df_glob['promotion'] == prom_choice]
         elif mode_vue == "Par Étudiant (Global)":
-            et_choice = st.selectbox("Choisir Étudiant :", sorted(df_glob['etudiant_nom'].unique()))
+            et_choice = st.selectbox("Sélectionner Étudiant :", sorted(df_glob['etudiant_nom'].unique()))
             df_disp = df_glob[df_glob['etudiant_nom'] == et_choice]
         else:
             df_disp = df_glob
             
         st.dataframe(df_disp, use_container_width=True)
         
-        # Statistiques rapides
-        c_a, c_b = st.columns(2)
-        c_a.metric("Nombre total d'entrées", len(df_disp))
-        c_b.metric("Total Absences", len(df_disp[df_disp['note_evaluation'] == "ABSENCE"]))
+        c_tot, c_abs = st.columns(2)
+        c_tot.metric("Total Séances Archivées", len(df_disp['date_seance'].unique()))
+        c_abs.metric("Nombre d'Absences relevées", len(df_disp[df_disp['note_evaluation'] == "ABSENCE"]))
         
         buf = io.BytesIO(); df_disp.to_excel(buf, index=False)
-        st.download_button("📥 Télécharger cette vue (Excel)", buf.getvalue(), "Export_Filtré.xlsx")
+        st.download_button("📥 Télécharger Excel (Vue filtrée)", buf.getvalue(), "Archives_UDL.xlsx")
