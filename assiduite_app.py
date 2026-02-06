@@ -69,7 +69,6 @@ def load_data():
             for col in df.select_dtypes(include=['object']):
                 df[col] = df[col].astype(str).str.strip().replace(['nan', 'None', 'none', 'NAN'], '')
         
-        # Préparation des noms complets pour éviter les KeyError
         if 'NOM' in df_staff.columns and 'PRÉNOM' in df_staff.columns:
             df_staff['Full_S'] = (df_staff['NOM'] + " " + df_staff['PRÉNOM']).str.upper()
         
@@ -105,8 +104,8 @@ if not st.session_state["user_data"]:
             else: st.error("Email ou code incorrect.")
 
     with t_signup:
-        choix = st.selectbox("Sélectionnez votre nom :", sorted(df_staff['Full_S'].unique()))
-        inf = df_staff[df_staff['Full_S'] == choix].iloc[0]
+        choix_signup = st.selectbox("Sélectionnez votre nom :", sorted(df_staff['Full_S'].unique()), key="sb_signup")
+        inf = df_staff[df_staff['Full_S'] == choix_signup].iloc[0]
         st.info(f"Grade : {inf['Grade']} | Statut : {inf['Qualité']}")
         reg_e = st.text_input("Email :", value=inf['Email'])
         reg_p = st.text_input("Créer Code Unique :", type="password")
@@ -130,23 +129,27 @@ if not st.session_state["user_data"]:
             else: st.error("Email non reconnu.")
 
     with t_student:
-        nom_st = st.selectbox("Sélectionnez votre nom :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
+        nom_st = st.selectbox("Rechercher votre nom :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
         if nom_st != "--":
             profil = df_etudiants[df_etudiants['Full_N'] == nom_st].iloc[0]
             
-            # 📊 STATISTIQUES ETUDIANT
+            # --- RÉCUPÉRATION DES ABSENCES ---
             res_abs = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_st).execute()
-            count_abs = 0
+            nb_abs = 0
             if res_abs.data:
-                df_temp = pd.DataFrame(res_abs.data)
-                count_abs = len(df_temp[df_temp['note_evaluation'].str.contains("Absence|Exclusion", na=False)])
-            
+                df_count = pd.DataFrame(res_abs.data)
+                nb_abs = len(df_count[df_count['note_evaluation'].astype(str).str.contains("Absence|Exclusion", na=False)])
+
+            # --- AFFICHAGE DES MÉTRIQUES ---
             st.markdown(f"### 👤 {nom_st}")
-            c1, c2 = st.columns(2)
-            c1.metric("Promotion", profil['Promotion'])
-            c2.metric("Nombre d'absences", count_abs, delta="- Attention" if count_abs > 2 else None)
+            m1, m2 = st.columns(2)
+            m1.metric("Promotion", profil['Promotion'])
+            if nb_abs >= 3:
+                m2.metric("Total Absences", nb_abs, delta="Risque de Radiation", delta_color="inverse")
+            else:
+                m2.metric("Total Absences", nb_abs)
             
-            st.info(f"Groupe {profil['Groupe']} | {profil['Sous groupe']}")
+            st.info(f"📍 Groupe : {profil['Groupe']} | Sous-groupe : {profil['Sous groupe']}")
             
             def filter_st_edt(row):
                 if str(row['Promotion']).upper() != str(profil['Promotion']).upper(): return False
@@ -168,7 +171,7 @@ if not st.session_state["user_data"]:
                 grid = grid.reindex(columns=[j for j in jours_ordre if j in grid.columns])
                 st.dataframe(grid.style.applymap(color_edt), use_container_width=True)
             else:
-                st.warning("Emploi du temps non trouvé.")
+                st.warning("Emploi du temps non disponible.")
     st.stop()
 
 # --- 5. ESPACE ENSEIGNANT ---
@@ -187,7 +190,7 @@ with st.sidebar:
     st.success(f"**Grade :** {grade_fix}")
     st.warning(f"**Statut :** {statut_fix}")
     st.divider()
-    ens_actif = st.selectbox("Vue Simulation (Admin) :", sorted(df_edt['Enseignants'].unique())) if is_admin else user['nom_officiel']
+    ens_actif = st.selectbox("Simulation (Admin) :", sorted(df_edt['Enseignants'].unique())) if is_admin else user['nom_officiel']
     if st.button("🚪 Déconnexion", use_container_width=True):
         st.session_state["user_data"] = None; st.rerun()
 
@@ -227,7 +230,7 @@ with t_saisie:
         type_abs = "Absence Collective"
     else:
         absents_final = st.multiselect("Sélectionner les étudiants absents :", options=eff_liste['Full_N'].tolist())
-        type_abs = st.selectbox("Nature de l'absence :", ["Absence non justifiée", "Absence justifiée", "Exclusion"])
+        type_abs = st.selectbox("Nature :", ["Absence non justifiée", "Absence justifiée", "Exclusion"])
 
     st.divider()
     st.markdown("### 📝 Notation / Participation")
@@ -239,7 +242,7 @@ with t_saisie:
 
     st.markdown("### ✉️ Diffusion du Rapport")
     staff_options = {row['Full_S']: row['Email'] for _, row in df_staff.iterrows()}
-    dest_sup_nom = st.selectbox("Ajouter un destinataire :", ["Aucun"] + sorted(list(staff_options.keys())))
+    dest_sup_nom = st.selectbox("Destinataire additionnel :", ["Aucun"] + sorted(list(staff_options.keys())))
     
     code_v = st.text_input("🔑 Code Unique :", type="password")
     
@@ -263,31 +266,40 @@ with t_saisie:
             
             corps = f"Rapport de {user['nom_officiel']}\nPromo: {p_sel}\nMatière: {m_sel}\nAbsents: {len(absents_final)}\nObs: {obs_input}"
             send_email_rapport(liste_mails, f"Rapport Séance - {m_sel}", corps)
-            st.success("✅ Rapport archivé !"); st.balloons()
-        else: st.error("Code incorrect.")
+            st.success("✅ Rapport envoyé !"); st.balloons()
+        else: st.error("Code de validation incorrect.")
 
-# --- ONGLET 2 : SUIVI ÉTUDIANT ---
+# --- ONGLET 2 : SUIVI ÉTUDIANT (FIXÉ) ---
 with t_suivi:
     st.markdown("### 🔍 Fiche de Suivi Individuelle")
     mask_ens = df_edt['Enseignants'].str.contains(ens_actif, na=False, case=False)
     mes_promos = sorted(df_edt[mask_ens]['Promotion'].unique()) if any(mask_ens) else sorted(df_edt['Promotion'].unique())
-    p_suivi = st.selectbox("1️⃣ Promotion :", mes_promos, key="suivi_p")
+    p_suivi = st.selectbox("Promotion :", mes_promos, key="suivi_p")
     etudiants_promo = df_etudiants[df_etudiants['Promotion'] == p_suivi]
-    nom_suivi = st.selectbox("2️⃣ Étudiant :", ["--"] + sorted(etudiants_promo['Full_N'].unique()), key="suivi_n")
+    nom_suivi = st.selectbox("Étudiant :", ["--"] + sorted(etudiants_promo['Full_N'].unique()), key="suivi_n")
     
     if nom_suivi != "--":
+        st.markdown(f"#### 📊 Dossier de : {nom_suivi}")
         res = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_suivi).execute()
         if res.data:
             df_res = pd.DataFrame(res.data)
             df_res.columns = [c.lower() for c in df_res.columns]
-            st.markdown(f"#### 📊 Dossier de : {nom_suivi}")
+            
             st.markdown("##### ❌ Absences")
-            df_abs = df_res[df_res['note_evaluation'].str.contains("Absence|Exclusion", na=False)]
-            st.table(df_abs[['date_seance', 'matiere', 'note_evaluation']]) if not df_abs.empty else st.info("Rien.")
-            st.markdown("##### 📝 Notes")
-            df_notes = df_res[df_res['note_evaluation'].str.contains("Test|Examen|Participation", na=False)]
-            st.table(df_notes[['date_seance', 'matiere', 'note_evaluation']]) if not df_notes.empty else st.info("Rien.")
-        else: st.warning("Vide.")
+            df_abs = df_res[df_res['note_evaluation'].astype(str).str.contains("Absence|Exclusion", na=False)]
+            if not df_abs.empty:
+                st.table(df_abs[['date_seance', 'matiere', 'note_evaluation']])
+            else:
+                st.info("Aucune absence enregistrée.")
+
+            st.markdown("##### 📝 Évaluations")
+            df_notes = df_res[df_res['note_evaluation'].astype(str).str.contains("Test|Examen|Participation", na=False)]
+            if not df_notes.empty:
+                st.table(df_notes[['date_seance', 'matiere', 'note_evaluation']])
+            else:
+                st.info("Aucune note enregistrée.")
+        else:
+            st.warning("Aucune donnée trouvée.")
 
 # --- ONGLET 3 : ADMIN ---
 with t_admin:
