@@ -204,8 +204,7 @@ is_admin = (user.get('email') == EMAIL_ADMIN_TECH)
 nom_session = str(user.get('nom_officiel', '')).strip().upper()
 prenom_session = str(user.get('prenom_officiel', '')).strip().upper()
 
-# 2. PARCOURS DE LA LISTE POUR LE GRADE (Logique demandée)
-# On cherche l'enseignant dans votre liste df_staff
+# 2. PARCOURS DE LA LISTE POUR LE GRADE
 match_staff = df_staff[
     (df_staff['NOM'].str.upper() == nom_session) & 
     (df_staff['PRÉNOM'].str.upper() == prenom_session)
@@ -214,68 +213,39 @@ match_staff = df_staff[
 if not match_staff.empty:
     grade_val = match_staff.iloc[0]['Grade']
     qualite_val = match_staff.iloc[0]['Qualité']
-    
-    # Si grade trouvé, on le garde, sinon rien
     grade_fix = str(grade_val).strip() if pd.notna(grade_val) and str(grade_val).strip() != "" else ""
     statut_fix = str(qualite_val).strip() if pd.notna(qualite_val) else "Permanent"
 else:
     grade_fix = ""
     statut_fix = "Permanent"
 
-# --- AFFICHAGE SIDEBAR (Un seul bloc pour éviter les doublons) ---
+# --- AFFICHAGE SIDEBAR UNIQUE ---
 st.sidebar.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom:2px solid #003366;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h4>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown(f"### 👤 {nom_session} {prenom_session}")
     
-    # Affichage du Grade uniquement s'il n'est pas vide
     if grade_fix:
         st.success(f"**Grade :** {grade_fix}")
     
     st.warning(f"**Statut :** {statut_fix}")
     st.divider()
     
-    # 3. GESTION DE LA SIMULATION (Unique et Sécurisée)
+    # Gestion de l'enseignant actif (Filtrage de l'EDT)
     if is_admin:
-        # On ajoute une 'key' pour éviter l'erreur StreamlitDuplicateElementId
         ens_actif = st.selectbox(
             "Simulation (Admin) :", 
             sorted(df_edt['Enseignants'].unique()),
-            key="sb_admin_sim"
+            key="unique_admin_sim_key"
         )
     else:
         ens_actif = nom_session
 
-    if st.button("🚪 Déconnexion", use_container_width=True, key="logout_btn"):
-        st.session_state["user_data"] = None
-        st.rerun()
-    
-    # 3. CORRECTION DE L'ERREUR StreamlitDuplicateElementId
-    if is_admin:
-        # L'ajout de key="sim_admin_unique" empêche l'erreur de duplication
-        ens_actif = st.selectbox(
-            "Simulation (Admin) :", 
-            sorted(df_edt['Enseignants'].unique()),
-            key="sim_admin_unique" 
-        )
-    else:
-        ens_actif = nom_user
-
-    if st.button("🚪 Déconnexion", use_container_width=True, key="logout_btn"):
-        st.session_state["user_data"] = None
-        st.rerun()
-    
-    # Détermination de l'enseignant pour le filtrage de l'EDT
-    if is_admin:
-        ens_actif = st.selectbox("Simulation (Admin) :", sorted(df_edt['Enseignants'].unique()))
-    else:
-        # On utilise le nom officiel pour filtrer les matières dans l'EDT Excel
-        ens_actif = user['nom_officiel']
-
-    if st.button("🚪 Déconnexion", use_container_width=True):
+    if st.button("🚪 Déconnexion", use_container_width=True, key="unique_logout_key"):
         st.session_state["user_data"] = None
         st.rerun()
 
+# --- FIN DE LA CORRECTION ---
 t_saisie, t_suivi, t_admin = st.tabs(["📝 Saisie Rapport", "🔍 Suivi Étudiant", "🛡️ Panneau Admin"])
 
 # --- ONGLET 1 : SAISIE ---
@@ -378,6 +348,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
