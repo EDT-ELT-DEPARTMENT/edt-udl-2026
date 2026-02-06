@@ -20,6 +20,8 @@ FICHIER_STAFF = "Permanents-Vacataires-ELT2-2025-2026.xlsx"
 
 # 📧 CONFIGURATION EMAILS
 EMAIL_ADMIN_TECH = "milouafarid@gmail.com"
+EMAIL_CHEF_DEPT = "chef.department.elt.fge@gmail.com"
+EMAIL_ADJOINT = "milouafarid@gmail.com"
 EMAIL_SENDER = "milouafarid@gmail.com"
 EMAIL_PASSWORD = "kmtk zmkd kwpd cqzz" 
 
@@ -29,12 +31,22 @@ try:
     KEY = st.secrets["SUPABASE_KEY"]
     supabase = create_client(URL, KEY)
 except Exception as e:
-    st.error("⚠️ Configuration Supabase manquante dans les secrets.")
-    st.stop()
+    st.error("⚠️ Configuration Supabase manquante."); st.stop()
 
 # --- 3. FONCTIONS TECHNIQUES ---
 def hash_pw(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
+
+def send_email_rapport(destinataires, sujet, corps):
+    try:
+        msg = MIMEMultipart(); msg['From'] = EMAIL_SENDER
+        msg['To'] = ", ".join(destinataires); msg['Subject'] = sujet
+        msg.attach(MIMEText(corps, 'plain'))
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls(); server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        server.send_message(msg); server.quit()
+        return True
+    except: return False
 
 @st.cache_data
 def load_data():
@@ -42,163 +54,113 @@ def load_data():
         df_e = pd.read_excel(FICHIER_EDT)
         df_s = pd.read_excel(FICHIER_ETUDIANTS)
         df_staff = pd.read_excel(FICHIER_STAFF)
-        
         for df in [df_e, df_s, df_staff]:
-            df.columns = [str(c).strip() for c in df.columns]
+            df.columns = [str(c).strip().upper() for c in df.columns]
             for col in df.select_dtypes(include=['object']):
                 df[col] = df[col].astype(str).str.strip().str.upper().replace(['NAN', 'NONE', ''], '')
-        
-        if 'NOM' in df_staff.columns and 'PRÉNOM' in df_staff.columns:
-            df_staff['Full_S'] = df_staff['NOM'] + " " + df_staff['PRÉNOM']
-        
         return df_e, df_s, df_staff
     except Exception as e:
-        st.error(f"Erreur de lecture Excel : {e}"); st.stop()
+        st.error(f"Erreur Excel : {e}"); st.stop()
 
-# --- CHARGEMENT ---
 df_edt, df_etudiants, df_staff = load_data()
 
-# --- SÉCURITÉ : CRÉATION DU FULL_N ÉTUDIANTS (CORRIGÉ) ---
-# On normalise les noms de colonnes pour éviter les erreurs de casse (Maj/Min)
-df_etudiants.columns = [c.upper() for c in df_etudiants.columns]
-
+# Préparation colonne Full_N
 if 'NOM' in df_etudiants.columns and 'PRÉNOM' in df_etudiants.columns:
-    df_etudiants['FULL_N'] = (df_etudiants['NOM'].astype(str) + " " + df_etudiants['PRÉNOM'].astype(str)).str.upper().str.strip()
-elif 'NOM' in df_etudiants.columns and 'PRENOM' in df_etudiants.columns: # Cas sans accent
-    df_etudiants['FULL_N'] = (df_etudiants['NOM'].astype(str) + " " + df_etudiants['PRENOM'].astype(str)).str.upper().str.strip()
-else:
-    # Si les colonnes sont introuvables, on crée une colonne de secours
-    st.error("⚠️ Colonnes 'NOM'/'PRÉNOM' non trouvées dans le fichier Étudiants.")
-    df_etudiants['FULL_N'] = "NOM INCONNU"
+    df_etudiants['FULL_N'] = df_etudiants['NOM'] + " " + df_etudiants['PRÉNOM']
 
 # --- 4. AUTHENTIFICATION ---
-if "user_data" not in st.session_state:
-    st.session_state["user_data"] = None
+if "user_data" not in st.session_state: st.session_state["user_data"] = None
 
 if not st.session_state["user_data"]:
     st.markdown(f"<h2 style='text-align:center; color:#003366;'>🔑 {TITRE_PLATEFORME}</h2>", unsafe_allow_html=True)
     t_login, t_signup, t_forgot, t_student = st.tabs(["🔐 Connexion", "📝 Inscription", "❓ Code oublié", "🎓 Espace Étudiant"])
     
     with t_login:
-        st.subheader("Accès Enseignant")
-        email_log = st.text_input("Email professionnel :", key="log_email").strip().lower()
-        pass_log = st.text_input("Code unique :", type="password", key="log_pass")
+        e_log = st.text_input("Email :").strip().lower()
+        p_log = st.text_input("Code :", type="password")
         if st.button("Se connecter", use_container_width=True):
-            email_clean = email_log.replace(',', '.')
-            try:
-                res = supabase.table("enseignants_auth").select("*").eq("email", email_clean).execute()
-                if res.data and res.data[0]['password_hash'] == hash_pw(pass_log):
-                    st.session_state["user_data"] = res.data[0]
-                    st.rerun()
-                else:
-                    st.error("Email ou code incorrect.")
-            except Exception as e:
-                st.error(f"Erreur de connexion : {e}")
+            res = supabase.table("enseignants_auth").select("*").eq("email", e_log).execute()
+            if res.data and res.data[0]['password_hash'] == hash_pw(p_log):
+                st.session_state["user_data"] = res.data[0]; st.rerun()
+            else: st.error("Identifiants incorrects.")
 
     with t_signup:
-        st.subheader("Créer un compte")
-        # Vérification si le staff est chargé
-        if not df_staff.empty:
-            staff_nom = sorted(df_staff['NOM'].unique())
-            nom_reg = st.selectbox("Votre NOM :", staff_nom)
-            prenom_reg = st.selectbox("Votre PRÉNOM :", sorted(df_staff[df_staff['NOM'] == nom_reg]['PRÉNOM'].unique()))
-            email_reg = st.text_input("Email (Identifiant) :").strip().lower()
-            pass_reg = st.text_input("Créer votre code secret :", type="password")
-            
-            if st.button("Valider l'inscription", use_container_width=True):
-                email_clean = email_reg.replace(',', '.')
-                match = df_staff[(df_staff['NOM'] == nom_reg) & (df_staff['PRÉNOM'] == prenom_reg)]
-                if not match.empty:
-                    grade_reg = str(match.iloc[0].get('Grade', 'N/A'))
-                    statut_reg = str(match.iloc[0].get('Qualité', 'Permanent'))
-                    try:
-                        supabase.table("enseignants_auth").insert({
-                            "email": email_clean, "password_hash": hash_pw(pass_reg),
-                            "nom_officiel": nom_reg, "prenom_officiel": prenom_reg,
-                            "grade_enseignant": grade_reg, "statut_enseignant": statut_reg
-                        }).execute()
-                        st.success("✅ Compte créé ! Vous pouvez vous connecter.")
-                    except:
-                        st.error("❌ Cet email est déjà utilisé.")
-        else:
-            st.error("Fichier Staff non chargé.")
-
-    with t_forgot:
-        st.warning("Contact : milouafarid@gmail.com")
+        nom_reg = st.selectbox("NOM :", sorted(df_staff['NOM'].unique()))
+        prenom_reg = st.selectbox("PRÉNOM :", sorted(df_staff[df_staff['NOM'] == nom_reg]['PRÉNOM'].unique()))
+        email_reg = st.text_input("Email :").strip().lower()
+        pass_reg = st.text_input("Code secret :", type="password")
+        if st.button("S'inscrire", use_container_width=True):
+            match = df_staff[(df_staff['NOM'] == nom_reg) & (df_staff['PRÉNOM'] == prenom_reg)]
+            supabase.table("enseignants_auth").insert({
+                "email": email_reg, "password_hash": hash_pw(pass_reg),
+                "nom_officiel": nom_reg, "prenom_officiel": prenom_reg,
+                "grade_enseignant": str(match.iloc[0].get('GRADE', 'N/A')),
+                "statut_enseignant": str(match.iloc[0].get('QUALITÉ', 'PERMANENT'))
+            }).execute()
+            st.success("Compte créé !")
 
     with t_student:
-        # Utilisation de la colonne FULL_N créée plus haut
-        liste_noms = ["--"] + sorted(df_etudiants['FULL_N'].unique().tolist())
-        nom_st = st.selectbox("Sélectionner votre nom (Étudiant) :", liste_noms)
-        
+        nom_st = st.selectbox("Nom Étudiant :", ["--"] + sorted(df_etudiants['FULL_N'].unique().tolist()))
         if nom_st != "--":
             profil = df_etudiants[df_etudiants['FULL_N'] == nom_st].iloc[0]
-            st.info(f"🎓 Étudiant : {nom_st} | Promo : {profil.get('PROMOTION', 'N/A')} | Groupe : {profil.get('GROUPE', 'N/A')}")
-            
-            # Fonction de filtrage EDT
-            def filter_st_edt(row):
-                if str(row.get('Promotion', '')).upper() != str(profil.get('PROMOTION', '')).upper(): 
-                    return False
-                return True 
-            
-            edt_st = df_edt[df_edt.apply(filter_st_edt, axis=1)].copy()
-            # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
-            cols_dispo = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']
-            st.dataframe(edt_st[[c for c in cols_dispo if c in edt_st.columns]], use_container_width=True)
-
+            st.info(f"🎓 {nom_st} | Promo : {profil['PROMOTION']} | Groupe : {profil['GROUPE']}")
+            edt_st = df_edt[df_edt['PROMOTION'] == profil['PROMOTION']]
+            st.dataframe(edt_st[['ENSEIGNEMENTS', 'CODE', 'ENSEIGNANTS', 'HORAIRE', 'JOURS', 'LIEU']], use_container_width=True)
+            res_abs = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_st).execute()
+            if res_abs.data: st.table(pd.DataFrame(res_abs.data)[['date_seance', 'matiere', 'note_evaluation']])
     st.stop()
 
-    with t_signup:
-        st.subheader("Créer un compte")
-        nom_reg = st.selectbox("Votre NOM :", sorted(df_staff['NOM'].unique()))
-        prenom_reg = st.selectbox("Votre PRÉNOM :", sorted(df_staff[df_staff['NOM'] == nom_reg]['PRÉNOM'].unique()))
-        email_reg = st.text_input("Email (Sert d'identifiant) :").strip().lower()
-        pass_reg = st.text_input("Créer votre code secret :", type="password")
-        
-        if st.button("Valider l'inscription", use_container_width=True):
-            email_clean = email_reg.replace(',', '.')
-            match = df_staff[(df_staff['NOM'] == nom_reg) & (df_staff['PRÉNOM'] == prenom_reg)]
-            if not match.empty:
-                grade_reg = str(match.iloc[0].get('Grade', 'N/A'))
-                statut_reg = str(match.iloc[0].get('Qualité', 'Permanent'))
-                try:
-                    supabase.table("enseignants_auth").insert({
-                        "email": email_clean, "password_hash": hash_pw(pass_reg),
-                        "nom_officiel": nom_reg, "prenom_officiel": prenom_reg,
-                        "grade_enseignant": grade_reg, "statut_enseignant": statut_reg
-                    }).execute()
-                    st.success("✅ Compte créé avec succès ! Connectez-vous maintenant.")
-                except:
-                    st.error("❌ Erreur : Cet email est peut-être déjà utilisé.")
-
-    with t_forgot:
-        st.warning("En cas d'oubli, contactez l'administrateur à : milouafarid@gmail.com")
-
-    with t_student:
-        nom_st = st.selectbox("Sélectionner votre nom (Étudiant) :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
-        if nom_st != "--":
-            profil = df_etudiants[df_etudiants['Full_N'] == nom_st].iloc[0]
-            st.info(f"🎓 Étudiant : {nom_st} | Promo : {profil['Promotion']} | Groupe : {profil['Groupe']}")
-            
-            # Filtrage de l'EDT selon vos règles
-            def filter_st_edt(row):
-                if str(row['Promotion']).upper() != str(profil['Promotion']).upper(): return False
-                ens = str(row['Enseignements']).upper()
-                if "COURS" in ens: return True
-                return False # Simplifié pour test
-            
-            edt_st = df_edt[df_edt.apply(filter_st_edt, axis=1)].copy()
-            st.dataframe(edt_st[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']], use_container_width=True)
-
-    st.stop()
-
-# --- 5. ESPACE ENSEIGNANT (Une fois connecté) ---
+# --- 5. ESPACE ENSEIGNANT ---
 user = st.session_state["user_data"]
-st.sidebar.title(f"👤 {user['nom_officiel']} {user['prenom_officiel']}")
+nom_complet = f"{user['nom_officiel']} {user['prenom_officiel']}"
+is_admin = (user['email'] == EMAIL_ADMIN_TECH)
+
+st.sidebar.markdown(f"### 👤 {nom_complet}")
+st.sidebar.info(f"Grade: {user.get('grade_enseignant', 'N/A')}")
 if st.sidebar.button("🚪 Déconnexion"):
-    st.session_state["user_data"] = None
-    st.rerun()
+    st.session_state["user_data"] = None; st.rerun()
 
-st.success(f"Bienvenue sur votre espace de gestion, {user['grade_enseignant']}.")
+t_saisie, t_suivi, t_admin = st.tabs(["📝 Saisie Rapport", "🔍 Suivi Étudiant", "🛡️ Admin"])
 
+with t_saisie:
+    st.markdown("### ⚙️ Détails de la Séance")
+    col1, col2 = st.columns(2)
+    charge = col1.radio("Régime :", ["Charge Normale", "Heures Suppl."], horizontal=True)
+    date_s = col2.date_input("Date :", value=datetime.now())
+    
+    # Filtres dynamiques
+    ens_actif = nom_complet if not is_admin else st.selectbox("Admin: Simuler Enseignant", sorted(df_edt['ENSEIGNANTS'].unique()))
+    df_p = df_edt[df_edt['ENSEIGNANTS'].str.contains(ens_actif, na=False)]
+    
+    promo = st.selectbox("🎓 Promotion :", sorted(df_p['PROMOTION'].unique()) if not df_p.empty else ["-"])
+    matiere = st.selectbox("📖 Matière :", sorted(df_p[df_p['PROMOTION'] == promo]['ENSEIGNEMENTS'].unique()) if not df_p.empty else ["-"])
+    
+    # Liste étudiants
+    df_eff = df_etudiants[df_etudiants['PROMOTION'] == promo]
+    absents = st.multiselect("❌ Étudiants Absents :", options=sorted(df_eff['FULL_N'].unique()))
+    obs = st.text_area("🗒️ Observations :")
+    
+    if st.button("🚀 VALIDER ET ENVOYER LE RAPPORT", use_container_width=True, type="primary"):
+        for name in absents:
+            supabase.table("archives_absences").insert({
+                "promotion": promo, "matiere": matiere, "enseignant": nom_complet,
+                "date_seance": str(date_s), "etudiant_nom": name, "note_evaluation": "Absence",
+                "observations": obs
+            }).execute()
+        
+        # Envoi Mail
+        send_email_rapport([EMAIL_CHEF_DEPT], f"Rapport {matiere} - {promo}", f"Enseignant: {nom_complet}\nDate: {date_s}\nAbsents: {len(absents)}")
+        st.success("Rapport archivé et envoyé !")
 
+with t_suivi:
+    nom_rech = st.selectbox("Rechercher un étudiant :", ["--"] + sorted(df_etudiants['FULL_N'].unique()))
+    if nom_rech != "--":
+        res = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_rech).execute()
+        if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
+        else: st.success("Aucune absence.")
+
+with t_admin:
+    if is_admin:
+        res = supabase.table("archives_absences").select("*").execute()
+        if res.data: st.dataframe(pd.DataFrame(res.data))
+    else: st.error("Accès Admin requis.")
