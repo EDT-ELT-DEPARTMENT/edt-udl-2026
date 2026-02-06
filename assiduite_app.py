@@ -239,19 +239,38 @@ else:
 st.sidebar.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom:2px solid #003366;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h4>", unsafe_allow_html=True)
 
 with st.sidebar:
+    # Affichage de l'identité complète (Ex: MILOUA FARID)
     st.markdown(f"### 👤 {nom_complet_session}")
-    if grade_fix: st.success(f"**Grade :** {grade_fix}")
+    
+    if grade_fix: 
+        st.success(f"**Grade :** {grade_fix}")
+    
     st.warning(f"**Statut :** {statut_fix}")
     st.divider()
     
+    # Logique de sélection de l'enseignant actif
     if is_admin:
-        ens_actif = st.selectbox("Simulation (Admin) :", sorted(df_edt['Enseignants'].unique()), key="unique_admin_sim_key")
+        # L'admin peut choisir dans la liste complète issue de l'EDT
+        liste_profs = sorted([str(x) for x in df_edt['Enseignants'].unique() if x])
+        ens_actif = st.selectbox(
+            "Simulation (Admin) :", 
+            liste_profs, 
+            key="unique_admin_sim_key"
+        )
     else:
+        # L'enseignant est verrouillé sur son nom complet de session
+        # On s'assure que ens_actif correspond exactement au format de l'EDT
         ens_actif = nom_complet_session
 
+    # Bouton de déconnexion
     if st.button("🚪 Déconnexion", use_container_width=True, key="unique_logout_key"):
         st.session_state["user_data"] = None
         st.rerun()
+
+# --- APPLICATION DU FILTRE SUR L'EDT ---
+# Ce masque est crucial pour séparer les homonymes comme les MILOUA
+mask_edt = df_edt['Enseignants'].astype(str).str.upper().str.strip() == ens_actif.upper().strip()
+df_perso = df_edt[mask_edt]
 
 # --- INTERFACE PRINCIPALE ---
 t_saisie, t_suivi, t_admin = st.tabs(["📝 Saisie Rapport", "🔍 Suivi Étudiant", "🛡️ Panneau Admin"])
@@ -350,6 +369,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
