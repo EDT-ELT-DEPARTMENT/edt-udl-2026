@@ -113,9 +113,11 @@ if not st.session_state["user_data"]:
         e_log = st.text_input("Email Professionnel :", key="log_e")
         p_log = st.text_input("Code Unique :", type="password", key="log_p")
         if st.button("Se connecter", use_container_width=True):
+            # Le select("*") récupère prenom_officiel, grade_enseignant, etc.
             res = supabase.table("enseignants_auth").select("*").eq("email", e_log).eq("password_hash", hash_pw(p_log)).execute()
             if res.data:
-                st.session_state["user_data"] = res.data[0]
+                st.session_state["user_data"] = res.data[0] # On stocke TOUT le dictionnaire
+                st.success(f"Connexion réussie !")
                 st.rerun()
             else:
                 st.error("Email ou code incorrect.")
@@ -381,6 +383,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
