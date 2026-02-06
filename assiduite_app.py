@@ -5,6 +5,7 @@ import smtplib
 import io
 import random
 import string
+import segno  # Bibliothèque pour la génération du QR Code
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -88,7 +89,7 @@ if "user_data" not in st.session_state:
 # --- 4. AUTHENTIFICATION ---
 if not st.session_state["user_data"]:
     st.markdown(f"<h2 style='text-align:center; color:#003366;'>🔑 {TITRE_PLATEFORME}</h2>", unsafe_allow_html=True)
-    t_login, t_signup, t_forgot = st.tabs(["🔐 Connexion", "📝 Inscription", "❓ Code oublié"])
+    t_login, t_signup, t_forgot, t_student = st.tabs(["🔐 Connexion", "📝 Inscription", "❓ Code oublié", "🎓 Espace Étudiant"])
     
     with t_login:
         email_log = st.text_input("Email :", key="log_email")
@@ -128,9 +129,29 @@ if not st.session_state["user_data"]:
                 supabase.table("enseignants_auth").update({"password_hash": hash_pw(new_c)}).eq("email", f_email).execute()
                 send_mail(f_email, "Nouveau Code UDL", f"Votre nouveau code est : {new_c}")
                 st.success("Consultez votre boîte mail.")
+
+    with t_student:
+        st.subheader("👨‍🎓 Consultation d'Assiduité")
+        st.info("Entrez vos informations pour consulter l'état de vos absences.")
+        nom_search = st.text_input("Nom Complet (NOM PRÉNOM) :").upper().strip()
+        if st.button("Afficher mon bilan personnel", use_container_width=True):
+            if nom_search:
+                res_st = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_search).execute()
+                if res_st.data:
+                    df_res = pd.DataFrame(res_st.data)
+                    st.success(f"Bilan trouvé pour : {nom_search}")
+                    # Filtrage pour l'étudiant : on ne montre que les colonnes pertinentes
+                    df_display = df_res[['date_seance', 'matiere', 'enseignant', 'note_evaluation']].rename(columns={
+                        'date_seance': 'Date', 'matiere': 'Matière', 'enseignant': 'Chargé du cours', 'note_evaluation': 'État'
+                    })
+                    st.table(df_display)
+                else:
+                    st.warning("Aucune absence trouvée ou nom non reconnu dans la base.")
+            else:
+                st.error("Veuillez saisir votre nom.")
     st.stop()
 
-# --- 5. INTERFACE PRINCIPALE ---
+# --- 5. INTERFACE PRINCIPALE (ENSEIGNANT) ---
 user = st.session_state["user_data"]
 is_admin = (user['email'] == EMAIL_ADMIN_TECH)
 
@@ -142,8 +163,19 @@ with st.sidebar:
     st.markdown(f"**Enseignant :** {user['nom_officiel']}")
     st.markdown(f"**Grade :** {current_grade}")
     st.markdown(f"**Statut :** {user.get('statut_enseignant', 'Permanent')}")
-    st.divider()
     
+    # --- GÉNÉRATION DU QR CODE ---
+    st.divider()
+    st.markdown("### 📱 QR Code Étudiant")
+    # Remplacez l'URL par l'adresse réelle de votre application une fois déployée
+    app_url = "https://votre-app-udl.streamlit.app" 
+    qr = segno.make(app_url)
+    buffer_qr = io.BytesIO()
+    qr.save(buffer_qr, kind='png', scale=5)
+    st.image(buffer_qr.getvalue(), caption="Scan pour consulter les absences")
+    st.caption("Faites scanner ce code aux étudiants en fin de séance.")
+    
+    st.divider()
     if is_admin:
         st.success("🛡️ MODE ADMIN")
         enseignant_vue = st.selectbox("Vue Admin (EDT) :", sorted(df_edt['Enseignants'].unique()))
@@ -173,13 +205,12 @@ with st.sidebar:
 tab_saisie, tab_suivi, tab_hist = st.tabs(["📝 Saisie Séance", "🔍 Suivi Étudiant", "📜 Archive Globale"])
 
 with tab_saisie:
-    # 1. Infos Séance
+    # (Le reste du code de saisie reste identique à votre version)
     c1, c2, c3 = st.columns(3)
     cat_s = c1.selectbox("🏷️ Séance :", ["Cours", "TD", "TP", "Examen", "Rattrapage"])
     reg_s = c2.selectbox("⏳ Régime :", ["Charge Horaire", "Heures Supplémentaires"])
     date_s = c3.date_input("📅 Date réelle :", value=datetime.now())
 
-    # 2. Promo et Matière
     cp, cm = st.columns(2)
     mask = df_edt['Enseignants'].str.contains(enseignant_vue, na=False, case=False)
     list_promos = sorted(df_edt[mask]['Promotion'].unique())
@@ -248,72 +279,29 @@ with tab_saisie:
         else:
             st.error("Code unique incorrect.")
 
-# --- 🔍 SUIVI ÉTUDIANT (COMPLET) ---
 with tab_suivi:
     st.markdown("### 🔍 Fiche et Suivi Individuel")
-    
     df_etudiants['Search_Full'] = df_etudiants['Nom'] + " " + df_etudiants['Prénom']
     liste_globale = sorted(df_etudiants['Search_Full'].unique())
-    
-    etudiant_search = st.selectbox("🎯 Rechercher un étudiant dans toute la faculté :", ["-- Sélectionner --"] + liste_globale)
+    etudiant_search = st.selectbox("🎯 Rechercher un étudiant :", ["-- Sélectionner --"] + liste_globale)
     
     if etudiant_search != "-- Sélectionner --":
-        # Infos Excel
         info = df_etudiants[df_etudiants['Search_Full'] == etudiant_search].iloc[0]
-        promo_et = info['Promotion']
-        groupe_et = info['Groupe']
-        sg_et = info['Sous groupe']
-
-        # Calcul des effectifs dynamiques pour cet étudiant
-        eff_promo = len(df_etudiants[df_etudiants['Promotion'] == promo_et])
-        eff_groupe = len(df_etudiants[(df_etudiants['Promotion'] == promo_et) & (df_etudiants['Groupe'] == groupe_et)])
-        eff_sg = len(df_etudiants[(df_etudiants['Promotion'] == promo_et) & (df_etudiants['Groupe'] == groupe_et) & (df_etudiants['Sous groupe'] == sg_et)])
-
-        # Récupération des absences SQL
         res_sql = supabase.table("archives_absences").select("*").eq("etudiant_nom", etudiant_search).eq("note_evaluation", "ABSENCE").execute()
         df_abs_et = pd.DataFrame(res_sql.data)
 
-        # AFFICHAGE DES MÉTRIQUES
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Effectif Promotion", eff_promo)
-        m2.metric(f"Effectif Groupe {groupe_et}", eff_groupe)
-        m3.metric(f"Effectif S-Groupe {sg_et}", eff_sg)
+        m1.metric("Effectif Promotion", len(df_etudiants[df_etudiants['Promotion'] == info['Promotion']]))
+        m2.metric(f"Effectif Groupe {info['Groupe']}", len(df_etudiants[(df_etudiants['Promotion'] == info['Promotion']) & (df_etudiants['Groupe'] == info['Groupe'])]))
+        m3.metric(f"Effectif S-Groupe {info['Sous groupe']}", len(df_etudiants[(df_etudiants['Promotion'] == info['Promotion']) & (df_etudiants['Groupe'] == info['Groupe']) & (df_etudiants['Sous groupe'] == info['Sous groupe'])]))
         m4.metric("TOTAL ABSENCES", f"{len(df_abs_et)}", delta_color="inverse")
 
         st.markdown("---")
-        c_left, c_right = st.columns([1, 2])
-        
-        with c_left:
-            st.markdown("#### 📌 Identité")
-            st.write(f"**Nom :** {info['Nom']}")
-            st.write(f"**Prénom :** {info['Prénom']}")
-            st.write(f"**Promotion :** {promo_et}")
-            st.write(f"**Groupe :** {groupe_et} ({sg_et})")
-        
-        with c_right:
-            st.markdown("#### 📜 Historique des Absences")
-            if not df_abs_et.empty:
-                df_visu = df_abs_et[['date_seance', 'matiere', 'enseignant', 'categorie_seance']].rename(columns={
-                    'date_seance': 'Date', 'matiere': 'Matière', 'enseignant': 'Professeur', 'categorie_seance': 'Type'
-                })
-                st.table(df_visu)
-                
-                # Fichier spécifique
-                buf_indiv = io.BytesIO()
-                df_visu.to_excel(buf_indiv, index=False)
-                st.download_button(f"📥 Télécharger la fiche de {info['Nom']}", buf_indiv.getvalue(), f"Suivi_{info['Nom']}.xlsx")
-            else:
-                st.success("Aucune absence enregistrée pour cet étudiant.")
+        st.write(f"**Identité :** {info['Nom']} {info['Prénom']} | **Promotion :** {info['Promotion']}")
+        st.table(df_abs_et[['date_seance', 'matiere', 'enseignant', 'categorie_seance']] if not df_abs_et.empty else "Aucune absence.")
 
-# --- 📜 ARCHIVE GLOBALE ---
 with tab_hist:
-    st.markdown("### 📜 Registre Global des Activités")
+    st.markdown("### 📜 Registre Global")
     res_glob = supabase.table("archives_absences").select("*").execute()
     if res_glob.data:
-        df_glob = pd.DataFrame(res_glob.data)
-        st.dataframe(df_glob, use_container_width=True)
-        
-        buf_glob = io.BytesIO()
-        df_glob.to_excel(buf_glob, index=False)
-        st.download_button("📊 Exporter toute la base de données", buf_glob.getvalue(), "Archives_Globales_2026.xlsx")
-
+        st.dataframe(pd.DataFrame(res_glob.data), use_container_width=True)
