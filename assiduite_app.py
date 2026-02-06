@@ -115,8 +115,10 @@ if not st.session_state["user_data"]:
         if st.button("Se connecter", use_container_width=True):
             res = supabase.table("enseignants_auth").select("*").eq("email", e_log).eq("password_hash", hash_pw(p_log)).execute()
             if res.data:
-                st.session_state["user_data"] = res.data[0]; st.rerun()
-            else: st.error("Email ou code incorrect.")
+                st.session_state["user_data"] = res.data[0]
+                st.rerun()
+            else:
+                st.error("Email ou code incorrect.")
 
     with t_signup:
         choix_signup = st.selectbox("Sélectionnez votre nom :", sorted(df_staff['Full_S'].unique()))
@@ -130,8 +132,7 @@ if not st.session_state["user_data"]:
         if st.button("Valider l'inscription", use_container_width=True):
             if reg_e and reg_p:
                 try:
-                    # Préparation des données avec séparation Nom/Prénom
-                    # On utilise directement les colonnes du fichier staff 'inf'
+                    # Préparation des données avec séparation Nom/Prénom pour Supabase
                     data_to_insert = {
                         "email": reg_e.strip(),
                         "password_hash": hash_pw(reg_p),
@@ -139,7 +140,7 @@ if not st.session_state["user_data"]:
                         "prenom_officiel": str(inf['PRÉNOM']).strip().upper(),
                         "statut_enseignant": str(inf['Qualité']).strip(),
                         "grade_enseignant": str(inf['Grade']).strip(),
-                        "role": "enseignant" # Ajout du rôle par défaut
+                        "role": "enseignant"
                     }
                     
                     # Insertion dans Supabase
@@ -152,13 +153,24 @@ if not st.session_state["user_data"]:
                     st.error(f"Erreur lors de l'inscription : {e}")
             else:
                 st.warning("⚠️ Veuillez remplir tous les champs (Email et Code Unique).")
+
+    with t_student:
+        # Initialisation sécurisée de la variable nom_st pour éviter le NameError
+        nom_st = st.selectbox("Sélectionner votre nom (Étudiant) :", ["--"] + sorted(df_etudiants['Full_N'].unique()), key="student_sel")
+        
+        if nom_st != "--":
+            profil = df_etudiants[df_etudiants['Full_N'] == nom_st].iloc[0]
             
             # --- HEADER ÉTUDIANT ---
             st.markdown(f"### 👤 Dossier Étudiant : {nom_st}")
             c1, c2, c3 = st.columns(3)
-            c1.metric("Promotion", profil['Promotion'])
-            c2.metric("Groupe", profil['Groupe'])
-            c3.metric("Sous-groupe", profil['Sous groupe'])
+            
+            # Utilisation de .get() pour plus de sécurité sur les noms de colonnes
+            c1.metric("Promotion", profil.get('Promotion', 'N/A'))
+            c2.metric("Groupe", profil.get('Groupe', 'N/A'))
+            c3.metric("Sous-groupe", profil.get('Sous groupe', 'N/A'))
+            
+            # Ici vous pouvez ajouter la suite de la logique d'affichage (EDT, Absences...)
             
             # --- EMPLOI DU TEMPS INDIVIDUEL ---
             st.markdown("#### 📅 Mon Emploi du Temps Hebdomadaire")
@@ -369,6 +381,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
