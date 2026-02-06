@@ -86,7 +86,7 @@ if not st.session_state["user_data"]:
         if st.button("Se connecter", use_container_width=True):
             email_clean = email_log.replace(',', '.')
             try:
-                res = supabase.table("users_enseignants").select("*").eq("email", email_clean).execute()
+                res = supabase.table("enseignants_auth").select("*").eq("email", email_clean).execute()
                 if res.data and res.data[0]['password_hash'] == hash_pw(pass_log):
                     st.session_state["user_data"] = res.data[0]
                     st.rerun()
@@ -112,7 +112,7 @@ if not st.session_state["user_data"]:
                     grade_reg = str(match.iloc[0].get('Grade', 'N/A'))
                     statut_reg = str(match.iloc[0].get('Qualité', 'Permanent'))
                     try:
-                        supabase.table("users_enseignants").insert({
+                        supabase.table("enseignants_auth").insert({
                             "email": email_clean, "password_hash": hash_pw(pass_reg),
                             "nom_officiel": nom_reg, "prenom_officiel": prenom_reg,
                             "grade_enseignant": grade_reg, "statut_enseignant": statut_reg
@@ -162,7 +162,7 @@ if not st.session_state["user_data"]:
                 grade_reg = str(match.iloc[0].get('Grade', 'N/A'))
                 statut_reg = str(match.iloc[0].get('Qualité', 'Permanent'))
                 try:
-                    supabase.table("users_enseignants").insert({
+                    supabase.table("enseignants_auth").insert({
                         "email": email_clean, "password_hash": hash_pw(pass_reg),
                         "nom_officiel": nom_reg, "prenom_officiel": prenom_reg,
                         "grade_enseignant": grade_reg, "statut_enseignant": statut_reg
@@ -200,4 +200,5 @@ if st.sidebar.button("🚪 Déconnexion"):
     st.rerun()
 
 st.success(f"Bienvenue sur votre espace de gestion, {user['grade_enseignant']}.")
+
 
