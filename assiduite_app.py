@@ -200,52 +200,54 @@ if not st.session_state["user_data"]:
 user = st.session_state["user_data"]
 is_admin = (user.get('email') == EMAIL_ADMIN_TECH)
 
-# 1. Extraction des identifiants (Stockés dans Supabase lors de l'inscription)
+# 1. Extraction des identifiants
 nom_user = str(user.get('nom_officiel', '')).strip().upper()
 prenom_user = str(user.get('prenom_officiel', '')).strip().upper()
 
 # 2. LOGIQUE DE PARCOURS DE LA LISTE POUR LE GRADE
-# On cherche l'enseignant dans df_staff (la liste que vous venez de fournir)
+# On cherche l'enseignant dans df_staff (votre liste de 110 noms)
 match_enseignant = df_staff[
     (df_staff['NOM'].str.upper() == nom_user) & 
     (df_staff['PRÉNOM'].str.upper() == prenom_user)
 ]
 
 if not match_enseignant.empty:
-    # On récupère le grade directement depuis la liste
     grade_brut = match_enseignant.iloc[0]['Grade']
     qualite_brut = match_enseignant.iloc[0]['Qualité']
     
-    # Si le grade est vide (NaN), on ne met rien (chaîne vide)
+    # Si le grade est vide (NaN), on met une chaîne vide, sinon le grade
     grade_fix = str(grade_brut).strip() if pd.notna(grade_brut) and str(grade_brut).strip() != "" else ""
     statut_fix = str(qualite_brut).strip() if pd.notna(qualite_brut) else "Permanent"
 else:
-    # Si l'enseignant n'est pas trouvé dans la liste (cas rare)
     grade_fix = ""
     statut_fix = "Permanent"
 
 # --- AFFICHAGE SIDEBAR ---
-# Rappel du titre obligatoire dans la logique de l'interface
-st.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom:2px solid #003366; padding-bottom:5px;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h4>", unsafe_allow_html=True)
+# Rappel obligatoire du titre
+st.sidebar.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom:2px solid #003366;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h4>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown(f"### 👤 {nom_user} {prenom_user}")
     
-    # Affichage conditionnel : n'affiche le grade que s'il n'est pas vide
+    # Affichage du Grade seulement s'il existe dans votre liste
     if grade_fix:
         st.success(f"**Grade :** {grade_fix}")
     
     st.warning(f"**Statut :** {statut_fix}")
     st.divider()
     
-    # Sélection de l'enseignant actif pour l'EDT
+    # 3. CORRECTION DE L'ERREUR StreamlitDuplicateElementId
     if is_admin:
-        ens_actif = st.selectbox("Simulation (Admin) :", sorted(df_edt['Enseignants'].unique()))
+        # L'ajout de key="sim_admin_unique" empêche l'erreur de duplication
+        ens_actif = st.selectbox(
+            "Simulation (Admin) :", 
+            sorted(df_edt['Enseignants'].unique()),
+            key="sim_admin_unique" 
+        )
     else:
-        # Correspondance avec la colonne 'Enseignants' de votre tableau EDT
         ens_actif = nom_user
 
-    if st.button("🚪 Déconnexion", use_container_width=True):
+    if st.button("🚪 Déconnexion", use_container_width=True, key="logout_btn"):
         st.session_state["user_data"] = None
         st.rerun()
     
@@ -362,6 +364,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
