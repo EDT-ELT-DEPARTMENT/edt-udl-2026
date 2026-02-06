@@ -184,13 +184,21 @@ if not st.session_state["user_data"]:
 user = st.session_state["user_data"]
 is_admin = (user['email'] == EMAIL_ADMIN_TECH)
 
-# Récupération ultra-sécurisée du Grade et Statut pour éviter le "None"
-full_name_user = f"{user['nom_officiel']} {user['prenom_officiel']}".upper().strip()
+# Correction sécurisée de la récupération du nom et prénom
+nom = user.get('nom_officiel', '').upper()
+prenom = user.get('prenom_officiel', '').upper()
 
+# On construit le nom complet pour la recherche dans le fichier Excel
+if prenom:
+    full_name_user = f"{nom} {prenom}".strip()
+else:
+    full_name_user = nom.strip()
+
+# Récupération du Grade et Statut
 grade_fix = user.get('grade_enseignant')
 statut_fix = user.get('statut_enseignant')
 
-# Secours : recherche dans le fichier Excel (df_staff)
+# Secours : recherche dans le fichier Excel (df_staff) si les données sont vides
 if not grade_fix or str(grade_fix).strip().lower() in ["none", "nan", ""]:
     match_staff = df_staff[df_staff['Full_S'] == full_name_user]
     grade_fix = match_staff.iloc[0]['Grade'] if not match_staff.empty else "Enseignant"
@@ -199,11 +207,12 @@ if not statut_fix or str(statut_fix).strip().lower() in ["none", "nan", ""]:
     match_staff = df_staff[df_staff['Full_S'] == full_name_user]
     statut_fix = match_staff.iloc[0]['Qualité'] if not match_staff.empty else "Permanent"
 
-# Affichage du titre officiel
+# --- AFFICHAGE ---
 st.markdown(f"<h4 style='text-align:center; border-bottom: 2px solid #003366; padding-bottom: 10px;'>{TITRE_PLATEFORME}</h4>", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown(f"### 👤 {user['nom_officiel']} {user['prenom_officiel']}")
+    # Affichage intelligent du nom
+    st.markdown(f"### 👤 {nom} {prenom}")
     st.success(f"**Grade :** {grade_fix}")
     st.warning(f"**Statut :** {statut_fix}")
     st.divider()
@@ -321,4 +330,5 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
