@@ -3,7 +3,7 @@ import pandas as pd
 import hashlib
 import smtplib
 import io
-import qrcode
+import segno  # Utilisation de segno comme spécifié
 from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -32,30 +32,29 @@ try:
     KEY = st.secrets["SUPABASE_KEY"]
     supabase = create_client(URL, KEY)
 except Exception as e:
-    st.error("⚠️ Erreur de configuration Supabase.")
+    st.error("⚠️ Erreur de configuration Supabase. Vérifiez vos secrets Streamlit.")
     st.stop()
 
 # --- 3. FONCTIONS TECHNIQUES ---
 def hash_pw(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
-def generate_qr(data):
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(data)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+def generate_qr_segno(data):
+    """Génère un QR Code avec la bibliothèque Segno"""
+    qr = segno.make(data)
+    out = io.BytesIO()
+    qr.save(out, kind='png', scale=10)
+    return out.getvalue()
 
 def send_notification_admin(details):
+    """Envoi automatique aux responsables"""
     destinataires = [EMAIL_CHEF_DEPT, EMAIL_ADJOINT]
     try:
         msg = MIMEMultipart()
         msg['From'] = f"Système EDT-UDL <{EMAIL_SENDER}>"
         msg['To'] = ", ".join(destinataires)
-        msg['Subject'] = f"Rapport de Séance : {details['matiere']} - {details['promotion']}"
-        corps = f"""Rapport de séance validé :\n- Enseignant : {details['enseignant']}\n- Promotion : {details['promotion']}\n- Absents : {details['nb_absents']}"""
+        msg['Subject'] = f"Rapport Séance : {details['matiere']} ({details['promotion']})"
+        corps = f"Rapport validé :\n- Enseignant : {details['enseignant']}\n- Absents : {details['nb_absents']}"
         msg.attach(MIMEText(corps, 'plain'))
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
@@ -87,20 +86,19 @@ def get_staff_info(user_nom, user_email):
     return "Enseignant", "Permanent"
 
 def safe_insert(table_name, data_dict):
-    try:
-        return supabase.table(table_name).insert(data_dict).execute()
+    try: return supabase.table(table_name).insert(data_dict).execute()
     except:
         base_cols = ["promotion", "matiere", "enseignant", "date_seance", "etudiant_nom", "note_evaluation"]
         clean_dict = {k: v for k, v in data_dict.items() if k in base_cols}
         return supabase.table(table_name).insert(clean_dict).execute()
 
-# --- 4. AUTHENTIFICATION ---
+# --- 4. AUTHENTIFICATION ET QR ---
 if "user_data" not in st.session_state:
     st.session_state["user_data"] = None
 
 if not st.session_state["user_data"]:
     st.markdown(f"<h2 style='text-align:center;'>🔑 {TITRE_PLATEFORME}</h2>", unsafe_allow_html=True)
-    t_login, t_signup, t_student = st.tabs(["🔐 Connexion", "📝 Inscription", "🎓 Espace Étudiant"])
+    t_login, t_signup, t_student = st.tabs(["🔐 Enseignant", "📝 Inscription", "🎓 Espace Étudiant"])
     
     with t_login:
         e_log = st.text_input("Email :")
@@ -112,19 +110,17 @@ if not st.session_state["user_data"]:
             else: st.error("Identifiants incorrects.")
 
     with t_student:
-        st.info("Recherchez votre nom pour voir votre emploi du temps et générer votre QR Code d'accès.")
         df_etudiants['Full_N'] = (df_etudiants['Nom'].fillna('') + " " + df_etudiants['Prénom'].fillna('')).str.upper().str.strip()
-        nom_st = st.selectbox("Sélectionnez votre nom :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
+        nom_st = st.selectbox("Sélectionnez votre Nom :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
         if nom_st != "--":
             profil = df_etudiants[df_etudiants['Full_N'] == nom_st].iloc[0]
             st.success(f"Promotion : {profil['Promotion']} | Groupe : {profil['Groupe']}")
             
-            # Génération QR Code
-            url_plateforme = f"https://votre-app.streamlit.app/?student={nom_st.replace(' ', '+')}"
-            qr_img = generate_qr(url_plateforme)
-            st.image(qr_img, caption="Votre QR Code d'accès rapide", width=150)
+            # QR Code avec Segno
+            st.write("📲 **Scannez pour accéder à votre suivi :**")
+            qr_img = generate_qr_segno(f"Etudiant: {nom_st} | Promo: {profil['Promotion']}")
+            st.image(qr_img, width=150)
             
-            # Affichage EDT
             edt_st = df_edt[df_edt['Promotion'] == profil['Promotion']]
             st.table(edt_st[['Enseignements', 'Horaire', 'Jours', 'Lieu']])
     st.stop()
@@ -138,18 +134,23 @@ with st.sidebar:
     st.markdown(f"### 👤 {user['nom_officiel']}\n**{current_grade}** ({current_statut})")
     st.divider()
     if is_admin:
-        st.success("🛡️ MODE ADMIN")
-        enseignant_vue = st.selectbox("Vue Admin (EDT) :", sorted(df_edt['Enseignants'].unique()))
+        st.success("🛡️ ADMIN")
+        enseignant_vue = st.selectbox("Vue Admin :", sorted(df_edt['Enseignants'].unique()))
         if st.button("🗑️ Vider Archives"): st.session_state["reset_trigger"] = True
+        if st.session_state.get("reset_trigger"):
+            cp = st.text_input("Code confirmation :", type="password")
+            if st.button("CONFIRMER SUPPRESSION"):
+                if hash_pw(cp) == user['password_hash']:
+                    supabase.table("archives_absences").delete().neq("id", 0).execute()
+                    st.success("Base vidée."); st.rerun()
     else: enseignant_vue = user['nom_officiel']
-    
     if st.button("🚪 Déconnexion"):
         st.session_state["user_data"] = None; st.rerun()
 
 st.markdown(f"<h4 style='text-align:center;'>{TITRE_PLATEFORME}</h4>", unsafe_allow_html=True)
-tab_saisie, tab_suivi, tab_hist = st.tabs(["📝 Saisie Séance", "🔍 Suivi Étudiant", "📜 Archive Globale"])
+t1, t2, t3 = st.tabs(["📝 Saisie", "🔍 Suivi", "📜 Global"])
 
-with tab_saisie:
+with t1:
     c1, c2, c3 = st.columns(3)
     cat_s = c1.selectbox("Séance :", ["Cours", "TD", "TP", "Examen"])
     reg_s = c2.selectbox("Régime :", ["Charge Horaire", "Heures Supplémentaires"])
@@ -158,34 +159,25 @@ with tab_saisie:
     mask = df_edt['Enseignants'].str.contains(enseignant_vue, na=False, case=False)
     p_sel = st.selectbox("Promotion :", sorted(df_edt[mask]['Promotion'].unique()) if any(mask) else sorted(df_edt['Promotion'].unique()))
     
-    # CALCUL EFFECTIFS
-    df_promo_full = df_etudiants[df_etudiants['Promotion'] == p_sel]
-    eff_promo = len(df_promo_full)
-    
+    # --- CALCUL EFFECTIFS ---
+    df_promo = df_etudiants[df_etudiants['Promotion'] == p_sel]
     m_sel = st.selectbox("Matière :", sorted(df_edt[mask & (df_edt['Promotion'] == p_sel)]['Enseignements'].unique()) if any(mask) else ["-"])
 
-    col_g, col_sg = st.columns(2)
-    with col_g:
-        g_sel = st.selectbox("Groupe :", sorted(df_promo_full['Groupe'].unique()) if not df_promo_full.empty else ["G1"])
-        eff_g = len(df_promo_full[df_promo_full['Groupe'] == g_sel])
-    with col_sg:
-        sg_sel = st.selectbox("Sous-groupe :", sorted(df_promo_full[df_promo_full['Groupe']==g_sel]['Sous groupe'].unique()) if not df_promo_full.empty else ["SG1"])
-        eff_sg = len(df_promo_full[(df_promo_full['Groupe'] == g_sel) & (df_promo_full['Sous groupe'] == sg_sel)])
+    cg, csg = st.columns(2)
+    with cg:
+        g_sel = st.selectbox("Groupe :", sorted(df_promo['Groupe'].unique()) if not df_promo.empty else ["G1"])
+        eff_g = len(df_promo[df_promo['Groupe'] == g_sel])
+    with csg:
+        sg_sel = st.selectbox("Sous-groupe :", sorted(df_promo[df_promo['Groupe']==g_sel]['Sous groupe'].unique()) if not df_promo.empty else ["SG1"])
+        eff_sg = len(df_promo[(df_promo['Groupe'] == g_sel) & (df_promo['Sous groupe'] == sg_sel)])
 
-    # AFFICHAGE DES COMPTEURS
-    st.markdown(f"""
-    <div style="background-color:#f0f2f6; padding:10px; border-radius:10px; text-align:center;">
-        <b>📊 Effectifs :</b> Promotion: <span style="color:blue;">{eff_promo}</span> | 
-        Groupe ({g_sel}): <span style="color:green;">{eff_g}</span> | 
-        Sous-groupe ({sg_sel}): <span style="color:orange;">{eff_sg}</span>
-    </div>
-    """, unsafe_allow_html=True)
+    # BANDEAU EFFECTIFS
+    st.info(f"📊 **Effectifs :** Promotion: {len(df_promo)} | Groupe {g_sel}: {eff_g} | Sous-groupe {sg_sel}: {eff_sg}")
 
-    df_app = df_promo_full[(df_promo_full['Groupe']==g_sel) & (df_promo_full['Sous groupe']==sg_sel)].copy()
+    df_app = df_promo[(df_promo['Groupe']==g_sel) & (df_promo['Sous groupe']==sg_sel)].copy()
     df_app['Full_N'] = (df_app['Nom'].fillna('') + " " + df_app['Prénom'].fillna('')).str.upper().str.strip()
-    liste_et = df_app['Full_N'].tolist()
-
-    abs_sel = st.multiselect("❌ Absents :", options=liste_et)
+    
+    abs_sel = st.multiselect("❌ Absents :", options=df_app['Full_N'].tolist())
     code_v = st.text_input("🔑 Code Unique :", type="password")
 
     if st.button("🚀 VALIDER LE RAPPORT", use_container_width=True, type="primary"):
