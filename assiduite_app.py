@@ -210,59 +210,46 @@ if not st.session_state["user_data"]:
 user = st.session_state["user_data"]
 is_admin = (user.get('email') == EMAIL_ADMIN_TECH)
 
-# 1. Extraction des identifiants session
+# 1. Extraction et formatage de l'identité
 nom_session = str(user.get('nom_officiel', '')).strip().upper()
 prenom_session = str(user.get('prenom_officiel', '')).strip().upper()
 nom_complet_session = f"{nom_session} {prenom_session}"
 
-# 2. PARCOURS DE LA LISTE POUR LE GRADE
+# 2. Récupération Grade et Statut
 match_staff = df_staff[
     (df_staff['NOM'].str.upper() == nom_session) & 
     (df_staff['PRÉNOM'].str.upper() == prenom_session)
 ]
 
 if not match_staff.empty:
-    grade_val = match_staff.iloc[0]['Grade']
-    qualite_val = match_staff.iloc[0]['Qualité']
-    grade_fix = str(grade_val).strip() if pd.notna(grade_val) and str(grade_val).strip() != "" else ""
-    statut_fix = str(qualite_val).strip() if pd.notna(qualite_val) else "Permanent"
+    g_val = match_staff.iloc[0]['Grade']
+    q_val = match_staff.iloc[0]['Qualité']
+    grade_fix = str(g_val).strip() if pd.notna(g_val) and str(g_val).strip() != "" else ""
+    statut_fix = str(q_val).strip() if pd.notna(q_val) else "Permanent"
 else:
-    grade_fix = ""
-    statut_fix = "Permanent"
+    grade_fix, statut_fix = "", "Permanent"
 
-# --- AFFICHAGE SIDEBAR UNIQUE ---
+# --- SIDEBAR ---
 st.sidebar.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom:2px solid #003366;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h4>", unsafe_allow_html=True)
 
 with st.sidebar:
-    # AFFICHAGE DU NOM ET PRÉNOM ICI
     st.markdown(f"### 👤 {nom_complet_session}")
-    
-    if grade_fix:
-        st.success(f"**Grade :** {grade_fix}")
-    
+    if grade_fix: st.success(f"**Grade :** {grade_fix}")
     st.warning(f"**Statut :** {statut_fix}")
     st.divider()
     
-    # Gestion de l'enseignant actif (Filtrage de l'EDT)
     if is_admin:
-        # L'admin sélectionne parmi les noms complets (grâce au mapping fait en chargeant les données)
-        ens_actif = st.selectbox(
-            "Simulation (Admin) :", 
-            sorted(df_edt['Enseignants'].unique()),
-            key="unique_admin_sim_key"
-        )
+        ens_actif = st.selectbox("Simulation (Admin) :", sorted(df_edt['Enseignants'].unique()), key="unique_admin_sim_key")
     else:
-        # L'enseignant voit son nom complet
         ens_actif = nom_complet_session
 
     if st.button("🚪 Déconnexion", use_container_width=True, key="unique_logout_key"):
         st.session_state["user_data"] = None
         st.rerun()
 
-# --- FIN DE LA CORRECTION ---
+# --- INTERFACE PRINCIPALE ---
 t_saisie, t_suivi, t_admin = st.tabs(["📝 Saisie Rapport", "🔍 Suivi Étudiant", "🛡️ Panneau Admin"])
 
-# --- ONGLET 1 : SAISIE ---
 with t_saisie:
     st.markdown("### ⚙️ Paramètres de la Séance")
     charge = st.radio("Régime :", ["Charge Normale", "Heures Supplémentaires"], horizontal=True)
@@ -271,9 +258,10 @@ with t_saisie:
     type_seance = c1.selectbox("Type :", ["Cours", "TD", "TP", "Examen", "Rattrapage"])
     date_s = c3.date_input("Date réelle :", value=datetime.now())
     
-    # Filtrage des promotions où l'enseignant intervient
+    # Filtrage précis de l'EDT
     mask = df_edt['Enseignants'].str.contains(ens_actif, na=False, case=False)
-    p_sel = st.selectbox("🎓 Promotion :", sorted(df_edt[mask]['Promotion'].unique()) if any(mask) else sorted(df_edt['Promotion'].unique()))
+    list_promos = sorted(df_edt[mask]['Promotion'].unique()) if any(mask) else sorted(df_edt['Promotion'].unique())
+    p_sel = st.selectbox("🎓 Promotion :", list_promos)
     
     df_p = df_etudiants[df_etudiants['Promotion'] == p_sel]
     cg, csg = st.columns(2)
@@ -287,7 +275,7 @@ with t_saisie:
     m3.metric(f"Sous-groupe {sg_sel}", len(df_p[(df_p['Groupe']==g_sel) & (df_p['Sous groupe']==sg_sel)]))
     st.markdown("---")
 
-    # Sélection de la matière basée sur l'enseignant et la promo
+    # Matière
     m_sel = st.selectbox("📖 Matière :", sorted(df_edt[mask & (df_edt['Promotion'] == p_sel)]['Enseignements'].unique()) if any(mask) else ["-"])
     
     st.markdown("### ❌ Gestion des Absences")
@@ -316,23 +304,21 @@ with t_saisie:
     
     if st.button("🚀 VALIDER ET ENVOYER LE RAPPORT", use_container_width=True, type="primary"):
         if hash_pw(code_v) == user['password_hash']:
-            # Archivage Absences
+            # Archivage avec Nom Complet
             for name in absents_final:
                 supabase.table("archives_absences").insert({
-                    "promotion": p_sel, "matiere": m_sel, "enseignant": f"{grade_fix} {user['nom_officiel']}",
+                    "promotion": p_sel, "matiere": m_sel, "enseignant": f"{grade_fix} {nom_complet_session}",
                     "date_seance": str(date_s), "etudiant_nom": name, "note_evaluation": type_abs,
                     "observations": obs_input, "categorie_seance": charge, "type_seance": type_seance
                 }).execute()
             
-            # Envoi des emails aux responsables
             destinataires = [EMAIL_CHEF_DEPT, EMAIL_ADJOINT]
-            if resp_nom != "Aucun":
-                destinataires.append(staff_options[resp_nom])
+            if resp_nom != "Aucun": destinataires.append(staff_options[resp_nom])
             
             corps_mail = f"""
             RAPPORT DE SÉANCE - {TITRE_PLATEFORME}
             --------------------------------------------------
-            Enseignant : {grade_fix} {user['nom_officiel']}
+            Enseignant : {grade_fix} {nom_complet_session}
             Date : {date_s}
             Matière : {m_sel} ({type_seance})
             Régime : {charge}
@@ -340,30 +326,24 @@ with t_saisie:
             Note/Observation : {valeur if etudiant_note != "Aucun" else "N/A"}
             Commentaire : {obs_input}
             """
-            
             send_email_rapport(destinataires, f"Rapport Séance - {m_sel} - {p_sel}", corps_mail)
-            st.success("✅ Rapport archivé et diffusé aux responsables !"); st.balloons()
+            st.success("✅ Rapport archivé et diffusé !"); st.balloons()
         else:
             st.error("Code unique de validation incorrect.")
 
-# --- ONGLET 2 : SUIVI ENSEIGNANT ---
 with t_suivi:
     st.markdown("### 🔍 Fiche de Suivi Individuelle")
     p_suivi = st.selectbox("1️⃣ Promotion :", sorted(df_etudiants['Promotion'].unique()), key="s_p")
-    etudiants_promo = df_etudiants[df_etudiants['Promotion'] == p_suivi]
-    nom_suivi = st.selectbox("2️⃣ Étudiant :", ["--"] + sorted(etudiants_promo['Full_N'].unique()), key="s_n")
+    nom_suivi = st.selectbox("2️⃣ Étudiant :", ["--"] + sorted(df_etudiants[df_etudiants['Promotion'] == p_suivi]['Full_N'].unique()), key="s_n")
     if nom_suivi != "--":
         res = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_suivi).execute()
         if res.data: st.table(pd.DataFrame(res.data)[['date_seance', 'matiere', 'note_evaluation', 'enseignant']])
 
-# --- ONGLET 3 : ADMIN ---
 with t_admin:
     if is_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
-
-
 
 
 
