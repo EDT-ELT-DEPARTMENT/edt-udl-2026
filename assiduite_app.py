@@ -70,14 +70,12 @@ def load_data():
 df_edt, df_etudiants, df_staff = load_data()
 
 def get_staff_info(user_nom, user_email):
-    """Récupère le Grade et le Statut (Qualité) en temps réel."""
     match = df_staff[df_staff['Email'].str.lower() == user_email.lower()]
     if match.empty:
         match = df_staff[df_staff['NOM'].str.upper() == user_nom.upper()]
-    
     if not match.empty:
         g = match.iloc[0].get('Grade', 'Enseignant')
-        s = match.iloc[0].get('Qualité', 'Permanent') # Permanent ou Vacataire
+        s = match.iloc[0].get('Qualité', 'Permanent')
         return g, s
     return "Enseignant", "Permanent"
 
@@ -96,19 +94,19 @@ if not st.session_state["user_data"]:
     t_login, t_signup, t_forgot, t_student = st.tabs(["🔐 Connexion", "📝 Inscription", "❓ Code oublié", "🎓 Espace Étudiant"])
     
     with t_login:
-        email_log = st.text_input("Email :", key="login_email")
-        pass_log = st.text_input("Code Unique :", type="password", key="login_pass")
+        email_log = st.text_input("Email :", key="log_email")
+        pass_log = st.text_input("Code Unique :", type="password", key="log_pass")
         if st.button("Se connecter", use_container_width=True):
             res = supabase.table("enseignants_auth").select("*").eq("email", email_log).eq("password_hash", hash_pw(pass_log)).execute()
             if res.data:
                 st.session_state["user_data"] = res.data[0]
                 st.rerun()
-            else: st.error("Email ou code incorrect.")
+            else: st.error("Identifiants incorrects.")
 
     with t_signup:
-        df_staff['Full'] = df_staff['NOM'] + " " + df_staff['PRÉNOM']
-        choix = st.selectbox("Sélectionnez votre nom :", sorted(df_staff['Full'].unique()))
-        info_s = df_staff[df_staff['Full'] == choix].iloc[0]
+        df_staff['Full_Name'] = df_staff['NOM'] + " " + df_staff['PRÉNOM']
+        choix = st.selectbox("Sélectionnez votre nom :", sorted(df_staff['Full_Name'].unique()))
+        info_s = df_staff[df_staff['Full_Name'] == choix].iloc[0]
         st.info(f"Profil : {info_s['NOM']} | Grade : {info_s['Grade']} | Statut : {info_s['Qualité']}")
         reg_mail = st.text_input("Confirmez votre Email :", value=info_s['Email'])
         reg_pass = st.text_input("Créez votre Code Unique :", type="password")
@@ -123,15 +121,13 @@ if not st.session_state["user_data"]:
             except: st.error("Erreur : Email déjà utilisé.")
 
     with t_student:
-        st.subheader("🎓 Portail Étudiant")
         nom_in = st.text_input("Nom et Prénom (MAJUSCULES) :").upper().strip()
         if st.button("Consulter ma fiche", use_container_width=True):
-            df_etudiants['Search_Full'] = (df_etudiants['Nom'] + " " + df_etudiants['Prénom']).str.upper().str.strip()
-            profil = df_etudiants[df_etudiants['Search_Full'] == nom_in]
+            df_etudiants['Search_Name'] = (df_etudiants['Nom'].fillna('') + " " + df_etudiants['Prénom'].fillna('')).str.upper().str.strip()
+            profil = df_etudiants[df_etudiants['Search_Name'] == nom_in]
             if not profil.empty:
                 p = profil.iloc[0]
                 st.success(f"✅ Dossier trouvé : {nom_in}")
-                # Affichage Emploi du Temps trié
                 edt_raw = df_edt[df_edt['Promotion'] == p['Promotion']].copy()
                 if not edt_raw.empty:
                     edt_raw['tri_h'] = edt_raw['Horaire'].apply(extraire_heure_debut)
@@ -141,11 +137,9 @@ if not st.session_state["user_data"]:
             else: st.error("Étudiant non reconnu.")
     st.stop()
 
-# --- 5. INTERFACE PRINCIPALE (ENSEIGNANTS) ---
+# --- 5. INTERFACE PRINCIPALE ---
 user = st.session_state["user_data"]
 is_admin = (user['email'] == EMAIL_ADMIN_TECH)
-
-# RÉCUPÉRATION DU GRADE ET DU STATUT (PERMANENT/VACATAIRE)
 current_grade, current_statut = get_staff_info(user['nom_officiel'], user['email'])
 
 st.markdown(f"<h4 style='text-align:center; color:#003366; border-bottom: 2px solid #003366;'>{TITRE_PLATEFORME}</h4>", unsafe_allow_html=True)
@@ -160,6 +154,20 @@ with st.sidebar:
     if is_admin:
         st.success("🛡️ MODE ADMIN")
         enseignant_vue = st.selectbox("Vue Admin (EDT) :", sorted(df_edt['Enseignants'].unique()))
+        st.divider()
+        st.warning("🚨 ZONE DANGEREUSE")
+        if st.button("Vider les Archives"):
+            st.session_state["confirm_reset"] = True
+        
+        if st.session_state.get("confirm_reset"):
+            confirm_p = st.text_input("Confirmez avec votre code unique :", type="password")
+            if st.button("OUI, TOUT SUPPRIMER"):
+                if hash_pw(confirm_p) == user['password_hash']:
+                    supabase.table("archives_absences").delete().neq("id", 0).execute()
+                    st.success("Base de données vidée.")
+                    st.session_state["confirm_reset"] = False
+                    st.rerun()
+                else: st.error("Code incorrect.")
     else: 
         enseignant_vue = user['nom_officiel']
 
@@ -185,14 +193,17 @@ with tab_saisie:
     sg_sel = st.selectbox("🔢 Sous-groupe :", sorted(df_p_full[df_p_full['Groupe']==g_sel]['Sous groupe'].unique()) if not df_p_full.empty else ["SG1"])
 
     df_appel = df_p_full[(df_p_full['Groupe']==g_sel) & (df_p_full['Sous groupe']==sg_sel)].copy()
-    df_appel['Full'] = (df_appel['Nom'] + " " + df_appel['Prénom']).str.upper().strip()
     
+    # Correction AttributeError : utilisation de .str.strip() après l'accesseur .str
+    df_appel['Full_Display'] = (df_appel['Nom'].fillna('') + " " + df_appel['Prénom'].fillna('')).str.upper().str.strip()
+    liste_etudiants = df_appel['Full_Display'].tolist()
+
     col_abs, col_note = st.columns(2)
     with col_abs:
         abs_coll = st.checkbox("🚩 SIGNALER ABSENCE COLLECTIVE")
-        absents_sel = df_appel['Full'].tolist() if abs_coll else st.multiselect("❌ Absents :", options=df_appel['Full'].tolist())
+        absents_sel = liste_etudiants if abs_coll else st.multiselect("❌ Absents :", options=liste_etudiants)
     with col_note:
-        et_a_noter = st.selectbox("📝 Noter un étudiant :", ["Aucun"] + df_appel['Full'].tolist())
+        et_a_noter = st.selectbox("📝 Noter un étudiant :", ["Aucun"] + liste_etudiants)
         val_note = st.text_input("Valeur (ex: +1 ou Note) :", "0")
 
     obs_txt = st.text_area("🗒️ Observations :")
@@ -200,44 +211,34 @@ with tab_saisie:
 
     if st.button("🚀 VALIDER LE RAPPORT", use_container_width=True, type="primary"):
         if hash_pw(code_v) == user['password_hash']:
-            # Préparation des données avec Statut et Grade
             meta = {
-                "promotion": p_sel, 
-                "matiere": m_sel, 
+                "promotion": p_sel, "matiere": m_sel, 
                 "enseignant": f"{current_grade} {user['nom_officiel']}", 
                 "statut_enseignant": current_statut,
-                "date_seance": str(date_s),
-                "regime_heure": reg_s,
-                "categorie_seance": cat_s,
-                "observations": obs_txt
+                "date_seance": str(date_s), "regime_heure": reg_s,
+                "categorie_seance": cat_s, "observations": obs_txt
             }
-            
             for ab in absents_sel:
-                r = meta.copy()
-                r.update({"etudiant_nom": ab, "note_evaluation": "ABSENCE"})
+                r = meta.copy(); r.update({"etudiant_nom": ab, "note_evaluation": "ABSENCE"})
                 supabase.table("archives_absences").insert(r).execute()
-            
             if et_a_noter != "Aucun":
-                rn = meta.copy()
-                rn.update({"etudiant_nom": et_a_noter, "note_evaluation": val_note})
+                rn = meta.copy(); rn.update({"etudiant_nom": et_a_noter, "note_evaluation": val_note})
                 supabase.table("archives_absences").insert(rn).execute()
-                
-            send_mail([EMAIL_CHEF_DEPT, user['email']], f"Rapport {m_sel}", f"Séance validée par {user['nom_officiel']} ({current_statut})")
-            st.success("✅ Séance archivée avec succès.")
+            st.success("✅ Rapport envoyé au département.")
             st.balloons()
         else: st.error("Code incorrect.")
 
 with tab_suivi:
-    df_etudiants['Search_Full'] = (df_etudiants['Nom'] + " " + df_etudiants['Prénom']).str.upper().strip()
-    et_search = st.selectbox("🎯 Rechercher un étudiant :", ["-- Sélectionner --"] + sorted(df_etudiants['Search_Full'].unique()))
+    df_etudiants['Search_Name'] = (df_etudiants['Nom'].fillna('') + " " + df_etudiants['Prénom'].fillna('')).str.upper().str.strip()
+    et_search = st.selectbox("🎯 Rechercher un étudiant :", ["-- Sélectionner --"] + sorted(df_etudiants['Search_Name'].unique()))
     if et_search != "-- Sélectionner --":
         res = supabase.table("archives_absences").select("*").eq("etudiant_nom", et_search).execute()
         if res.data:
             df_res = pd.DataFrame(res.data)
             st.table(df_res[['date_seance', 'matiere', 'enseignant', 'note_evaluation']])
             buf = io.BytesIO(); df_res.to_excel(buf, index=False)
-            st.download_button("📥 Télécharger Fiche Excel", buf.getvalue(), f"Suivi_{et_search}.xlsx")
-        else: st.info("Aucune donnée.")
+            st.download_button("📥 Télécharger Excel", buf.getvalue(), f"Suivi_{et_search}.xlsx")
+        else: st.info("Aucun historique trouvé.")
 
 with tab_hist:
     all_res = supabase.table("archives_absences").select("*").execute()
@@ -245,4 +246,4 @@ with tab_hist:
         df_glob = pd.DataFrame(all_res.data)
         st.dataframe(df_glob, use_container_width=True)
         buf_g = io.BytesIO(); df_glob.to_excel(buf_g, index=False)
-        st.download_button("📊 Exporter toute la base", buf_g.getvalue(), "Archives_Globales.xlsx")
+        st.download_button("📊 Exporter toute la base", buf_g.getvalue(), "Archives_Globales_2026.xlsx")
