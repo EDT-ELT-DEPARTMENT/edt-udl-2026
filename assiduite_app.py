@@ -160,6 +160,7 @@ if not st.session_state["user_data"]:
         
         if nom_st != "--":
             # --- CRUCIAL : Définition du profil pour éviter le NameError ---
+            # On cherche l'étudiant sélectionné dans le dataframe
             profil = df_etudiants[df_etudiants['Full_N'] == nom_st].iloc[0]
             
             # Affichage des infos de base
@@ -198,39 +199,50 @@ if not st.session_state["user_data"]:
             
             if not edt_st.empty:
                 # Pivot pour calendrier
-                grid = edt_st.pivot_table(index='Horaire', columns='Jours', values='Enseignements', aggfunc=lambda x: ' / '.join(x)).fillna("")
-                jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-                grid = grid.reindex(columns=[j for j in jours_ordre if j in grid.columns])
-                
-                # Affichage stylisé (Assurez-vous que la fonction color_edt est définie plus haut)
-                st.dataframe(grid.style.applymap(color_edt), use_container_width=True, height=400)
+                try:
+                    grid = edt_st.pivot_table(index='Horaire', columns='Jours', values='Enseignements', aggfunc=lambda x: ' / '.join(x)).fillna("")
+                    jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+                    grid = grid.reindex(columns=[j for j in jours_ordre if j in grid.columns])
+                    
+                    # Vérification si la fonction color_edt existe, sinon affichage simple
+                    if 'color_edt' in globals():
+                        st.dataframe(grid.style.applymap(color_edt), use_container_width=True, height=400)
+                    else:
+                        st.dataframe(grid, use_container_width=True, height=400)
+                except:
+                    # En cas de problème de pivot, affichage de la liste brute
+                    st.dataframe(edt_st[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']], use_container_width=True)
             else:
                 st.warning("Aucun emploi du temps trouvé pour vos critères.")
 
             # --- SYNTHÈSE DES ABSENCES ---
             st.markdown("#### ❌ Suivi des Absences par Matière")
-            res_abs = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_st).execute()
-            
-            if res_abs.data:
-                df_abs_raw = pd.DataFrame(res_abs.data)
-                # Filtrer uniquement les types absences ou exclusions
-                df_abs_filtré = df_abs_raw[df_abs_raw['note_evaluation'].str.contains("Absence|Exclusion", case=False, na=False)]
+            try:
+                res_abs = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_st).execute()
                 
-                if not df_abs_filtré.empty:
-                    # Regroupement par matière pour la synthèse
-                    synthèse = df_abs_filtré.groupby(['matiere', 'enseignant']).agg({
-                        'date_seance': lambda x: ', '.join(sorted(list(set(x)))),
-                        'note_evaluation': 'count'
-                    }).reset_index()
+                if res_abs.data:
+                    df_abs_raw = pd.DataFrame(res_abs.data)
+                    # Filtrer uniquement les types absences ou exclusions
+                    df_abs_filtré = df_abs_raw[df_abs_raw['note_evaluation'].str.contains("Absence|Exclusion", case=False, na=False)]
                     
-                    synthèse.columns = ['Matière', 'Enseignant', 'Dates des Absences', 'Total Absences']
-                    st.table(synthèse)
+                    if not df_abs_filtré.empty:
+                        # Regroupement par matière pour la synthèse
+                        synthèse = df_abs_filtré.groupby(['matiere', 'enseignant']).agg({
+                            'date_seance': lambda x: ', '.join(sorted(list(set(x)))),
+                            'note_evaluation': 'count'
+                        }).reset_index()
+                        
+                        synthèse.columns = ['Matière', 'Enseignant', 'Dates des Absences', 'Total Absences']
+                        st.table(synthèse)
+                    else:
+                        st.success("✅ Félicitations ! Aucune absence enregistrée.")
                 else:
-                    st.success("✅ Félicitations ! Aucune absence enregistrée.")
-            else:
-                st.info("ℹ️ Aucune donnée d'absence enregistrée dans la base.")
+                    st.info("ℹ️ Aucune donnée d'absence enregistrée dans la base.")
+            except Exception as e:
+                st.error(f"Erreur lors de la récupération des absences : {e}")
                 
-    st.stop() # Empêche le reste du code de s'exécuter si on est sur l'accueil
+    # --- FIN DU BLOC AUTH ---
+    st.stop()
 
 # --- 5. ESPACE ENSEIGNANT ---
 user = st.session_state["user_data"]
@@ -395,6 +407,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
