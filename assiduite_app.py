@@ -128,30 +128,30 @@ if not st.session_state["user_data"]:
         reg_p = st.text_input("Créer votre Code Unique :", type="password", help="Ce code servira à vous connecter et à valider vos rapports.")
         
         if st.button("Valider l'inscription", use_container_width=True):
-            try:
-                # Préparation des données pour une correspondance stricte
-                data_to_insert = {
-                    "email": reg_e.strip(),
-                    "password_hash": hash_pw(reg_p),
-                    "nom_officiel": str(inf['NOM']).strip().upper(),
-                    "prenom_officiel": str(inf['PRÉNOM']).strip().upper(),
-                    "statut_enseignant": str(inf['Qualité']).strip(),
-                    "grade_enseignant": str(inf['Grade']).strip()
-                }
-                
-                # Insertion dans Supabase
-                supabase.table("enseignants_auth").insert(data_to_insert).execute()
-                
-                st.success(f"✅ Compte créé avec succès pour {inf['NOM']} {inf['PRÉNOM']} !")
-                st.balloons()
-                st.info("Vous pouvez maintenant passer à l'onglet 'Connexion'.")
-            except Exception as e:
-                st.error(f"Erreur lors de l'inscription : {e}")
-
-    with t_student:
-        nom_st = st.selectbox("Sélectionner votre nom (Étudiant) :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
-        if nom_st != "--":
-            profil = df_etudiants[df_etudiants['Full_N'] == nom_st].iloc[0]
+            if reg_e and reg_p:
+                try:
+                    # Préparation des données avec séparation Nom/Prénom
+                    # On utilise directement les colonnes du fichier staff 'inf'
+                    data_to_insert = {
+                        "email": reg_e.strip(),
+                        "password_hash": hash_pw(reg_p),
+                        "nom_officiel": str(inf['NOM']).strip().upper(),
+                        "prenom_officiel": str(inf['PRÉNOM']).strip().upper(),
+                        "statut_enseignant": str(inf['Qualité']).strip(),
+                        "grade_enseignant": str(inf['Grade']).strip(),
+                        "role": "enseignant" # Ajout du rôle par défaut
+                    }
+                    
+                    # Insertion dans Supabase
+                    supabase.table("enseignants_auth").insert(data_to_insert).execute()
+                    
+                    st.success(f"✅ Compte créé avec succès pour {inf['NOM']} {inf['PRÉNOM']} !")
+                    st.balloons()
+                    st.info("💡 Vous pouvez maintenant passer à l'onglet '🔐 Connexion'.")
+                except Exception as e:
+                    st.error(f"Erreur lors de l'inscription : {e}")
+            else:
+                st.warning("⚠️ Veuillez remplir tous les champs (Email et Code Unique).")
             
             # --- HEADER ÉTUDIANT ---
             st.markdown(f"### 👤 Dossier Étudiant : {nom_st}")
@@ -369,6 +369,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
