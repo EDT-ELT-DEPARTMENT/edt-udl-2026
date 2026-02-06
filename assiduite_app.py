@@ -64,6 +64,7 @@ def load_data():
         df_s = pd.read_excel(FICHIER_ETUDIANTS)
         df_staff = pd.read_excel(FICHIER_STAFF)
         
+        # Nettoyage des colonnes et des espaces
         for df in [df_e, df_s, df_staff]:
             df.columns = [str(c).strip() for c in df.columns]
             for col in df.select_dtypes(include=['object']):
@@ -71,9 +72,16 @@ def load_data():
         
         # --- LOGIQUE DE CORRESPONDANCE NOM/PRÉNOM ---
         if 'NOM' in df_staff.columns and 'PRÉNOM' in df_staff.columns:
-            df_staff['Full_S'] = (df_staff['NOM'] + " " + df_staff['PRÉNOM']).str.upper()
+            # 1. Création du nom complet dans le staff
+            df_staff['Full_S'] = (df_staff['NOM'].astype(str) + " " + df_staff['PRÉNOM'].astype(str)).str.upper().str.strip()
             
-          # On met à jour la colonne 'Enseignants' du fichier EDT pour inclure le prénom
+            # 2. Création du dictionnaire de correspondance (Mapping)
+            mapping_noms = {
+                str(row['NOM']).strip().upper(): row['Full_S'] 
+                for _, row in df_staff.iterrows()
+            }
+            
+            # 3. Mise à jour de la colonne 'Enseignants' dans l'EDT
             if 'Enseignants' in df_e.columns:
                 df_e['Enseignants'] = df_e['Enseignants'].str.upper().map(mapping_noms).fillna(df_e['Enseignants'])
         
@@ -81,10 +89,10 @@ def load_data():
     except Exception as e:
         st.error(f"Erreur de lecture Excel : {e}"); st.stop()
 
-# --- L'APPEL CRUCIAL DES DONNÉES ---
+# --- L'APPEL DES DONNÉES (Indispensable pour définir df_etudiants) ---
 df_edt, df_etudiants, df_staff = load_data()
 
-# --- CRÉATION DES COLONNES COMBINÉES ---
+# --- CRÉATION DES COLONNES ÉTUDIANT (Après l'appel) ---
 if 'Nom' in df_etudiants.columns and 'Prénom' in df_etudiants.columns:
     df_etudiants['Full_N'] = (df_etudiants['Nom'].astype(str) + " " + df_etudiants['Prénom'].astype(str)).str.upper().str.strip()
 
@@ -346,6 +354,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
