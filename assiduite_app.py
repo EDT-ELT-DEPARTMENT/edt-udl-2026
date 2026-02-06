@@ -155,37 +155,54 @@ if not st.session_state["user_data"]:
             else:
                 st.warning("Veuillez remplir tous les champs.")
 
-    with t_student:
-        # Code de l'espace étudiant (voir réponse précédente pour éviter le NameError)
+   with t_student:
         nom_st = st.selectbox("Sélectionner votre nom (Étudiant) :", ["--"] + sorted(df_etudiants['Full_N'].unique()))
+        
         if nom_st != "--":
-            # ... reste du code étudiant ...
-            pass
+            # --- CRUCIAL : Définition du profil pour éviter le NameError ---
+            profil = df_etudiants[df_etudiants['Full_N'] == nom_st].iloc[0]
             
+            # Affichage des infos de base
+            st.info(f"🎓 **Étudiant :** {nom_st} | **Promo :** {profil['Promotion']} | **Groupe :** {profil['Groupe']}")
+
             # --- EMPLOI DU TEMPS INDIVIDUEL ---
             st.markdown("#### 📅 Mon Emploi du Temps Hebdomadaire")
             
             def filter_st_edt(row):
-                if str(row['Promotion']).upper() != str(profil['Promotion']).upper(): return False
+                # On vérifie la promotion (L2, L3, M1...)
+                if str(row['Promotion']).upper() != str(profil['Promotion']).upper(): 
+                    return False
+                
                 ens, code = str(row['Enseignements']).upper(), str(row['Code']).upper()
+                
+                # 1. Si c'est un COURS, tout le monde le voit
                 if "COURS" in ens: return True
+                
+                # 2. Gestion des Groupes (TD)
                 num_g = re.findall(r'\d+', str(profil['Groupe']))[0] if re.findall(r'\d+', str(profil['Groupe'])) else ""
                 if "TD" in ens:
-                    if str(profil['Groupe']).upper() in code or (num_g == "1" and "-A" in code) or (num_g == "2" and "-B" in code): return True
+                    if str(profil['Groupe']).upper() in code or (num_g == "1" and "-A" in code) or (num_g == "2" and "-B" in code): 
+                        return True
+                
+                # 3. Gestion des Sous-groupes (TP)
                 num_sg = re.findall(r'\d+', str(profil['Sous groupe']))[0] if re.findall(r'\d+', str(profil['Sous groupe'])) else ""
                 if "TP" in ens:
                     suff = "A" if num_sg == "1" else "B" if num_sg == "2" else "C" if num_sg == "3" else ""
-                    if suff and f"-{suff}" in code: return True
+                    if suff and f"-{suff}" in code: 
+                        return True
+                
                 return False
 
+            # Application du filtre
             edt_st = df_edt[df_edt.apply(filter_st_edt, axis=1)].copy()
+            
             if not edt_st.empty:
                 # Pivot pour calendrier
                 grid = edt_st.pivot_table(index='Horaire', columns='Jours', values='Enseignements', aggfunc=lambda x: ' / '.join(x)).fillna("")
                 jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
                 grid = grid.reindex(columns=[j for j in jours_ordre if j in grid.columns])
                 
-                # Affichage stylisé
+                # Affichage stylisé (Assurez-vous que la fonction color_edt est définie plus haut)
                 st.dataframe(grid.style.applymap(color_edt), use_container_width=True, height=400)
             else:
                 st.warning("Aucun emploi du temps trouvé pour vos critères.")
@@ -196,23 +213,24 @@ if not st.session_state["user_data"]:
             
             if res_abs.data:
                 df_abs_raw = pd.DataFrame(res_abs.data)
-                # Filtrer uniquement les types absences
+                # Filtrer uniquement les types absences ou exclusions
                 df_abs_filtré = df_abs_raw[df_abs_raw['note_evaluation'].str.contains("Absence|Exclusion", case=False, na=False)]
                 
                 if not df_abs_filtré.empty:
-                    # Regroupement pour compter par matière
+                    # Regroupement par matière pour la synthèse
                     synthèse = df_abs_filtré.groupby(['matiere', 'enseignant']).agg({
                         'date_seance': lambda x: ', '.join(sorted(list(set(x)))),
                         'note_evaluation': 'count'
                     }).reset_index()
                     
-                    synthèse.columns = ['Matière', 'Chargé de Cours / TD / TP', 'Dates des Absences', 'Total Absences']
+                    synthèse.columns = ['Matière', 'Enseignant', 'Dates des Absences', 'Total Absences']
                     st.table(synthèse)
                 else:
-                    st.success("Félicitations ! Aucune absence enregistrée.")
+                    st.success("✅ Félicitations ! Aucune absence enregistrée.")
             else:
-                st.info("Aucune donnée d'absence enregistrée dans la base.")
-    st.stop()
+                st.info("ℹ️ Aucune donnée d'absence enregistrée dans la base.")
+                
+    st.stop() # Empêche le reste du code de s'exécuter si on est sur l'accueil
 
 # --- 5. ESPACE ENSEIGNANT ---
 user = st.session_state["user_data"]
@@ -377,6 +395,7 @@ with t_admin:
         res = supabase.table("archives_absences").select("*").execute()
         if res.data: st.dataframe(pd.DataFrame(res.data), use_container_width=True)
     else: st.error("Accès restreint.")
+
 
 
 
