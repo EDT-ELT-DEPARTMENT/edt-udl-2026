@@ -181,10 +181,18 @@ with st.sidebar:
     st.divider()
     
     if is_admin:
-        # 1. Sélection de l'enseignant à simuler
-        ens_actif = st.selectbox("Vue Simulation (Admin) :", sorted(df_edt['Enseignants'].unique()), key="admin_sim_ens")
+        # 1. On initialise un compteur de reset dans le session_state s'il n'existe pas
+        if "reset_counter" not in st.session_state:
+            st.session_state.reset_counter = 0
+
+        # 2. La clé du selectbox change si le compteur change, ce qui force le reset
+        ens_actif = st.selectbox(
+            "Vue Simulation (Admin) :", 
+            sorted(df_edt['Enseignants'].unique()), 
+            key=f"admin_sim_ens_{st.session_state.reset_counter}"
+        )
         
-        # 2. Système de Reset avec Confirmation
+        # 3. Système de Reset avec Confirmation
         if 'confirm_reset' not in st.session_state:
             st.session_state.confirm_reset = False
 
@@ -197,9 +205,8 @@ with st.sidebar:
             c1, c2 = st.columns(2)
             with c1:
                 if st.button("✅ Oui", use_container_width=True):
-                    # On réinitialise la clé du selectbox pour revenir au premier nom
-                    if "admin_sim_ens" in st.session_state:
-                        st.session_state["admin_sim_ens"] = sorted(df_edt['Enseignants'].unique())[0]
+                    # AU LIEU DE MODIFIER LA VALEUR, ON CHANGE LA CLÉ DU WIDGET
+                    st.session_state.reset_counter += 1
                     st.session_state.confirm_reset = False
                     st.rerun()
             with c2:
@@ -209,13 +216,12 @@ with st.sidebar:
     else:
         ens_actif = user['nom_officiel']
 
-    st.markdown("---") # Séparateur visuel
+    st.markdown("---")
 
     if st.button("🚪 Déconnexion", use_container_width=True, key="btn_logout_sidebar"):
         st.session_state["user_data"] = None
         st.rerun()
 
-# --- Vos Onglets ---
 t_saisie, t_suivi, t_admin = st.tabs(["📝 Saisie Rapport", "🔍 Suivi Étudiant", "🛡️ Panneau Admin"])
 
 # --- ONGLET SAISIE ---
@@ -404,6 +410,7 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
 
 
 
