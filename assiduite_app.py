@@ -268,9 +268,22 @@ with t_saisie:
             st.success("✅ Archivage réussi et emails envoyés !"); st.balloons()
         else: st.error("Code de validation incorrect.")
 
-# --- ONGLET SUIVI ÉTUDIANT (DEUX TABLEAUX DISTINCTS) ---
+# --- ONGLET SUIVI ÉTUDIANT (VERSION AMÉLIORÉE 2026) ---
 with t_suivi:
     st.markdown("### 🔍 Dossier Pédagogique & Assiduité")
+    
+    # 1. Chargement de la source Excel pour enrichir les données (Chargé et Horaire)
+    @st.cache_data
+    def get_source_data():
+        try:
+            # On lit le fichier source
+            df_src = pd.read_excel("DATA-ASSUIDUITE-2026.xlsx")
+            # On ne garde que les colonnes utiles pour la jointure
+            return df_src[['Enseignements', 'Enseignants', 'Horaire']]
+        except:
+            return None
+
+    df_info_suivi = get_source_data()
     
     nom_cherche = st.selectbox(
         "Rechercher un étudiant :", 
@@ -279,65 +292,76 @@ with t_suivi:
     )
     
     if nom_cherche != "--":
-        # 1. Récupération des données depuis Supabase
+        # 2. Récupération des données depuis Supabase
         res = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_cherche).execute()
         
         if res.data:
             df_res = pd.DataFrame(res.data)
             
-            # --- CALCULS GLOBAUX POUR LES MÉTRIQUES ---
+            # --- JOINTURE AVEC LE FICHIER SOURCE ---
+            # On lie Supabase (matiere) avec Excel (Enseignements)
+            if df_info_suivi is not None:
+                df_res = df_res.merge(
+                    df_info_suivi, 
+                    left_on='matiere', 
+                    right_on='Enseignements', 
+                    how='left'
+                )
+
+            # --- CALCULS ---
             abs_total = len(df_res[df_res['note_evaluation'].str.contains("Absence", na=False)])
             eval_total = len(df_res[df_res['note_evaluation'].str.contains(":", na=False)])
             
             st.markdown(f"#### 📊 Résumé pour : **{nom_cherche}**")
             m1, m2 = st.columns(2)
-            m1.metric("Absences Cumulées (Toutes matières)", abs_total, delta=f"{abs_total} incidents", delta_color="inverse")
-            m2.metric("Total Évaluations (Tests/Interros)", eval_total)
+            m1.metric("Absences Cumulées", abs_total, delta=f"{abs_total} incidents", delta_color="inverse")
+            m2.metric("Total Évaluations", eval_total)
             
             st.divider()
 
-            # --- PRÉPARATION DES DONNÉES COMMUNES ---
-            # On crée une colonne combinée G/SG comme demandé
+            # Préparation des données
             df_res['G/SG'] = df_res['groupe'].astype(str) + " / " + df_res['sous_groupe'].astype(str)
-            
-            # Colonnes de base communes
-            cols_base = ['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'horaire', 'date_seance']
 
-            # --- TABLEAU 1 : ASSIDUITÉ (Absences) ---
+            # --- TABLEAU 1 : ASSIDUITÉ ---
             st.markdown("#### ❌ 1. État de l'Assiduité (Absences)")
             df_assiduite = df_res[df_res['note_evaluation'].str.contains("Absence", na=False)].copy()
             
             if not df_assiduite.empty:
-                df_ass_view = df_assiduite[cols_base + ['note_evaluation', 'observations']]
-                df_ass_view.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Horaire', 'Date', 'Type d\'Absence', 'Observations']
+                # On utilise Enseignants et Horaire issus de la jointure Excel
+                cols_ass = ['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'Enseignants', 'Horaire', 'date_seance', 'note_evaluation']
+                df_ass_view = df_assiduite[cols_ass].copy()
+                df_ass_view.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Chargé', 'Horaire', 'Date', 'Type']
                 
-                st.dataframe(
-                    df_ass_view.sort_values(by="Date", ascending=False).style.applymap(
-                        lambda x: "background-color: #f8d7da; color: #721c24; font-weight: bold;", subset=["Type d'Absence"]
-                    ),
-                    use_container_width=True
-                )
+                st.dataframe(df_ass_view.sort_values(by="Date", ascending=False), use_container_width=True)
             else:
-                st.success("✅ Aucune absence enregistrée pour cet étudiant.")
+                st.success("✅ Aucune absence enregistrée.")
 
             st.markdown("---")
 
-            # --- TABLEAU 2 : ÉVALUATIONS (Notes/Critères) ---
+            # --- TABLEAU 2 : ÉVALUATIONS (AVEC AJOUT CHARGÉ ET HORAIRE) ---
             st.markdown("#### 📝 2. Résultats des Évaluations (Critères)")
             df_evals = df_res[df_res['note_evaluation'].str.contains(":", na=False)].copy()
             
             if not df_evals.empty:
-                df_eval_view = df_evals[cols_base + ['note_evaluation', 'observations']]
-                df_eval_view.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Horaire', 'Date', 'Critère (Note)', 'Observations']
+                # Colonnes demandées : Chargé de matière (Enseignants) et Horaire inclus
+                cols_eval = ['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'Enseignants', 'Horaire', 'date_seance', 'note_evaluation', 'observations']
+                df_eval_view = df_evals[cols_eval].copy()
+                
+                df_eval_view.columns = [
+                    'Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 
+                    'Chargé de Matière', 'Horaire de Séance', 'Date', 
+                    'Critère (Note)', 'Observations'
+                ]
                 
                 st.dataframe(
                     df_eval_view.sort_values(by="Date", ascending=False).style.applymap(
-                        lambda x: "background-color: #d1e7dd; color: #0f5132; font-weight: bold;", subset=["Critère (Note)"]
+                        lambda x: "background-color: #d1e7dd; color: #0f5132; font-weight: bold;", 
+                        subset=["Critère (Note)"]
                     ),
                     use_container_width=True
                 )
             else:
-                st.info("ℹ️ Aucune évaluation (Test/Participation) enregistrée pour le moment.")
+                st.info("ℹ️ Aucune évaluation enregistrée.")
 
             # --- EXPORTATION ---
             st.divider()
@@ -354,7 +378,7 @@ with t_suivi:
             )
             
         else:
-            st.warning(f"Aucune donnée trouvée dans la base pour {nom_cherche}.")
+            st.warning(f"Aucune donnée trouvée pour {nom_cherche}.")
 
 # --- ONGLET ADMIN ---
 with t_admin:
@@ -367,6 +391,7 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
 
 
 
