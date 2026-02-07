@@ -15,7 +15,7 @@ from supabase import create_client
 # --- 1. CONFIGURATION ET TITRE OFFICIEL ---
 st.set_page_config(page_title="Plateforme EDT UDL", layout="wide")
 
-TITRE_PLATEFORME = "Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
+TITRE_PLATEFORME = "Plateforme de gestion des enseignements et assuiduité des étudiants 2025-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA"
 
 # Fichiers sources
 FICHIER_EDT = "dataEDT-ELT-S2-2026.xlsx"
@@ -288,3 +288,4 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
