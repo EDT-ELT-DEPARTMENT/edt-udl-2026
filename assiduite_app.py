@@ -181,13 +181,41 @@ with st.sidebar:
     st.divider()
     
     if is_admin:
+        # 1. Sélection de l'enseignant à simuler
         ens_actif = st.selectbox("Vue Simulation (Admin) :", sorted(df_edt['Enseignants'].unique()), key="admin_sim_ens")
+        
+        # 2. Système de Reset avec Confirmation
+        if 'confirm_reset' not in st.session_state:
+            st.session_state.confirm_reset = False
+
+        if not st.session_state.confirm_reset:
+            if st.button("♻️ Réinitialiser Simulation", use_container_width=True):
+                st.session_state.confirm_reset = True
+                st.rerun()
+        else:
+            st.warning("Confirmer le reset ?")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("✅ Oui", use_container_width=True):
+                    # On réinitialise la clé du selectbox pour revenir au premier nom
+                    if "admin_sim_ens" in st.session_state:
+                        st.session_state["admin_sim_ens"] = sorted(df_edt['Enseignants'].unique())[0]
+                    st.session_state.confirm_reset = False
+                    st.rerun()
+            with c2:
+                if st.button("❌ Non", use_container_width=True):
+                    st.session_state.confirm_reset = False
+                    st.rerun()
     else:
         ens_actif = user['nom_officiel']
 
-    if st.button("🚪 Déconnexion", use_container_width=True, key="btn_logout_sidebar"):
-        st.session_state["user_data"] = None; st.rerun()
+    st.markdown("---") # Séparateur visuel
 
+    if st.button("🚪 Déconnexion", use_container_width=True, key="btn_logout_sidebar"):
+        st.session_state["user_data"] = None
+        st.rerun()
+
+# --- Vos Onglets ---
 t_saisie, t_suivi, t_admin = st.tabs(["📝 Saisie Rapport", "🔍 Suivi Étudiant", "🛡️ Panneau Admin"])
 
 # --- ONGLET SAISIE ---
@@ -376,6 +404,7 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
 
 
 
