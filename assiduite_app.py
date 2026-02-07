@@ -268,14 +268,14 @@ with t_saisie:
             st.success("✅ Archivage réussi et emails envoyés !"); st.balloons()
         else: st.error("Code de validation incorrect.")
 
-# --- ONGLET SUIVI ÉTUDIANT (VERSION MISE À JOUR) ---
+# --- ONGLET SUIVI ÉTUDIANT (DEUX TABLEAUX DISTINCTS) ---
 with t_suivi:
     st.markdown("### 🔍 Dossier Pédagogique & Assiduité")
     
     nom_cherche = st.selectbox(
         "Rechercher un étudiant :", 
         ["--"] + sorted(df_etudiants['Full_N'].unique()), 
-        key="suivi_final_search"
+        key="suivi_double_table_search"
     )
     
     if nom_cherche != "--":
@@ -284,74 +284,77 @@ with t_suivi:
         
         if res.data:
             df_res = pd.DataFrame(res.data)
-
-            # --- CALCULS GLOBAUX (TOUTES MATIÈRES) ---
-            # On compte toutes les entrées marquées comme absence (non justifiée ou collective)
-            abs_injustifiees = len(df_res[df_res['note_evaluation'] == "Absence non justifiée"])
-            abs_collectives = len(df_res[df_res['note_evaluation'] == "Absence Collective"])
-            total_abs_cumulees = abs_injustifiees + abs_collectives
             
-            # 2. AFFICHAGE DES MÉTRIQUES EN HAUT
-            st.markdown(f"#### 📊 Résumé Global : **{nom_cherche}**")
-            m1, m2, m3 = st.columns(3)
+            # --- CALCULS GLOBAUX POUR LES MÉTRIQUES ---
+            abs_total = len(df_res[df_res['note_evaluation'].str.contains("Absence", na=False)])
+            eval_total = len(df_res[df_res['note_evaluation'].str.contains(":", na=False)])
             
-            m1.metric("Total Séances Archivées", len(df_res))
-            m2.metric("Absences Cumulées (Toutes matières)", total_abs_cumulees, delta=f"{total_abs_cumulees} incidents", delta_color="inverse")
-            
-            # Calcul du nombre de matières où l'étudiant est apparu
-            nb_matieres = df_res['matiere'].nunique()
-            m3.metric("Matières Concernées", nb_matieres)
+            st.markdown(f"#### 📊 Résumé pour : **{nom_cherche}**")
+            m1, m2 = st.columns(2)
+            m1.metric("Absences Cumulées (Toutes matières)", abs_total, delta=f"{abs_total} incidents", delta_color="inverse")
+            m2.metric("Total Évaluations (Tests/Interros)", eval_total)
             
             st.divider()
 
-            # --- PRÉPARATION DU TABLEAU SELON TES COLONNES ---
-            # On sélectionne et on renomme exactement ce que tu as demandé
-            # id, created_at, etc. sont ignorés.
+            # --- PRÉPARATION DES DONNÉES COMMUNES ---
+            # On crée une colonne combinée G/SG comme demandé
+            df_res['G/SG'] = df_res['groupe'].astype(str) + " / " + df_res['sous_groupe'].astype(str)
             
-            cols_demandees = {
-                'date_seance': 'Date',
-                'promotion': 'Promotion',
-                'groupe': 'Groupe',
-                'sous_groupe': 'Sous-groupe',
-                'note_evaluation': "Type d'absence",
-                'observations': 'Observations'
-            }
+            # Colonnes de base communes
+            cols_base = ['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'horaire', 'date_seance']
 
-            # On vérifie la présence des colonnes pour éviter les erreurs
-            available_cols = [c for c in cols_demandees.keys() if c in df_res.columns]
-            df_tableau = df_res[available_cols].copy()
-            df_tableau = df_tableau.rename(columns=cols_demandees)
+            # --- TABLEAU 1 : ASSIDUITÉ (Absences) ---
+            st.markdown("#### ❌ 1. État de l'Assiduité (Absences)")
+            df_assiduite = df_res[df_res['note_evaluation'].str.contains("Absence", na=False)].copy()
+            
+            if not df_assiduite.empty:
+                df_ass_view = df_assiduite[cols_base + ['note_evaluation', 'observations']]
+                df_ass_view.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Horaire', 'Date', 'Type d\'Absence', 'Observations']
+                
+                st.dataframe(
+                    df_ass_view.sort_values(by="Date", ascending=False).style.applymap(
+                        lambda x: "background-color: #f8d7da; color: #721c24; font-weight: bold;", subset=["Type d'Absence"]
+                    ),
+                    use_container_width=True
+                )
+            else:
+                st.success("✅ Aucune absence enregistrée pour cet étudiant.")
 
-            # --- LOGIQUE DE STYLE ---
-            def style_absences(val):
-                if "Absence" in str(val):
-                    return "background-color: #f8d7da; color: #721c24; font-weight: bold;"
-                if "Test" in str(val) or ":" in str(val):
-                    return "background-color: #d1e7dd; color: #0f5132;"
-                return ""
+            st.markdown("---")
 
-            # 3. AFFICHAGE DU TABLEAU
-            st.markdown("#### 📋 Détail des présences par séance")
-            st.dataframe(
-                df_tableau.sort_values(by="Date", ascending=False).style.applymap(
-                    style_absences, subset=["Type d'absence"]
-                ),
-                use_container_width=True
-            )
+            # --- TABLEAU 2 : ÉVALUATIONS (Notes/Critères) ---
+            st.markdown("#### 📝 2. Résultats des Évaluations (Critères)")
+            df_evals = df_res[df_res['note_evaluation'].str.contains(":", na=False)].copy()
+            
+            if not df_evals.empty:
+                df_eval_view = df_evals[cols_base + ['note_evaluation', 'observations']]
+                df_eval_view.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Horaire', 'Date', 'Critère (Note)', 'Observations']
+                
+                st.dataframe(
+                    df_eval_view.sort_values(by="Date", ascending=False).style.applymap(
+                        lambda x: "background-color: #d1e7dd; color: #0f5132; font-weight: bold;", subset=["Critère (Note)"]
+                    ),
+                    use_container_width=True
+                )
+            else:
+                st.info("ℹ️ Aucune évaluation (Test/Participation) enregistrée pour le moment.")
 
-            # 4. BOUTON D'EXPORTATION
+            # --- EXPORTATION ---
+            st.divider()
             buf = io.BytesIO()
-            df_tableau.to_excel(buf, index=False)
+            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                df_assiduite.to_excel(writer, sheet_name='Assiduité', index=False)
+                df_evals.to_excel(writer, sheet_name='Évaluations', index=False)
+            
             st.download_button(
-                label=f"📥 Exporter le relevé de {nom_cherche} (Excel)",
+                label="📥 Télécharger le dossier complet (Excel)",
                 data=buf.getvalue(),
-                file_name=f"Releve_Assiduite_{nom_cherche}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="btn_dl_final"
+                file_name=f"Dossier_EDT_{nom_cherche}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
             
         else:
-            st.success(f"✅ Aucun incident enregistré pour {nom_cherche}. L'étudiant est à jour.")
+            st.warning(f"Aucune donnée trouvée dans la base pour {nom_cherche}.")
 
 # --- ONGLET ADMIN ---
 with t_admin:
@@ -364,6 +367,7 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
 
 
 
