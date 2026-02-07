@@ -279,28 +279,52 @@ with t_saisie:
     
     if st.button("🚀 VALIDER LE RAPPORT ET ENVOYER EMAILS", use_container_width=True, type="primary", key="btn_validate_all"):
         if hash_pw(code_v) == user['password_hash']:
-            # 1. Archivage Absences
-            for name in absents_final:
+            
+            # --- SÉCURITÉ : ÉVITER ABSENT + ÉVALUÉ ---
+            # On crée une copie de la liste pour ne pas modifier l'affichage du multiselect
+            liste_absents_reelle = absents_final.copy()
+            
+            if etudiant_note != "Aucun" and etudiant_note in liste_absents_reelle:
+                liste_absents_reelle.remove(etudiant_note)
+                st.warning(f"🔄 **Note :** {etudiant_note} a été retiré de la liste des absences car il/elle a reçu une évaluation.")
+
+            # 1. Archivage Absences (via la liste corrigée)
+            for name in liste_absents_reelle:
                 supabase.table("archives_absences").insert({
-                    "promotion": p_sel, "matiere": m_sel, "enseignant": f"{grade_fix} {user['nom_officiel']}",
-                    "date_seance": str(date_s), "etudiant_nom": name, "note_evaluation": type_abs,
-                    "observations": f"{charge} | {type_seance}", "categorie_seance": charge
+                    "promotion": p_sel, 
+                    "matiere": m_sel, 
+                    "enseignant": f"{grade_fix} {user['nom_officiel']}",
+                    "date_seance": str(date_s), 
+                    "etudiant_nom": name, 
+                    "note_evaluation": type_abs,
+                    "observations": f"{charge} | {type_seance}", 
+                    "categorie_seance": charge,
+                    "groupe": g_sel,         # Important pour l'affichage Suivi
+                    "sous_groupe": sg_sel    # Important pour l'affichage Suivi
                 }).execute()
             
             # 2. Archivage Note
             if etudiant_note != "Aucun":
                 supabase.table("archives_absences").insert({
-                    "promotion": p_sel, "matiere": m_sel, "enseignant": f"{grade_fix} {user['nom_officiel']}",
-                    "date_seance": str(date_s), "etudiant_nom": etudiant_note, "note_evaluation": f"{critere}: {valeur}",
-                    "observations": obs, "categorie_seance": charge
+                    "promotion": p_sel, 
+                    "matiere": m_sel, 
+                    "enseignant": f"{grade_fix} {user['nom_officiel']}",
+                    "date_seance": str(date_s), 
+                    "etudiant_nom": etudiant_note, 
+                    "note_evaluation": f"{critere}: {valeur}",
+                    "observations": obs, 
+                    "categorie_seance": charge,
+                    "groupe": g_sel,
+                    "sous_groupe": sg_sel
                 }).execute()
             
-            # 3. Envoi Emails
-            corps_mail = f"Nouveau Rapport : {user['nom_officiel']} | {p_sel} | {m_sel}\nDate: {date_s}\nAbsents: {len(absents_final)}\nNote: {etudiant_note} ({valeur})\nObs: {obs}"
+            # 3. Envoi Emails (avec le compte d'absents réel)
+            corps_mail = f"Nouveau Rapport : {user['nom_officiel']} | {p_sel} | {m_sel}\nDate: {date_s}\nAbsents: {len(liste_absents_reelle)}\nNote: {etudiant_note} ({valeur})\nObs: {obs}"
             send_email_rapport([EMAIL_CHEF_DEPT, EMAIL_ADJOINT], f"Rapport UDL - {m_sel}", corps_mail)
             
             st.success("✅ Archivage réussi et emails envoyés !"); st.balloons()
-        else: st.error("Code de validation incorrect.")
+        else: 
+            st.error("Code de validation incorrect.")
 
 # --- ONGLET SUIVI ÉTUDIANT (VERSION PRATIQUE AVEC EXPORT GLOBAL) ---
 with t_suivi:
@@ -457,6 +481,7 @@ with t_admin:
             
     else:
         st.warning("Espace réservé à l'administration.")
+
 
 
 
