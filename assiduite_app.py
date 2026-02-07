@@ -268,117 +268,87 @@ with t_saisie:
             st.success("✅ Archivage réussi et emails envoyés !"); st.balloons()
         else: st.error("Code de validation incorrect.")
 
-# --- ONGLET SUIVI ÉTUDIANT (VERSION AMÉLIORÉE 2026) ---
+# --- ONGLET SUIVI ÉTUDIANT (DEUX SECTIONS DISTINCTES) ---
 with t_suivi:
     st.markdown("### 🔍 Dossier Pédagogique & Assiduité")
     
-    # 1. Chargement de la source Excel pour enrichir les données (Chargé et Horaire)
+    # Chargement de la source Excel pour enrichir les données
     @st.cache_data
     def get_source_data():
         try:
-            # On lit le fichier source
             df_src = pd.read_excel("DATA-ASSUIDUITE-2026.xlsx")
-            # On ne garde que les colonnes utiles pour la jointure
             return df_src[['Enseignements', 'Enseignants', 'Horaire']]
         except:
             return None
 
     df_info_suivi = get_source_data()
-    
-    nom_cherche = st.selectbox(
-        "Rechercher un étudiant :", 
-        ["--"] + sorted(df_etudiants['Full_N'].unique()), 
-        key="suivi_double_table_search"
+
+    # --- RÉCUPÉRATION DES NOMS AYANT DÉJÀ DES ENREGISTREMENTS ---
+    # On récupère tous les noms présents dans la table archives_absences
+    res_noms = supabase.table("archives_absences").select("etudiant_nom").execute()
+    liste_noms_existants = sorted(list(set([r['etudiant_nom'] for r in res_noms.data]))) if res_noms.data else []
+
+    # --- SECTION A : ASSIDUITÉ ---
+    st.subheader("❌ 1. État de l'Assiduité (Absences)")
+    nom_abs = st.selectbox(
+        "Sélectionner l'étudiant pour l'assiduité :",
+        ["--"] + liste_noms_existants,
+        key="search_abs"
     )
-    
-    if nom_cherche != "--":
-        # 2. Récupération des données depuis Supabase
-        res = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_cherche).execute()
-        
-        if res.data:
-            df_res = pd.DataFrame(res.data)
-            
-            # --- JOINTURE AVEC LE FICHIER SOURCE ---
-            # On lie Supabase (matiere) avec Excel (Enseignements)
-            if df_info_suivi is not None:
-                df_res = df_res.merge(
-                    df_info_suivi, 
-                    left_on='matiere', 
-                    right_on='Enseignements', 
-                    how='left'
-                )
 
-            # --- CALCULS ---
-            abs_total = len(df_res[df_res['note_evaluation'].str.contains("Absence", na=False)])
-            eval_total = len(df_res[df_res['note_evaluation'].str.contains(":", na=False)])
-            
-            st.markdown(f"#### 📊 Résumé pour : **{nom_cherche}**")
-            m1, m2 = st.columns(2)
-            m1.metric("Absences Cumulées", abs_total, delta=f"{abs_total} incidents", delta_color="inverse")
-            m2.metric("Total Évaluations", eval_total)
-            
-            st.divider()
-
-            # Préparation des données
-            df_res['G/SG'] = df_res['groupe'].astype(str) + " / " + df_res['sous_groupe'].astype(str)
-
-            # --- TABLEAU 1 : ASSIDUITÉ ---
-            st.markdown("#### ❌ 1. État de l'Assiduité (Absences)")
-            df_assiduite = df_res[df_res['note_evaluation'].str.contains("Absence", na=False)].copy()
+    if nom_abs != "--":
+        res_a = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_abs).execute()
+        if res_a.data:
+            df_a = pd.DataFrame(res_a.data)
+            df_assiduite = df_a[df_a['note_evaluation'].str.contains("Absence", na=False)].copy()
             
             if not df_assiduite.empty:
-                # On utilise Enseignants et Horaire issus de la jointure Excel
-                cols_ass = ['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'Enseignants', 'Horaire', 'date_seance', 'note_evaluation']
-                df_ass_view = df_assiduite[cols_ass].copy()
-                df_ass_view.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Chargé', 'Horaire', 'Date', 'Type']
+                # Merge avec Excel
+                if df_info_suivi is not None:
+                    df_assiduite = df_assiduite.merge(df_info_suivi, left_on='matiere', right_on='Enseignements', how='left')
                 
-                st.dataframe(df_ass_view.sort_values(by="Date", ascending=False), use_container_width=True)
+                df_assiduite['G/SG'] = df_assiduite['groupe'].astype(str) + " / " + df_assiduite['sous_groupe'].astype(str)
+                df_view_a = df_assiduite[['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'Enseignants', 'Horaire', 'date_seance', 'note_evaluation']]
+                df_view_a.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Chargé', 'Horaire', 'Date', 'Type']
+                
+                st.dataframe(df_view_a.sort_values(by="Date", ascending=False), use_container_width=True)
             else:
-                st.success("✅ Aucune absence enregistrée.")
+                st.success(f"✅ Aucune absence enregistrée pour {nom_abs}.")
 
-            st.markdown("---")
+    st.divider()
 
-            # --- TABLEAU 2 : ÉVALUATIONS (AVEC AJOUT CHARGÉ ET HORAIRE) ---
-            st.markdown("#### 📝 2. Résultats des Évaluations (Critères)")
-            df_evals = df_res[df_res['note_evaluation'].str.contains(":", na=False)].copy()
+    # --- SECTION B : ÉVALUATIONS ---
+    st.subheader("📝 2. Résultats des Évaluations (Critères)")
+    nom_eval = st.selectbox(
+        "Sélectionner l'étudiant pour les évaluations :",
+        ["--"] + liste_noms_existants,
+        key="search_eval"
+    )
+
+    if nom_eval != "--":
+        res_e = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_eval).execute()
+        if res_e.data:
+            df_e = pd.DataFrame(res_e.data)
+            df_evals = df_e[df_e['note_evaluation'].str.contains(":", na=False)].copy()
             
             if not df_evals.empty:
-                # Colonnes demandées : Chargé de matière (Enseignants) et Horaire inclus
-                cols_eval = ['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'Enseignants', 'Horaire', 'date_seance', 'note_evaluation', 'observations']
-                df_eval_view = df_evals[cols_eval].copy()
+                # Merge avec Excel
+                if df_info_suivi is not None:
+                    df_evals = df_evals.merge(df_info_suivi, left_on='matiere', right_on='Enseignements', how='left')
                 
-                df_eval_view.columns = [
-                    'Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 
-                    'Chargé de Matière', 'Horaire de Séance', 'Date', 
-                    'Critère (Note)', 'Observations'
-                ]
+                df_evals['G/SG'] = df_evals['groupe'].astype(str) + " / " + df_evals['sous_groupe'].astype(str)
+                df_view_e = df_evals[['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'Enseignants', 'Horaire', 'date_seance', 'note_evaluation', 'observations']]
+                df_view_e.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Chargé de Matière', 'Horaire', 'Date', 'Critère (Note)', 'Observations']
                 
                 st.dataframe(
-                    df_eval_view.sort_values(by="Date", ascending=False).style.applymap(
+                    df_view_e.sort_values(by="Date", ascending=False).style.applymap(
                         lambda x: "background-color: #d1e7dd; color: #0f5132; font-weight: bold;", 
                         subset=["Critère (Note)"]
                     ),
                     use_container_width=True
                 )
             else:
-                st.info("ℹ️ Aucune évaluation enregistrée.")
-
-            # --- EXPORTATION ---
-            st.divider()
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                df_assiduite.to_excel(writer, sheet_name='Assiduité', index=False)
-                df_evals.to_excel(writer, sheet_name='Évaluations', index=False)
-            
-            st.download_button(
-                label="📥 Télécharger le dossier complet (Excel)",
-                data=buf.getvalue(),
-                file_name=f"Dossier_EDT_{nom_cherche}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            
-        else:
-            st.warning(f"Aucune donnée trouvée pour {nom_cherche}.")
+                st.info(f"ℹ️ Aucune évaluation enregistrée pour {nom_eval}.")
 
 # --- ONGLET ADMIN ---
 with t_admin:
@@ -391,6 +361,7 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
 
 
 
