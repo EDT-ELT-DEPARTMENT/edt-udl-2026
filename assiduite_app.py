@@ -113,38 +113,84 @@ if not st.session_state["user_data"]:
                 st.rerun()
             else: st.error("Email ou code incorrect.")
 
+   # --- ONGLET : INSCRIPTION (VÉRIFICATION PAR EMAIL) ---
     with t_signup:
-        df_staff['Full_S'] = df_staff['NOM'] + " " + df_staff['PRÉNOM']
-        choix = st.selectbox("Sélectionnez votre nom :", sorted(df_staff['Full_S'].unique()), key="signup_name")
-        inf = df_staff[df_staff['Full_S'] == choix].iloc[0]
-        st.info(f"Profil : {inf['Grade']} | {inf['Qualité']}")
-        reg_e = st.text_input("Confirmer Email :", value=inf['Email'], key="signup_email")
-        reg_p = st.text_input("Créer Code Unique :", type="password", key="signup_p")
-        if st.button("Valider Inscription", key="btn_signup"):
-            supabase.table("enseignants_auth").insert({
-                "email": reg_e, "password_hash": hash_pw(reg_p),
-                "nom_officiel": inf['NOM'], "prenom_officiel": inf['PRÉNOM'],
-                "statut_enseignant": inf['Qualité'], "grade_enseignant": inf['Grade']
-            }).execute()
-            st.success("Compte créé !")
+        st.subheader("📝 Inscription Enseignant")
+        st.info("Entrez votre email professionnel pour recevoir votre code d'accès.")
+        
+        reg_e = st.text_input("Email Professionnel :", key="signup_email_field").strip().lower()
+        
+        if st.button("Vérifier et Envoyer mon Code", key="btn_signup_secure", use_container_width=True):
+            # Vérification dans le fichier Excel du personnel
+            staff_match = df_staff[df_staff['Email'].str.lower() == reg_e]
+            
+            if not staff_match.empty:
+                inf = staff_match.iloc[0]
+                # Génération d'un code secret de 6 chiffres
+                code_secret = ''.join(random.choices(string.digits, k=6))
+                
+                # Envoi du mail avec le titre officiel
+                sujet = "Activation Compte - Plateforme de gestion des EDTs-S2-2026"
+                corps_html = f"""
+                <div style="font-family: Arial; border: 1px solid #003366; padding: 20px; border-radius: 10px;">
+                    <h2 style="color: #003366;">Bienvenue, {inf['Grade']} {inf['NOM']}</h2>
+                    <p>Votre compte pour le Département d'Électrotechnique (UDL-SBA) a été pré-créé.</p>
+                    <p style="font-size: 20px; background: #f4f4f4; padding: 10px; text-align: center; border: 1px dashed #003366;">
+                        Votre code secret d'accès est : <b>{code_secret}</b>
+                    </p>
+                    <p style="color: red; font-size: 12px;">Note : Vous pourrez changer ce code dans votre profil après connexion.</p>
+                </div>
+                """
+                
+                if send_email_rapport([reg_e], sujet, corps_html):
+                    # Inscription ou Mise à jour dans Supabase
+                    check_exist = supabase.table("enseignants_auth").select("*").eq("email", reg_e).execute()
+                    
+                    data_user = {
+                        "email": reg_e, 
+                        "password_hash": hash_pw(code_secret),
+                        "nom_officiel": inf['NOM'], 
+                        "prenom_officiel": inf['PRÉNOM'],
+                        "statut_enseignant": inf['Qualité'], 
+                        "grade_enseignant": inf['Grade']
+                    }
+                    
+                    if check_exist.data:
+                        supabase.table("enseignants_auth").update(data_user).eq("email", reg_e).execute()
+                    else:
+                        supabase.table("enseignants_auth").insert(data_user).execute()
+                        
+                    st.success(f"✅ Code envoyé avec succès à {reg_e} !")
+                    st.balloons()
+                else:
+                    st.error("❌ Erreur d'envoi d'email. Contactez l'administrateur.")
+            else:
+                st.error("❌ Cet email n'est pas reconnu dans la base du Département d'Électrotechnique.")
 
+    # --- ONGLET : CODE OUBLIÉ ---
     with t_forgot:
-        f_email = st.text_input("Email d'inscription :", key="forgot_email_input")
-        if st.button("Récupérer mon code", key="btn_forgot"):
+        st.subheader("🔑 Récupération de compte")
+        f_email = st.text_input("Saisissez votre email :", key="forgot_email_input")
+        if st.button("Renvoyer un nouveau code", key="btn_forgot"):
             res = supabase.table("enseignants_auth").select("*").eq("email", f_email).execute()
             if res.data:
                 new_c = ''.join(random.choices(string.digits, k=6))
                 supabase.table("enseignants_auth").update({"password_hash": hash_pw(new_c)}).eq("email", f_email).execute()
-                send_email_rapport([f_email], "Votre nouveau code UDL", f"Votre code est : {new_c}")
-                st.success("Code envoyé par email.")
-            else: st.error("Email inconnu.")
+                send_email_rapport([f_email], "Réinitialisation Code - UDL SBA", f"Votre nouveau code est : {new_c}")
+                st.success("Un nouveau code a été envoyé dans votre boîte mail.")
+            else: 
+                st.error("Email non trouvé dans la base des inscrits.")
 
+    # --- ONGLET : ESPACE ÉTUDIANT (EMPlOI DU TEMPS & ABSENCES) ---
     with t_student:
-        nom_st = st.selectbox("Nom de l'étudiant :", ["--"] + sorted(df_etudiants['Full_N'].unique()), key="student_view_name")
+        st.subheader("🎓 Consultation Étudiant")
+        nom_st = st.selectbox("Sélectionnez votre Nom & Prénom :", ["--"] + sorted(df_etudiants['Full_N'].unique()), key="student_view_name")
+        
         if nom_st != "--":
             profil = df_etudiants[df_etudiants['Full_N'] == nom_st].iloc[0]
-            st.info(f"🎓 {profil['Promotion']} | Groupe {profil['Groupe']} | {profil['Sous groupe']}")
+            st.warning(f"📋 **{profil['Promotion']}** | Groupe: **{profil['Groupe']}** | Sous-Groupe: **{profil['Sous groupe']}**")
             
+            # Algorithme de filtrage de l'EDT dynamique
             def filter_st_edt(row):
                 if str(row['Promotion']).upper() != str(profil['Promotion']).upper(): return False
                 ens, code = str(row['Enseignements']).upper(), str(row['Code']).upper()
@@ -159,16 +205,25 @@ if not st.session_state["user_data"]:
                 return False
 
             edt_st = df_edt[df_edt.apply(filter_st_edt, axis=1)].copy()
+            
             if not edt_st.empty:
+                st.markdown("#### 📅 Votre Emploi du Temps Hebdomadaire")
                 grid = edt_st.pivot_table(index='Horaire', columns='Jours', values='Enseignements', aggfunc=lambda x: ' / '.join(x)).fillna("")
-                grid = grid.reindex(columns=["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"])
+                jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+                grid = grid.reindex(columns=[j for j in jours_ordre if j in grid.columns])
                 st.dataframe(grid.style.applymap(color_edt), use_container_width=True)
             
-            st.markdown("### ❌ Absences & Évaluations")
+            st.markdown("---")
+            st.markdown("#### ❌ Vos Absences & Notes de Participation")
             res_st = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_st).execute()
             if res_st.data:
-                st.table(pd.DataFrame(res_st.data)[['date_seance', 'matiere', 'note_evaluation']])
-    st.stop()
+                df_res_st = pd.DataFrame(res_st.data)[['date_seance', 'matiere', 'note_evaluation']]
+                df_res_st.columns = ["Date", "Matière", "Statut / Note"]
+                st.table(df_res_st)
+            else:
+                st.success("Excellent ! Aucune absence enregistrée pour vous.")
+                
+    st.stop() # Arrête l'exécution ici pour ne pas charger l'interface prof si non connecté
 
 # --- 5. ESPACE ENSEIGNANT CONNECTÉ ---
 user = st.session_state["user_data"]
@@ -567,6 +622,7 @@ with t_admin:
             st.info("La base de données est vide.")
     else:
         st.warning("⚠️ Accès restreint à l'administrateur de la plateforme.")
+
 
 
 
