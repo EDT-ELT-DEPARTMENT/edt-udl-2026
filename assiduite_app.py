@@ -268,14 +268,81 @@ with t_saisie:
             st.success("✅ Archivage réussi et emails envoyés !"); st.balloons()
         else: st.error("Code de validation incorrect.")
 
-# --- ONGLET SUIVI ---
+# --- ONGLET SUIVI ÉTUDIANT (Code Complet Développé) ---
 with t_suivi:
-    st.subheader("🔍 Suivi Étudiant")
-    search = st.selectbox("Rechercher un dossier :", ["--"] + sorted(df_etudiants['Full_N'].unique()), key="suivi_search_name")
-    if search != "--":
-        res = supabase.table("archives_absences").select("*").eq("etudiant_nom", search).execute()
+    st.markdown("### 🔍 Dossier Pédagogique & Assiduité")
+    
+    # 1. Moteur de recherche
+    search_col1, search_col2 = st.columns([2, 1])
+    with search_col1:
+        nom_cherche = st.selectbox(
+            "Rechercher un étudiant (Nom Prénom) :", 
+            ["--"] + sorted(df_etudiants['Full_N'].unique()), 
+            key="suivi_search_global"
+        )
+    
+    if nom_cherche != "--":
+        # Récupération des infos de base de l'étudiant
+        info_st = df_etudiants[df_etudiants['Full_N'] == nom_cherche].iloc[0]
+        
+        # 2. En-tête du profil
+        st.info(f"🎓 **Profil :** {info_st['Promotion']} | **Groupe :** {info_st['Groupe']} | **Sous-groupe :** {info_st['Sous groupe']}")
+        
+        # 3. Récupération des données depuis Supabase
+        res = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_cherche).execute()
+        
         if res.data:
-            st.dataframe(pd.DataFrame(res.data)[['date_seance', 'matiere', 'note_evaluation', 'enseignant']], use_container_width=True)
+            df_res = pd.DataFrame(res.data)
+            
+            # --- CALCUL DES STATISTIQUES ---
+            total_incidents = len(df_res)
+            abs_non_just = len(df_res[df_res['note_evaluation'] == "Absence non justifiée"])
+            abs_coll = len(df_res[df_res['note_evaluation'] == "Absence Collective"])
+            notes_eval = len(df_res[df_res['note_evaluation'].str.contains(':', na=False)])
+            
+            # Affichage des compteurs
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Séances", total_incidents)
+            c2.metric("Abs. Non Justifiées", abs_non_just, delta_color="inverse")
+            c3.metric("Abs. Collectives", abs_coll)
+            c4.metric("Évaluations/Notes", notes_eval)
+            
+            st.divider()
+            
+            # 4. Affichage du tableau détaillé
+            st.markdown("#### 📋 Historique des présences et notes")
+            # Nettoyage des colonnes pour l'affichage
+            df_display = df_res[['date_seance', 'matiere', 'note_evaluation', 'enseignant', 'observations']].copy()
+            df_display.columns = ['Date', 'Matière', 'Statut/Note', 'Enseignant', 'Détails']
+            
+            st.dataframe(df_display.sort_values(by='Date', ascending=False), use_container_width=True)
+            
+            # 5. Génération du QR Code de suivi pour l'étudiant
+            st.markdown("---")
+            col_qr_text, col_qr_img = st.columns([2, 1])
+            with col_qr_text:
+                st.markdown("#### 📱 QR Code de Suivi")
+                st.write("Ce code contient le résumé des absences pour consultation rapide par l'administration.")
+                summary_data = f"Etudiant: {nom_cherche}\nPromo: {info_st['Promotion']}\nAbsences: {abs_non_just + abs_coll}\nEvaluations: {notes_eval}"
+                
+            with col_qr_img:
+                qr_img = generate_qr(summary_data)
+                st.image(qr_img, caption=f"Suivi-QR-{nom_cherche[:5]}", width=150)
+                
+        else:
+            st.success(f"✅ Aucun incident ou absence enregistré pour **{nom_cherche}**. Excellent suivi !")
+            
+        # 6. Option d'exportation individuelle
+        if res.data:
+            buf_st = io.BytesIO()
+            df_res.to_excel(buf_st, index=False)
+            st.download_button(
+                label=f"📄 Télécharger le relevé de {nom_cherche}",
+                data=buf_st.getvalue(),
+                file_name=f"Releve_{nom_cherche}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_dl_st_unique"
+            )
 
 # --- ONGLET ADMIN ---
 with t_admin:
@@ -288,4 +355,5 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
 
