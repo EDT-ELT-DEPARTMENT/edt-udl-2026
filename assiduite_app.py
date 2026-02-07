@@ -113,73 +113,93 @@ if not st.session_state["user_data"]:
                 st.rerun()
             else: st.error("Email ou code incorrect.")
 
-   # --- ONGLET : INSCRIPTION (VÉRIFICATION PAR EMAIL) ---
+   # --- ONGLET : INSCRIPTION (ENSEIGNANTS & ÉTUDIANTS) ---
     with t_signup:
-        st.subheader("📝 Inscription Enseignant")
-        st.info("Entrez votre email professionnel pour recevoir votre code d'accès.")
+        st.subheader("📝 Création de compte")
+        role_reg = st.radio("Vous souhaitez inscrire un compte :", ["Enseignant", "Étudiant"], horizontal=True, key="role_reg_choice")
         
-        reg_e = st.text_input("Email Professionnel :", key="signup_email_field").strip().lower()
-        
-        if st.button("Vérifier et Envoyer mon Code", key="btn_signup_secure", use_container_width=True):
-            # Vérification dans le fichier Excel du personnel
-            staff_match = df_staff[df_staff['Email'].str.lower() == reg_e]
+        if role_reg == "Enseignant":
+            st.info("Vérification de l'email professionnel dans la base du personnel.")
+            reg_e = st.text_input("Email Professionnel :", key="signup_email_field").strip().lower()
             
-            if not staff_match.empty:
-                inf = staff_match.iloc[0]
-                # Génération d'un code secret de 6 chiffres
-                code_secret = ''.join(random.choices(string.digits, k=6))
+            if st.button("Vérifier et Envoyer mon Code (Enseignant)", key="btn_reg_prof", use_container_width=True):
+                staff_match = df_staff[df_staff['Email'].str.lower() == reg_e]
                 
-                # Envoi du mail avec le titre officiel
-                sujet = "Activation Compte - Plateforme de gestion des EDTs-S2-2026"
-                corps_html = f"""
-                <div style="font-family: Arial; border: 1px solid #003366; padding: 20px; border-radius: 10px;">
-                    <h2 style="color: #003366;">Bienvenue, {inf['Grade']} {inf['NOM']}</h2>
-                    <p>Votre compte pour le Département d'Électrotechnique (UDL-SBA) a été pré-créé.</p>
-                    <p style="font-size: 20px; background: #f4f4f4; padding: 10px; text-align: center; border: 1px dashed #003366;">
-                        Votre code secret d'accès est : <b>{code_secret}</b>
-                    </p>
-                    <p style="color: red; font-size: 12px;">Note : Vous pourrez changer ce code dans votre profil après connexion.</p>
-                </div>
-                """
-                
-                if send_email_rapport([reg_e], sujet, corps_html):
-                    # Inscription ou Mise à jour dans Supabase
-                    check_exist = supabase.table("enseignants_auth").select("*").eq("email", reg_e).execute()
-                    
-                    data_user = {
-                        "email": reg_e, 
-                        "password_hash": hash_pw(code_secret),
-                        "nom_officiel": inf['NOM'], 
-                        "prenom_officiel": inf['PRÉNOM'],
-                        "statut_enseignant": inf['Qualité'], 
-                        "grade_enseignant": inf['Grade']
-                    }
-                    
-                    if check_exist.data:
-                        supabase.table("enseignants_auth").update(data_user).eq("email", reg_e).execute()
+                if not staff_match.empty:
+                    inf = staff_match.iloc[0]
+                    code_secret = ''.join(random.choices(string.digits, k=6))
+                    sujet = "Activation Compte - Plateforme de gestion des EDTs-S2-2026"
+                    corps_html = f"""
+                    <div style="font-family: Arial; border: 1px solid #003366; padding: 20px; border-radius: 10px;">
+                        <h2 style="color: #003366;">Bienvenue, {inf['Grade']} {inf['NOM']}</h2>
+                        <p>Votre code secret d'accès enseignant est : <b>{code_secret}</b></p>
+                    </div>
+                    """
+                    if send_email_rapport([reg_e], sujet, corps_html):
+                        data_user = {
+                            "email": reg_e, "password_hash": hash_pw(code_secret),
+                            "nom_officiel": inf['NOM'], "prenom_officiel": inf['PRÉNOM'],
+                            "statut_enseignant": inf['Qualité'], "grade_enseignant": inf['Grade']
+                        }
+                        check_exist = supabase.table("enseignants_auth").select("*").eq("email", reg_e).execute()
+                        if check_exist.data:
+                            supabase.table("enseignants_auth").update(data_user).eq("email", reg_e).execute()
+                        else:
+                            supabase.table("enseignants_auth").insert(data_user).execute()
+                        st.success(f"✅ Code enseignant envoyé à {reg_e} !")
                     else:
-                        supabase.table("enseignants_auth").insert(data_user).execute()
-                        
-                    st.success(f"✅ Code envoyé avec succès à {reg_e} !")
-                    st.balloons()
+                        st.error("❌ Erreur d'envoi d'email.")
                 else:
-                    st.error("❌ Erreur d'envoi d'email. Contactez l'administrateur.")
-            else:
-                st.error("❌ Cet email n'est pas reconnu dans la base du Département d'Électrotechnique.")
+                    st.error("❌ Email non reconnu dans la base du personnel.")
 
-    # --- ONGLET : CODE OUBLIÉ ---
+        else: # SECTION ÉTUDIANT
+            st.info("Vérification de votre identité via la liste officielle des étudiants.")
+            reg_st_name = st.text_input("Nom & Prénom (Exactement comme sur l'EDT) :", key="st_reg_name").strip().upper()
+            reg_st_email = st.text_input("Email (pour réception du code) :", key="st_reg_email").strip().lower()
+            
+            if st.button("Vérifier et Envoyer mon Code (Étudiant)", key="btn_reg_stu", use_container_width=True):
+                # On vérifie si le nom existe dans votre fichier Excel étudiant
+                if reg_st_name in df_etudiants['Full_N'].values:
+                    code_st = ''.join(random.choices(string.digits, k=6))
+                    sujet_st = "Code d'accès Étudiant - UDL SBA"
+                    corps_st = f"<h3>Bonjour {reg_st_name}</h3><p>Votre code secret pour l'Espace Étudiant est : <b>{code_st}</b></p>"
+                    
+                    if send_email_rapport([reg_st_email], sujet_st, corps_st):
+                        data_st = {
+                            "email": reg_st_email,
+                            "full_name": reg_st_name,
+                            "password_hash": hash_pw(code_st)
+                        }
+                        # Mise à jour ou insertion dans la nouvelle table etudiants_auth
+                        check_st = supabase.table("etudiants_auth").select("*").eq("email", reg_st_email).execute()
+                        if check_st.data:
+                            supabase.table("etudiants_auth").update(data_st).eq("email", reg_st_email).execute()
+                        else:
+                            supabase.table("etudiants_auth").insert(data_st).execute()
+                        st.success(f"✅ Code étudiant envoyé à {reg_st_email} !")
+                    else:
+                        st.error("❌ Erreur lors de l'envoi de l'email.")
+                else:
+                    st.error("❌ Nom introuvable. Vérifiez l'orthographe exacte (MAJUSCULES).")
+
+    # --- ONGLET : CODE OUBLIÉ (UNIFIÉ) ---
     with t_forgot:
         st.subheader("🔑 Récupération de compte")
-        f_email = st.text_input("Saisissez votre email :", key="forgot_email_input")
-        if st.button("Renvoyer un nouveau code", key="btn_forgot"):
-            res = supabase.table("enseignants_auth").select("*").eq("email", f_email).execute()
+        role_f = st.radio("Type de compte à récupérer :", ["Enseignant", "Étudiant"], horizontal=True, key="role_forgot_choice")
+        f_email = st.text_input("Saisissez votre email d'inscription :", key="forgot_email_input")
+        
+        if st.button("Générer un nouveau code", key="btn_forgot_action"):
+            # Choix de la table selon le rôle
+            target_table = "enseignants_auth" if role_f == "Enseignant" else "etudiants_auth"
+            
+            res = supabase.table(target_table).select("*").eq("email", f_email).execute()
             if res.data:
                 new_c = ''.join(random.choices(string.digits, k=6))
-                supabase.table("enseignants_auth").update({"password_hash": hash_pw(new_c)}).eq("email", f_email).execute()
+                supabase.table(target_table).update({"password_hash": hash_pw(new_c)}).eq("email", f_email).execute()
                 send_email_rapport([f_email], "Réinitialisation Code - UDL SBA", f"Votre nouveau code est : {new_c}")
                 st.success("Un nouveau code a été envoyé dans votre boîte mail.")
             else: 
-                st.error("Email non trouvé dans la base des inscrits.")
+                st.error("Email non trouvé dans la base sélectionnée.")
 
     # --- ONGLET : ESPACE ÉTUDIANT (EMPLOI DU TEMPS & ABSENCES) ---
     with t_student:
@@ -679,6 +699,7 @@ with t_admin:
             st.info("La base de données est vide.")
     else:
         st.warning("⚠️ Accès restreint à l'administrateur de la plateforme.")
+
 
 
 
