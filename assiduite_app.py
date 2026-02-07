@@ -233,7 +233,13 @@ grade_fix = user.get('grade_enseignant', 'Enseignant')
 st.markdown(f"<h4 style='text-align:center; border-bottom: 2px solid #003366; padding-bottom: 10px;'>{TITRE_PLATEFORME}</h4>", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.markdown(f"### 👤 {user['nom_officiel']}")
+    # Récupération du prénom et du nom depuis les données utilisateur
+    prenom = user.get('prenom_officiel', '')
+    nom = user.get('nom_officiel', '')
+    
+    # Affichage complet : Prénom (1ère lettre Maj) et NOM (Tout en Maj)
+    st.markdown(f"### 👤 {prenom.capitalize()} {nom.upper()}")
+    
     st.markdown(f"**Grade :** {grade_fix}")
     st.markdown(f"**Statut :** {user.get('statut_enseignant', 'Permanent')}")
     st.divider()
@@ -640,6 +646,7 @@ with t_admin:
             st.info("La base de données est vide.")
     else:
         st.warning("⚠️ Accès restreint à l'administrateur de la plateforme.")
+
 
 
 
