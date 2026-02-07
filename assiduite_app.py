@@ -268,83 +268,90 @@ with t_saisie:
             st.success("✅ Archivage réussi et emails envoyés !"); st.balloons()
         else: st.error("Code de validation incorrect.")
 
-# --- ONGLET SUIVI ÉTUDIANT AMÉLIORÉ ---
+# --- ONGLET SUIVI ÉTUDIANT (VERSION MISE À JOUR) ---
 with t_suivi:
     st.markdown("### 🔍 Dossier Pédagogique & Assiduité")
     
     nom_cherche = st.selectbox(
         "Rechercher un étudiant :", 
         ["--"] + sorted(df_etudiants['Full_N'].unique()), 
-        key="suivi_search_pro"
+        key="suivi_final_search"
     )
     
     if nom_cherche != "--":
-        # 1. Récupération des données
+        # 1. Récupération des données depuis Supabase
         res = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_cherche).execute()
         
         if res.data:
             df_res = pd.DataFrame(res.data)
 
-            # --- FILTRAGE ET NETTOYAGE DES COLONNES ---
-            # On ne garde que l'essentiel pour l'affichage enseignant/admin
-            colonnes_utiles = [
-                'date_seance', 'matiere', 'type_seance', 
-                'note_evaluation', 'categorie_seance', 'enseignant', 'observations'
-            ]
+            # --- CALCULS GLOBAUX (TOUTES MATIÈRES) ---
+            # On compte toutes les entrées marquées comme absence (non justifiée ou collective)
+            abs_injustifiees = len(df_res[df_res['note_evaluation'] == "Absence non justifiée"])
+            abs_collectives = len(df_res[df_res['note_evaluation'] == "Absence Collective"])
+            total_abs_cumulees = abs_injustifiees + abs_collectives
             
-            # Vérifier si les colonnes existent avant de filtrer
-            exist_cols = [c for c in colonnes_utiles if c in df_res.columns]
-            df_final = df_res[exist_cols].copy()
+            # 2. AFFICHAGE DES MÉTRIQUES EN HAUT
+            st.markdown(f"#### 📊 Résumé Global : **{nom_cherche}**")
+            m1, m2, m3 = st.columns(3)
+            
+            m1.metric("Total Séances Archivées", len(df_res))
+            m2.metric("Absences Cumulées (Toutes matières)", total_abs_cumulees, delta=f"{total_abs_cumulees} incidents", delta_color="inverse")
+            
+            # Calcul du nombre de matières où l'étudiant est apparu
+            nb_matieres = df_res['matiere'].nunique()
+            m3.metric("Matières Concernées", nb_matieres)
+            
+            st.divider()
 
-            # Renommage pour une interface plus propre
-            df_final.columns = [
-                "Date", "Matière", "Type", 
-                "Résultat/Note", "Régime", "Enseignant", "Observations"
-            ]
+            # --- PRÉPARATION DU TABLEAU SELON TES COLONNES ---
+            # On sélectionne et on renomme exactement ce que tu as demandé
+            # id, created_at, etc. sont ignorés.
+            
+            cols_demandees = {
+                'date_seance': 'Date',
+                'promotion': 'Promotion',
+                'groupe': 'Groupe',
+                'sous_groupe': 'Sous-groupe',
+                'note_evaluation': "Type d'absence",
+                'observations': 'Observations'
+            }
 
-            # --- LOGIQUE DE COLORATION ---
-            def style_resultat(val):
-                color = ""
+            # On vérifie la présence des colonnes pour éviter les erreurs
+            available_cols = [c for c in cols_demandees.keys() if c in df_res.columns]
+            df_tableau = df_res[available_cols].copy()
+            df_tableau = df_tableau.rename(columns=cols_demandees)
+
+            # --- LOGIQUE DE STYLE ---
+            def style_absences(val):
                 if "Absence" in str(val):
-                    color = "background-color: #f8d7da; color: #721c24;" # Rouge pour absences
-                elif "Test" in str(val) or ":" in str(val):
-                    color = "background-color: #d4edda; color: #155724;" # Vert pour les notes
-                return color
+                    return "background-color: #f8d7da; color: #721c24; font-weight: bold;"
+                if "Test" in str(val) or ":" in str(val):
+                    return "background-color: #d1e7dd; color: #0f5132;"
+                return ""
 
-            # --- AFFICHAGE ---
-            st.markdown(f"#### 📊 Historique de **{nom_cherche}**")
-            
-            # Application du style et affichage
+            # 3. AFFICHAGE DU TABLEAU
+            st.markdown("#### 📋 Détail des présences par séance")
             st.dataframe(
-                df_final.sort_values(by="Date", ascending=False).style.applymap(
-                    style_resultat, subset=["Résultat/Note"]
+                df_tableau.sort_values(by="Date", ascending=False).style.applymap(
+                    style_absences, subset=["Type d'absence"]
                 ),
                 use_container_width=True
             )
 
-            # --- SECTION RÉSUMÉ (STATISTIQUES) ---
-            st.markdown("---")
-            col1, col2, col3 = st.columns(3)
-            
-            nb_abs = len(df_res[df_res['note_evaluation'].str.contains("Absence", na=False)])
-            nb_notes = len(df_res[df_res['note_evaluation'].str.contains(":", na=False)])
-            
-            col1.metric("Total Séances", len(df_res))
-            col2.metric("Absences cumulées", nb_abs, delta=f"{nb_abs} incidents", delta_color="inverse")
-            col3.metric("Évaluations", nb_notes)
-
-            # --- EXPORTATION ---
+            # 4. BOUTON D'EXPORTATION
             buf = io.BytesIO()
-            df_final.to_excel(buf, index=False)
+            df_tableau.to_excel(buf, index=False)
             st.download_button(
-                label="📥 Télécharger ce relevé (Excel)",
+                label=f"📥 Exporter le relevé de {nom_cherche} (Excel)",
                 data=buf.getvalue(),
-                file_name=f"Relevé_{nom_cherche}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                file_name=f"Releve_Assiduite_{nom_cherche}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_dl_final"
             )
             
         else:
-            st.success(f"✅ Aucun incident enregistré pour {nom_cherche}.")
+            st.success(f"✅ Aucun incident enregistré pour {nom_cherche}. L'étudiant est à jour.")
 
 # --- ONGLET ADMIN ---
 with t_admin:
@@ -357,6 +364,7 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
 
 
 
