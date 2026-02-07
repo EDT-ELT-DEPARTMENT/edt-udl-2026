@@ -621,12 +621,12 @@ with t_suivi:
 # --- ONGLET ADMIN ---
 # --- ONGLET ADMIN (REGISTRE PROFESSIONNEL & ASSIDUITÉ) ---
 # --- 🛡️ PANNEAU ADMINISTRATION COMPLET ---
-# Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA
+# Assiduité globale des étudiants-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA
 
 with t_admin:
     if is_admin:
         st.header("🛡️ Panneau d'Administration")
-        st.subheader("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+        st.subheader("Assiduité globale des étudiants-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
         
         # 1. Récupération des données depuis Supabase
         res = supabase.table("archives_absences").select("*").execute()
@@ -765,6 +765,7 @@ with t_admin:
                         st.rerun()
     else:
         st.warning("⚠️ Accès restreint à l'administrateur de la plateforme.")
+
 
 
 
