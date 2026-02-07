@@ -209,39 +209,43 @@ if not st.session_state["user_data"]:
             if not edt_st.empty:
                 st.markdown("#### 📅 Votre Emploi du Temps Hebdomadaire")
                 
-                # 1. Définition de l'ordre CHRONOLOGIQUE exact (Lignes)
+                # 1. Définition de l'ordre exact (Vérifiez bien les espaces ici)
                 ordre_horaires = [
-                    "8h - 9h30", 
-                    "9h30 - 11h", 
-                    "11h - 12h30", 
-                    "12h30 - 14h00", 
-                    "14h00 - 15h30", 
-                    "15h30 - 17h00"
+                    "8h - 9h30", "9h30 - 11h", "11h - 12h30", 
+                    "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"
                 ]
-                
-                # 2. Définition de l'ordre des JOURS (Colonnes)
                 jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
                 
-                # 3. Création du pivot table
+                # 2. Création du pivot table
                 grid = edt_st.pivot_table(
                     index='Horaire', 
                     columns='Jours', 
                     values='Enseignements', 
                     aggfunc=lambda x: ' / '.join(x)
                 ).fillna("")
-                
-                # 4. RÉINDEXATION FORCÉE (C'est ici que la magie opère)
-                # On ne garde que les horaires et jours présents dans les données pour éviter les lignes/colonnes vides inutiles
+
+                # 3. FILTRAGE ET TRI INTELLIGENT
+                # On vérifie quels horaires de notre liste existent vraiment dans le tableau
                 index_existants = [h for h in ordre_horaires if h in grid.index]
                 colonnes_existantes = [j for j in jours_ordre if j in grid.columns]
-                
-                grid = grid.reindex(index=index_existants, columns=colonnes_existantes)
-                
-                st.dataframe(grid.style.applymap(color_edt), use_container_width=True)
+
+                # --- SÉCURITÉ : DIAGNOSTIC ---
+                if not index_existants:
+                    # Si la liste est vide, c'est que l'Excel n'écrit pas "8h - 9h30" de la même façon
+                    st.warning("⚠️ Format horaire non reconnu. Affichage du format brut détecté :")
+                    st.dataframe(grid)
+                else:
+                    # Sinon, on affiche le beau tableau trié
+                    grid_final = grid.reindex(index=index_existants, columns=colonnes_existantes)
+                    st.dataframe(grid_final.style.applymap(color_edt), use_container_width=True)
             
+            else:
+                st.info(f"ℹ️ Aucun cours trouvé pour {nom_st}. Vérifiez la correspondance des groupes (G1, G2...) dans le fichier EDT.")
+
             st.markdown("---")
             st.markdown("#### ❌ Vos Absences & Notes de Participation")
             res_st = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_st).execute()
+            
             if res_st.data:
                 df_res_st = pd.DataFrame(res_st.data)[['date_seance', 'matiere', 'note_evaluation']]
                 df_res_st.columns = ["Date", "Matière", "Statut / Note"]
@@ -672,6 +676,7 @@ with t_admin:
             st.info("La base de données est vide.")
     else:
         st.warning("⚠️ Accès restreint à l'administrateur de la plateforme.")
+
 
 
 
