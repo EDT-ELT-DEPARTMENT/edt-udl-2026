@@ -209,14 +209,20 @@ if not st.session_state["user_data"]:
             if not edt_st.empty:
                 st.markdown("#### 📅 Votre Emploi du Temps Hebdomadaire")
                 
-                # 1. Définition de l'ordre exact (Vérifiez bien les espaces ici)
+                # 1. Liste mise à jour selon VOTRE format (tiret collé)
                 ordre_horaires = [
-                    "8h - 9h30", "9h30 - 11h", "11h - 12h30", 
-                    "12h30 - 14h00", "14h00 - 15h30", "15h30 - 17h00"
+                    "8h-9h30", 
+                    "9h30-11h", 
+                    "11h-12h30", 
+                    "12h30-14h", 
+                    "14h-15h30", 
+                    "15h30-17h"
                 ]
+                
+                # 2. Ordre des jours
                 jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
                 
-                # 2. Création du pivot table
+                # 3. Création du pivot table
                 grid = edt_st.pivot_table(
                     index='Horaire', 
                     columns='Jours', 
@@ -224,23 +230,20 @@ if not st.session_state["user_data"]:
                     aggfunc=lambda x: ' / '.join(x)
                 ).fillna("")
 
-                # 3. FILTRAGE ET TRI INTELLIGENT
-                # On vérifie quels horaires de notre liste existent vraiment dans le tableau
+                # 4. Extraction des index présents pour éviter les erreurs
                 index_existants = [h for h in ordre_horaires if h in grid.index]
+                # Sécurité : si un horaire n'est pas dans la liste ordre_horaires, on l'ajoute à la fin
+                autres_horaires = [h for h in grid.index if h not in ordre_horaires]
+                index_complet = index_existants + autres_horaires
+                
                 colonnes_existantes = [j for j in jours_ordre if j in grid.columns]
 
-                # --- SÉCURITÉ : DIAGNOSTIC ---
-                if not index_existants:
-                    # Si la liste est vide, c'est que l'Excel n'écrit pas "8h - 9h30" de la même façon
-                    st.warning("⚠️ Format horaire non reconnu. Affichage du format brut détecté :")
-                    st.dataframe(grid)
-                else:
-                    # Sinon, on affiche le beau tableau trié
-                    grid_final = grid.reindex(index=index_existants, columns=colonnes_existantes)
-                    st.dataframe(grid_final.style.applymap(color_edt), use_container_width=True)
+                # 5. Réindexation et affichage
+                grid_final = grid.reindex(index=index_complet, columns=colonnes_existantes)
+                st.dataframe(grid_final.style.applymap(color_edt), use_container_width=True)
             
             else:
-                st.info(f"ℹ️ Aucun cours trouvé pour {nom_st}. Vérifiez la correspondance des groupes (G1, G2...) dans le fichier EDT.")
+                st.info(f"ℹ️ Aucun cours trouvé pour {nom_st}. Vérifiez la correspondance des groupes dans le fichier EDT.")
 
             st.markdown("---")
             st.markdown("#### ❌ Vos Absences & Notes de Participation")
@@ -676,6 +679,7 @@ with t_admin:
             st.info("La base de données est vide.")
     else:
         st.warning("⚠️ Accès restreint à l'administrateur de la plateforme.")
+
 
 
 
