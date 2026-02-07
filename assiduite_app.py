@@ -289,33 +289,47 @@ with t_suivi:
     liste_noms_existants = sorted(list(set([r['etudiant_nom'] for r in res_noms.data]))) if res_noms.data else []
 
     # --- SECTION A : ASSIDUITÉ ---
-    st.subheader("❌ 1. État de l'Assiduité (Absences)")
-    nom_abs = st.selectbox(
-        "Sélectionner l'étudiant pour l'assiduité :",
-        ["--"] + liste_noms_existants,
-        key="search_abs"
-    )
+st.subheader("❌ 1. État de l'Assiduité (Absences)")
+nom_abs = st.selectbox(
+    "Sélectionner l'étudiant pour l'assiduité :",
+    ["--"] + liste_noms_existants,
+    key="search_abs"
+)
 
-    if nom_abs != "--":
-        res_a = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_abs).execute()
-        if res_a.data:
-            df_a = pd.DataFrame(res_a.data)
-            df_assiduite = df_a[df_a['note_evaluation'].str.contains("Absence", na=False)].copy()
+if nom_abs != "--":
+    res_a = supabase.table("archives_absences").select("*").eq("etudiant_nom", nom_abs).execute()
+    if res_a.data:
+        df_a = pd.DataFrame(res_a.data)
+        # On filtre uniquement les absences
+        df_assiduite = df_a[df_a['note_evaluation'].str.contains("Absence", na=False)].copy()
+        
+        if not df_assiduite.empty:
+            # --- NOUVEAU : AFFICHAGE NUMÉRIQUE PAR MATIÈRE ---
+            st.markdown(f"##### 📈 Récapitulatif numérique des absences pour **{nom_abs}**")
             
-            if not df_assiduite.empty:
-                # Merge avec Excel
-                if df_info_suivi is not None:
-                    df_assiduite = df_assiduite.merge(df_info_suivi, left_on='matiere', right_on='Enseignements', how='left')
-                
-                df_assiduite['G/SG'] = df_assiduite['groupe'].astype(str) + " / " + df_assiduite['sous_groupe'].astype(str)
-                df_view_a = df_assiduite[['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'Enseignants', 'Horaire', 'date_seance', 'note_evaluation']]
-                df_view_a.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Chargé', 'Horaire', 'Date', 'Type']
-                
-                st.dataframe(df_view_a.sort_values(by="Date", ascending=False), use_container_width=True)
-            else:
-                st.success(f"✅ Aucune absence enregistrée pour {nom_abs}.")
+            # Calcul du nombre d'absences par matière
+            df_count = df_assiduite.groupby('matiere').size().reset_index(name='Nombre d\'absences')
+            
+            # Affichage sous forme de colonnes métriques ou petit tableau
+            cols = st.columns(len(df_count) if len(df_count) <= 4 else 4)
+            for idx, row in df_count.iterrows():
+                with cols[idx % 4]:
+                    st.metric(label=row['matiere'], value=f"{row['Nombre d'absences']} Abs")
 
-    st.divider()
+            st.write("") # Espace visuel
+
+            # --- DÉTAIL DES ABSENCES (Tableau) ---
+            if df_info_suivi is not None:
+                df_assiduite = df_assiduite.merge(df_info_suivi, left_on='matiere', right_on='Enseignements', how='left')
+            
+            df_assiduite['G/SG'] = df_assiduite['groupe'].astype(str) + " / " + df_assiduite['sous_groupe'].astype(str)
+            df_view_a = df_assiduite[['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'Enseignants', 'Horaire', 'date_seance', 'note_evaluation']]
+            df_view_a.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Chargé', 'Horaire', 'Date', 'Type']
+            
+            st.markdown("**Détail des séances manquées :**")
+            st.dataframe(df_view_a.sort_values(by="Date", ascending=False), use_container_width=True)
+        else:
+            st.success(f"✅ Aucune absence enregistrée pour {nom_abs}.")
 
     # --- SECTION B : ÉVALUATIONS ---
     st.subheader("📝 2. Résultats des Évaluations (Critères)")
@@ -361,6 +375,7 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
 
 
 
