@@ -402,14 +402,62 @@ with t_suivi:
 # --- ONGLET ADMIN ---
 with t_admin:
     if is_admin:
+        # 1. Récupération des données pour l'affichage
         res = supabase.table("archives_absences").select("*").execute()
+        
         if res.data:
             df_all = pd.DataFrame(res.data)
-            st.metric("Total Enregistrements", len(df_all))
+            
+            # --- ENTÊTE ET EXPORT ---
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                st.metric("Total Enregistrements", len(df_all))
+            with col2:
+                buf = io.BytesIO()
+                df_all.to_excel(buf, index=False, engine='xlsxwriter')
+                st.download_button(
+                    label="📊 Exporter Registre Complet (Excel)",
+                    data=buf.getvalue(),
+                    file_name="Archives_Globales_2026.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="btn_download_admin"
+                )
+
+            # --- AFFICHAGE DU TABLEAU ---
             st.dataframe(df_all, use_container_width=True)
-            buf = io.BytesIO(); df_all.to_excel(buf, index=False)
-            st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
-    else: st.warning("Espace réservé à l'administration.")
+
+            # --- ZONE DE DANGER : RESET DU TABLEAU ---
+            st.divider()
+            st.subheader("⚠️ Zone de Danger")
+            
+            # Initialisation de l'état de confirmation
+            if 'confirm_db_reset' not in st.session_state:
+                st.session_state.confirm_db_reset = False
+
+            if not st.session_state.confirm_db_reset:
+                if st.button("🗑️ Vider complètement le tableau", use_container_width=True, help="Supprime définitivement toutes les archives"):
+                    st.session_state.confirm_db_reset = True
+                    st.rerun()
+            else:
+                st.error("❗ ÊTES-VOUS SÛR ? Cette action supprimera les données de Supabase définitivement.")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("🔥 OUI, Tout supprimer", use_container_width=True):
+                        # Suppression effective dans Supabase
+                        supabase.table("archives_absences").delete().neq("etudiant_nom", "NULL_PROTECT").execute()
+                        st.session_state.confirm_db_reset = False
+                        st.success("Base de données réinitialisée !")
+                        st.rerun()
+                with c2:
+                    if st.button("❌ Annuler", use_container_width=True):
+                        st.session_state.confirm_db_reset = False
+                        st.rerun()
+        else:
+            st.info("La base de données est actuellement vide.")
+            
+    else:
+        st.warning("Espace réservé à l'administration.")
+
 
 
 
