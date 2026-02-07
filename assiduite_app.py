@@ -58,14 +58,18 @@ def send_email_rapport(destinataires, sujet, corps):
         msg['From'] = f"Gestion EDT-UDL <{EMAIL_SENDER}>"
         msg['To'] = ", ".join(destinataires)
         msg['Subject'] = sujet
-        msg.attach(MIMEText(corps, 'plain'))
+        
+        # CHANGEMENT ICI : On utilise 'html' au lieu de 'plain'
+        msg.attach(MIMEText(corps, 'html'))
+        
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
         server.login(EMAIL_SENDER, EMAIL_PASSWORD)
         server.send_message(msg)
         server.quit()
         return True
-    except Exception:
+    except Exception as e:
+        # Optionnel : st.error(f"Erreur SMTP : {e}") pour déboguer
         return False
 
 @st.cache_data
@@ -318,11 +322,73 @@ with t_saisie:
                     "sous_groupe": sg_sel
                 }).execute()
             
-            # 3. Envoi Emails (avec le compte d'absents réel)
-            corps_mail = f"Nouveau Rapport : {user['nom_officiel']} | {p_sel} | {m_sel}\nDate: {date_s}\nAbsents: {len(liste_absents_reelle)}\nNote: {etudiant_note} ({valeur})\nObs: {obs}"
-            send_email_rapport([EMAIL_CHEF_DEPT, EMAIL_ADJOINT], f"Rapport UDL - {m_sel}", corps_mail)
+            # --- 3. GÉNÉRATION DU RAPPORT HTML ET ENVOI ---
+            # Préparation de la liste des noms des absents en format HTML
+            noms_absents_html = "".join([f"<li style='color: #cc0000;'>{n}</li>" for n in liste_absents_reelle])
+            if not noms_absents_html: 
+                noms_absents_html = "<li>Aucun absent (Présence totale)</li>"
+
+            html_corps = f"""
+            <html>
+            <body style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 700px; margin: auto; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+                    <div style="background-color: #003366; color: white; padding: 20px; text-align: center;">
+                        <h2 style="margin: 0;">Rapport de Séance d'Enseignement</h2>
+                        <p style="margin: 5px 0 0 0;">Département d'Électrotechnique - UDL SBA</p>
+                    </div>
+                    
+                    <div style="padding: 20px;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <tr style="background-color: #f9f9f9;">
+                                <th style="text-align: left; padding: 10px; border-bottom: 1px solid #eee; width: 35%;">Enseignant</th>
+                                <td style="padding: 10px; border-bottom: 1px solid #eee;">{grade_fix} {user['nom_officiel']}</td>
+                            </tr>
+                            <tr>
+                                <th style="text-align: left; padding: 10px; border-bottom: 1px solid #eee;">Matière</th>
+                                <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: bold; color: #003366;">{m_sel}</td>
+                            </tr>
+                            <tr style="background-color: #f9f9f9;">
+                                <th style="text-align: left; padding: 10px; border-bottom: 1px solid #eee;">Date & Promotion</th>
+                                <td style="padding: 10px; border-bottom: 1px solid #eee;">{date_s} | <b>{p_sel}</b></td>
+                            </tr>
+                            <tr>
+                                <th style="text-align: left; padding: 10px; border-bottom: 1px solid #eee;">Groupe / S-Groupe</th>
+                                <td style="padding: 10px; border-bottom: 1px solid #eee;">{g_sel} / {sg_sel} ({charge})</td>
+                            </tr>
+                            <tr style="background-color: #fffde7;">
+                                <th style="text-align: left; padding: 10px; border-bottom: 1px solid #eee;">Évaluation (Note)</th>
+                                <td style="padding: 10px; border-bottom: 1px solid #eee; color: #d32f2f; font-weight: bold;">
+                                    {etudiant_note if etudiant_note != "Aucun" else "Néant"} 
+                                    {f'({critere}: {valeur})' if etudiant_note != "Aucun" else ""}
+                                </td>
+                            </tr>
+                        </table>
+
+                        <h4 style="color: #003366; border-bottom: 2px solid #003366; padding-bottom: 5px; margin-top: 25px;">🗒️ Observations</h4>
+                        <p style="background: #f4f4f4; padding: 10px; border-left: 4px solid #003366;">{obs if obs else "RAS"}</p>
+
+                        <h4 style="color: #cc0000; border-bottom: 2px solid #cc0000; padding-bottom: 5px; margin-top: 25px;">❌ Liste des Absents ({len(liste_absents_reelle)})</h4>
+                        <ul style="column-count: 2; -webkit-column-count: 2; list-style-type: square; padding-left: 20px;">
+                            {noms_absents_html}
+                        </ul>
+                    </div>
+                    
+                    <div style="background-color: #f1f1f1; padding: 10px; text-align: center; font-size: 11px; color: #777;">
+                        Ceci est un rapport automatique généré par la Plateforme de gestion des EDTs-S2-2026.
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
             
-            st.success("✅ Archivage réussi et emails envoyés !"); st.balloons()
+            # Utilisation de la fonction d'envoi (assurez-vous d'utiliser 'html' dans send_email_rapport)
+            # Modifiez votre fonction send_email_rapport pour accepter MIMEMultipart avec subtype='html'
+            success_mail = send_email_rapport_html([EMAIL_CHEF_DEPT, EMAIL_ADJOINT], f"Rapport UDL - {m_sel} - {p_sel}", html_corps)
+            
+            if success_mail:
+                st.success("✅ Archivage réussi et rapport HTML envoyé aux responsables !"); st.balloons()
+            else:
+                st.warning("✅ Archivage réussi, mais l'envoi de l'email a échoué.")
         else: 
             st.error("Code de validation incorrect.")
 
@@ -481,6 +547,7 @@ with t_admin:
             
     else:
         st.warning("Espace réservé à l'administration.")
+
 
 
 
