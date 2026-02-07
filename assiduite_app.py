@@ -620,27 +620,36 @@ with t_suivi:
 
 # --- ONGLET ADMIN ---
 # --- ONGLET ADMIN (REGISTRE PROFESSIONNEL & ASSIDUITÉ) ---
+# --- 🛡️ PANNEAU ADMINISTRATION COMPLET ---
+# Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA
+
 with t_admin:
     if is_admin:
-        # 1. Récupération des données
+        st.header("🛡️ Panneau d'Administration")
+        st.subheader("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+        
+        # 1. Récupération des données depuis Supabase
         res = supabase.table("archives_absences").select("*").execute()
         
-        if res.data:
-            df_all = pd.DataFrame(res.data)
-            
-            # --- PRÉPARATION DES DONNÉES ---
-            # Colonnes pour le Registre
-            col_ordre = ['etudiant_nom', 'promotion', 'groupe', 'matiere', 'note_evaluation', 'date_seance', 'enseignant']
-            df_registre = df_all[[c for c in col_ordre if c in df_all.columns]].copy()
-            df_registre.columns = ["Étudiant", "Promo", "Gr", "Matière", "Nature/Note", "Date", "Enseignant"]
+        # Création des onglets pour organiser les outils admin
+        t_reg, t_assid, t_sync, t_danger = st.tabs([
+            "📋 Registre Global", 
+            "📊 Cumul des Absences", 
+            "🔄 Collecte des Emails", 
+            "🚨 Maintenance"
+        ])
 
-            # Calcul de l'assiduité (on ne compte que les lignes de type 'Absence')
-            df_abs_only = df_all[df_all['note_evaluation'].str.contains("Absence", na=False)].copy()
-            
-            # --- INTERFACE À DEUX VOLETS ---
-            t_reg, t_assid = st.tabs(["📋 Registre Global", "📊 Cumul des Absences"])
+        # --- ONGLET 1 : REGISTRE GLOBAL ---
+        with t_reg:
+            if res.data:
+                df_all = pd.DataFrame(res.data)
+                
+                # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+                # (Adaptation selon les colonnes disponibles dans ton archive)
+                col_ordre = ['etudiant_nom', 'promotion', 'groupe', 'matiere', 'note_evaluation', 'date_seance', 'enseignant']
+                df_registre = df_all[[c for c in col_ordre if c in df_all.columns]].copy()
+                df_registre.columns = ["Étudiant", "Promotion", "Groupe", "Matière", "Nature/Note", "Date", "Enseignant"]
 
-            with t_reg:
                 st.markdown("### 📄 Journal des Enseignements")
                 st.metric("Total des fiches saisies", len(df_all))
                 st.dataframe(df_registre.sort_values(by="Date", ascending=False), use_container_width=True)
@@ -649,16 +658,21 @@ with t_admin:
                 buf_r = io.BytesIO()
                 df_registre.to_excel(buf_r, index=False, engine='xlsxwriter')
                 st.download_button("📥 Télécharger Registre (.xlsx)", buf_r.getvalue(), "Registre_Global_UDL_2026.xlsx")
+            else:
+                st.info("Aucune donnée dans le registre.")
 
-            with t_assid:
+        # --- ONGLET 2 : CUMUL DES ABSENCES ---
+        with t_assid:
+            if res.data:
+                df_all = pd.DataFrame(res.data)
+                df_abs_only = df_all[df_all['note_evaluation'].str.contains("Absence", na=False)].copy()
+                
                 st.markdown("### ❌ État de l'Assiduité par Module")
                 if not df_abs_only.empty:
-                    # Groupement pour compter les absences
                     recap = df_abs_only.groupby(['etudiant_nom', 'promotion', 'matiere']).size().reset_index(name='Total Absences')
                     recap = recap.sort_values(by='Total Absences', ascending=False)
                     recap.columns = ["Nom & Prénom", "Promotion", "Matière", "Nombre d'Absences"]
 
-                    # Fonction pour colorer les étudiants en zone d'exclusion (3 absences ou plus)
                     def highlight_exclusion(val):
                         color = '#ffcccc' if isinstance(val, int) and val >= 3 else ''
                         return f'background-color: {color}'
@@ -669,34 +683,86 @@ with t_admin:
                         use_container_width=True
                     )
                     
-                    # Export Assiduité
                     buf_a = io.BytesIO()
                     recap.to_excel(buf_a, index=False, engine='xlsxwriter')
                     st.download_button("📥 Télécharger État des Absences", buf_a.getvalue(), "Recap_Assiduite_ELT.xlsx")
                 else:
                     st.info("Aucune absence enregistrée pour le moment.")
+            else:
+                st.info("La base de données est vide.")
 
-            # --- ZONE DE DANGER (RESET) ---
-            st.markdown("<br><br>", unsafe_allow_html=True)
-            with st.expander("🚨 Zone de Maintenance"):
-                st.warning("La suppression est irréversible.")
-                if st.button("🗑️ VIDER TOUTES LES ARCHIVES", use_container_width=True):
-                    # On utilise une variable de session pour la double confirmation
+        # --- ONGLET 3 : COLLECTE DES EMAILS (NOUVEAU) ---
+        with t_sync:
+            st.markdown("### 🔄 Récupération des Emails Utilisateurs")
+            st.write("Compare les inscriptions avec les fichiers Excel pour extraire les adresses emails.")
+            
+            c1, c2 = st.columns(2)
+            
+            with c1:
+                st.markdown("#### 👨‍🏫 Enseignants")
+                if st.button("🔍 Chercher Emails Enseignants"):
+                    # On récupère les emails depuis la table d'authentification enseignants
+                    res_ens = supabase.table("enseignants_auth").select("email", "nom_officiel", "prenom_officiel").execute()
+                    if res_ens.data:
+                        updates_ens = []
+                        for row in res_ens.data:
+                            # On vérifie si l'enseignant existe dans ton df_staff
+                            match = df_staff[df_staff['NOM'].str.upper() == row['nom_officiel'].upper()]
+                            if not match.empty:
+                                email_source = str(match.iloc[0].get('Email', '')).strip()
+                                # On ne garde que ceux qui n'ont pas encore d'email dans le Excel
+                                if email_source == "" or email_source.lower() == "nan":
+                                    updates_ens.append({
+                                        "NOM": row['nom_officiel'], 
+                                        "PRÉNOM": row['prenom_officiel'], 
+                                        "EMAIL_SAISI": row['email']
+                                    })
+                        
+                        if updates_ens:
+                            df_res_ens = pd.DataFrame(updates_ens)
+                            st.dataframe(df_res_ens)
+                            buf_e = io.BytesIO()
+                            df_res_ens.to_excel(buf_e, index=False)
+                            st.download_button("💾 Télécharger MAJ Staff", buf_e.getvalue(), "MAJ_Emails_Staff.xlsx")
+                        else:
+                            st.info("Aucun nouvel email enseignant trouvé.")
+
+            with c2:
+                st.markdown("#### 🎓 Étudiants")
+                if st.button("🔍 Liste Emails Étudiants"):
+                    # On récupère tous les étudiants inscrits
+                    res_stu = supabase.table("etudiants_auth").select("email", "full_name").execute()
+                    if res_stu.data:
+                        df_db_stu = pd.DataFrame(res_stu.data)
+                        st.success(f"{len(df_db_stu)} étudiants inscrits.")
+                        st.dataframe(df_db_stu)
+                        buf_s = io.BytesIO()
+                        df_db_stu.to_excel(buf_s, index=False)
+                        st.download_button("💾 Télécharger Liste Emails", buf_s.getvalue(), "Emails_Etudiants_Inscrits.xlsx")
+                    else:
+                        st.warning("Aucun étudiant inscrit.")
+
+        # --- ONGLET 4 : MAINTENANCE (RESET) ---
+        with t_danger:
+            st.markdown("### 🚨 Zone de Maintenance")
+            st.error("Attention : La suppression des archives est définitive.")
+            
+            with st.expander("🗑️ Réinitialiser les Archives"):
+                st.warning("Cette action videra tout le registre des absences.")
+                if st.button("LANCER LA RÉINITIALISATION", use_container_width=True):
                     st.session_state.confirm_db_reset = True
                 
                 if st.session_state.get('confirm_db_reset', False):
-                    st.error("ÊTES-VOUS ABSOLUMENT SÛR ?")
-                    c1, c2 = st.columns(2)
-                    if c1.button("🔥 OUI, SUPPRIMER TOUT"):
+                    st.error("CONFIRMER LA SUPPRESSION TOTALE ?")
+                    col1, col2 = st.columns(2)
+                    if col1.button("🔥 OUI, SUPPRIMER TOUT"):
                         supabase.table("archives_absences").delete().neq("etudiant_nom", "NULL").execute()
                         st.session_state.confirm_db_reset = False
                         st.success("Base de données réinitialisée.")
                         st.rerun()
-                    if c2.button("❌ ANNULER"):
+                    if col2.button("❌ ANNULER"):
                         st.session_state.confirm_db_reset = False
                         st.rerun()
-        else:
-            st.info("La base de données est vide.")
     else:
         st.warning("⚠️ Accès restreint à l'administrateur de la plateforme.")
 
