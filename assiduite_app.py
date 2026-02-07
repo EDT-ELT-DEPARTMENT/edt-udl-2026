@@ -304,19 +304,20 @@ if nom_abs != "--":
         df_assiduite = df_a[df_a['note_evaluation'].str.contains("Absence", na=False)].copy()
         
         if not df_assiduite.empty:
-            # --- NOUVEAU : AFFICHAGE NUMÉRIQUE PAR MATIÈRE ---
+            # --- AFFICHAGE NUMÉRIQUE PAR MATIÈRE ---
             st.markdown(f"##### 📈 Récapitulatif numérique des absences pour **{nom_abs}**")
             
-            # Calcul du nombre d'absences par matière
-            df_count = df_assiduite.groupby('matiere').size().reset_index(name='Nombre d\'absences')
+            # Correction ici : Utilisation de doubles guillemets pour éviter la SyntaxError
+            df_count = df_assiduite.groupby('matiere').size().reset_index(name="Nb_Absences")
             
-            # Affichage sous forme de colonnes métriques ou petit tableau
+            # Affichage sous forme de colonnes métriques
             cols = st.columns(len(df_count) if len(df_count) <= 4 else 4)
             for idx, row in df_count.iterrows():
                 with cols[idx % 4]:
-                    st.metric(label=row['matiere'], value=f"{row['Nombre d'absences']} Abs")
+                    # Utilisation de f-string sécurisée
+                    st.metric(label=row['matiere'], value=f"{row['Nb_Absences']} Abs")
 
-            st.write("") # Espace visuel
+            st.write("") 
 
             # --- DÉTAIL DES ABSENCES (Tableau) ---
             if df_info_suivi is not None:
@@ -375,6 +376,7 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
 
 
 
