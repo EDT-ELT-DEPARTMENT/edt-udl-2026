@@ -487,63 +487,86 @@ with t_suivi:
                 st.info("Aucune évaluation trouvée.")
 
 # --- ONGLET ADMIN ---
+# --- ONGLET ADMIN (REGISTRE PROFESSIONNEL & ASSIDUITÉ) ---
 with t_admin:
     if is_admin:
-        # 1. Récupération des données pour l'affichage
+        # 1. Récupération des données
         res = supabase.table("archives_absences").select("*").execute()
         
         if res.data:
             df_all = pd.DataFrame(res.data)
             
-            # --- ENTÊTE ET EXPORT ---
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.metric("Total Enregistrements", len(df_all))
-            with col2:
-                buf = io.BytesIO()
-                df_all.to_excel(buf, index=False, engine='xlsxwriter')
-                st.download_button(
-                    label="📊 Exporter Registre Complet (Excel)",
-                    data=buf.getvalue(),
-                    file_name="Archives_Globales_2026.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="btn_download_admin"
-                )
+            # --- PRÉPARATION DES DONNÉES ---
+            # Colonnes pour le Registre
+            col_ordre = ['etudiant_nom', 'promotion', 'groupe', 'matiere', 'note_evaluation', 'date_seance', 'enseignant']
+            df_registre = df_all[[c for c in col_ordre if c in df_all.columns]].copy()
+            df_registre.columns = ["Étudiant", "Promo", "Gr", "Matière", "Nature/Note", "Date", "Enseignant"]
 
-            # --- AFFICHAGE DU TABLEAU ---
-            st.dataframe(df_all, use_container_width=True)
-
-            # --- ZONE DE DANGER : RESET DU TABLEAU ---
-            st.divider()
-            st.subheader("⚠️ Zone de Danger")
+            # Calcul de l'assiduité (on ne compte que les lignes de type 'Absence')
+            df_abs_only = df_all[df_all['note_evaluation'].str.contains("Absence", na=False)].copy()
             
-            # Initialisation de l'état de confirmation
-            if 'confirm_db_reset' not in st.session_state:
-                st.session_state.confirm_db_reset = False
+            # --- INTERFACE À DEUX VOLETS ---
+            t_reg, t_assid = st.tabs(["📋 Registre Global", "📊 Cumul des Absences"])
 
-            if not st.session_state.confirm_db_reset:
-                if st.button("🗑️ Vider complètement le tableau", use_container_width=True, help="Supprime définitivement toutes les archives"):
+            with t_reg:
+                st.markdown("### 📄 Journal des Enseignements")
+                st.metric("Total des fiches saisies", len(df_all))
+                st.dataframe(df_registre.sort_values(by="Date", ascending=False), use_container_width=True)
+                
+                # Export Registre
+                buf_r = io.BytesIO()
+                df_registre.to_excel(buf_r, index=False, engine='xlsxwriter')
+                st.download_button("📥 Télécharger Registre (.xlsx)", buf_r.getvalue(), "Registre_Global_UDL_2026.xlsx")
+
+            with t_assid:
+                st.markdown("### ❌ État de l'Assiduité par Module")
+                if not df_abs_only.empty:
+                    # Groupement pour compter les absences
+                    recap = df_abs_only.groupby(['etudiant_nom', 'promotion', 'matiere']).size().reset_index(name='Total Absences')
+                    recap = recap.sort_values(by='Total Absences', ascending=False)
+                    recap.columns = ["Nom & Prénom", "Promotion", "Matière", "Nombre d'Absences"]
+
+                    # Fonction pour colorer les étudiants en zone d'exclusion (3 absences ou plus)
+                    def highlight_exclusion(val):
+                        color = '#ffcccc' if isinstance(val, int) and val >= 3 else ''
+                        return f'background-color: {color}'
+
+                    st.write("⚠️ *Les cellules en rouge indiquent un seuil d'exclusion (>= 3 absences).*")
+                    st.dataframe(
+                        recap.style.applymap(highlight_exclusion, subset=["Nombre d'Absences"]),
+                        use_container_width=True
+                    )
+                    
+                    # Export Assiduité
+                    buf_a = io.BytesIO()
+                    recap.to_excel(buf_a, index=False, engine='xlsxwriter')
+                    st.download_button("📥 Télécharger État des Absences", buf_a.getvalue(), "Recap_Assiduite_ELT.xlsx")
+                else:
+                    st.info("Aucune absence enregistrée pour le moment.")
+
+            # --- ZONE DE DANGER (RESET) ---
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            with st.expander("🚨 Zone de Maintenance"):
+                st.warning("La suppression est irréversible.")
+                if st.button("🗑️ VIDER TOUTES LES ARCHIVES", use_container_width=True):
+                    # On utilise une variable de session pour la double confirmation
                     st.session_state.confirm_db_reset = True
-                    st.rerun()
-            else:
-                st.error("❗ ÊTES-VOUS SÛR ? Cette action supprimera les données de Supabase définitivement.")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("🔥 OUI, Tout supprimer", use_container_width=True):
-                        # Suppression effective dans Supabase
-                        supabase.table("archives_absences").delete().neq("etudiant_nom", "NULL_PROTECT").execute()
+                
+                if st.session_state.get('confirm_db_reset', False):
+                    st.error("ÊTES-VOUS ABSOLUMENT SÛR ?")
+                    c1, c2 = st.columns(2)
+                    if c1.button("🔥 OUI, SUPPRIMER TOUT"):
+                        supabase.table("archives_absences").delete().neq("etudiant_nom", "NULL").execute()
                         st.session_state.confirm_db_reset = False
-                        st.success("Base de données réinitialisée !")
+                        st.success("Base de données réinitialisée.")
                         st.rerun()
-                with c2:
-                    if st.button("❌ Annuler", use_container_width=True):
+                    if c2.button("❌ ANNULER"):
                         st.session_state.confirm_db_reset = False
                         st.rerun()
         else:
-            st.info("La base de données est actuellement vide.")
-            
+            st.info("La base de données est vide.")
     else:
-        st.warning("Espace réservé à l'administration.")
+        st.warning("⚠️ Accès restreint à l'administrateur de la plateforme.")
 
 
 
