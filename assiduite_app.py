@@ -181,7 +181,7 @@ if not st.session_state["user_data"]:
             else: 
                 st.error("Email non trouvé dans la base des inscrits.")
 
-    # --- ONGLET : ESPACE ÉTUDIANT (EMPlOI DU TEMPS & ABSENCES) ---
+    # --- ONGLET : ESPACE ÉTUDIANT (EMPLOI DU TEMPS & ABSENCES) ---
     with t_student:
         st.subheader("🎓 Consultation Étudiant")
         nom_st = st.selectbox("Sélectionnez votre Nom & Prénom :", ["--"] + sorted(df_etudiants['Full_N'].unique()), key="student_view_name")
@@ -208,9 +208,35 @@ if not st.session_state["user_data"]:
             
             if not edt_st.empty:
                 st.markdown("#### 📅 Votre Emploi du Temps Hebdomadaire")
-                grid = edt_st.pivot_table(index='Horaire', columns='Jours', values='Enseignements', aggfunc=lambda x: ' / '.join(x)).fillna("")
+                
+                # 1. Définition de l'ordre CHRONOLOGIQUE exact (Lignes)
+                ordre_horaires = [
+                    "8h - 9h30", 
+                    "9h30 - 11h", 
+                    "11h - 12h30", 
+                    "12h30 - 14h00", 
+                    "14h00 - 15h30", 
+                    "15h30 - 17h00"
+                ]
+                
+                # 2. Définition de l'ordre des JOURS (Colonnes)
                 jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-                grid = grid.reindex(columns=[j for j in jours_ordre if j in grid.columns])
+                
+                # 3. Création du pivot table
+                grid = edt_st.pivot_table(
+                    index='Horaire', 
+                    columns='Jours', 
+                    values='Enseignements', 
+                    aggfunc=lambda x: ' / '.join(x)
+                ).fillna("")
+                
+                # 4. RÉINDEXATION FORCÉE (C'est ici que la magie opère)
+                # On ne garde que les horaires et jours présents dans les données pour éviter les lignes/colonnes vides inutiles
+                index_existants = [h for h in ordre_horaires if h in grid.index]
+                colonnes_existantes = [j for j in jours_ordre if j in grid.columns]
+                
+                grid = grid.reindex(index=index_existants, columns=colonnes_existantes)
+                
                 st.dataframe(grid.style.applymap(color_edt), use_container_width=True)
             
             st.markdown("---")
@@ -223,7 +249,7 @@ if not st.session_state["user_data"]:
             else:
                 st.success("Excellent ! Aucune absence enregistrée pour vous.")
                 
-    st.stop() # Arrête l'exécution ici pour ne pas charger l'interface prof si non connecté
+    st.stop()
 
 # --- 5. ESPACE ENSEIGNANT CONNECTÉ ---
 user = st.session_state["user_data"]
@@ -646,6 +672,7 @@ with t_admin:
             st.info("La base de données est vide.")
     else:
         st.warning("⚠️ Accès restreint à l'administrateur de la plateforme.")
+
 
 
 
