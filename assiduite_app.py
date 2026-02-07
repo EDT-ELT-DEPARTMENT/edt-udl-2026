@@ -59,7 +59,7 @@ def send_email_rapport(destinataires, sujet, corps):
         msg['To'] = ", ".join(destinataires)
         msg['Subject'] = sujet
         
-        # CHANGEMENT ICI : On utilise 'html' au lieu de 'plain'
+        # On force l'interprétation du code comme du HTML
         msg.attach(MIMEText(corps, 'html'))
         
         server = smtplib.SMTP('smtp.gmail.com', 587)
@@ -69,7 +69,6 @@ def send_email_rapport(destinataires, sujet, corps):
         server.quit()
         return True
     except Exception as e:
-        # Optionnel : st.error(f"Erreur SMTP : {e}") pour déboguer
         return False
 
 @st.cache_data
@@ -321,7 +320,6 @@ with t_saisie:
                     "groupe": g_sel,
                     "sous_groupe": sg_sel
                 }).execute()
-            
             # --- 3. GÉNÉRATION DU RAPPORT HTML ET ENVOI ---
             # Préparation de la liste des noms des absents en format HTML
             noms_absents_html = "".join([f"<li style='color: #cc0000;'>{n}</li>" for n in liste_absents_reelle])
@@ -381,14 +379,13 @@ with t_saisie:
             </html>
             """
             
-            # Utilisation de la fonction d'envoi (assurez-vous d'utiliser 'html' dans send_email_rapport)
-            # Modifiez votre fonction send_email_rapport pour accepter MIMEMultipart avec subtype='html'
-            success_mail = send_email_rapport_html([EMAIL_CHEF_DEPT, EMAIL_ADJOINT], f"Rapport UDL - {m_sel} - {p_sel}", html_corps)
+            # --- CORRECTION DU NOM DE LA FONCTION ICI ---
+            success_mail = send_email_rapport([EMAIL_CHEF_DEPT, EMAIL_ADJOINT], f"Rapport UDL - {m_sel} - {p_sel}", html_corps)
             
             if success_mail:
                 st.success("✅ Archivage réussi et rapport HTML envoyé aux responsables !"); st.balloons()
             else:
-                st.warning("✅ Archivage réussi, mais l'envoi de l'email a échoué.")
+                st.warning("✅ Archivage réussi, mais l'envoi de l'email a échoué (vérifiez vos identifiants SMTP).")
         else: 
             st.error("Code de validation incorrect.")
 
@@ -547,6 +544,7 @@ with t_admin:
             
     else:
         st.warning("Espace réservé à l'administration.")
+
 
 
 
