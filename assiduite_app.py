@@ -380,7 +380,7 @@ with t_saisie:
             """
             
             # --- CORRECTION DU NOM DE LA FONCTION ICI ---
-            success_mail = send_email_rapport([EMAIL_CHEF_DEPT, EMAIL_ADJOINT], f"Rapport UDL - {m_sel} - {p_sel}", html_corps)
+            success_mail = send_email_rapport([EMAIL_CHEF_DEPT, EMAIL_ADJOINT], f"Rapport de séance - {m_sel} - {p_sel}", html_corps)
             
             if success_mail:
                 st.success("✅ Archivage réussi et rapport HTML envoyé aux responsables !"); st.balloons()
@@ -544,6 +544,7 @@ with t_admin:
             
     else:
         st.warning("Espace réservé à l'administration.")
+
 
 
 
