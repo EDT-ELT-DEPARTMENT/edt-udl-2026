@@ -252,50 +252,49 @@ with st.sidebar:
             st.session_state.confirm_reset = False
 
         if not st.session_state.confirm_reset:
-            if st.button("♻️ Réinitialiser Simulation", use_container_width=True):
+            if st.button("♻️ Réinitialiser Simulation", use_container_width=True, key="btn_reset_sim"):
                 st.session_state.confirm_reset = True
                 st.rerun()
         else:
             st.warning("Confirmer le reset ?")
             c1, c2 = st.columns(2)
-            if c1.button("✅ Oui", use_container_width=True):
+            if c1.button("✅ Oui", use_container_width=True, key="admin_confirm_yes"):
                 st.session_state.reset_counter += 1
                 st.session_state.confirm_reset = False
                 st.rerun()
-            if c2.button("❌ Non", use_container_width=True):
+            if c2.button("❌ Non", use_container_width=True, key="admin_confirm_no"):
                 st.session_state.confirm_reset = False
                 st.rerun()
     else:
         ens_actif = user['nom_officiel']
 
-    # --- NOUVEAU : MODULE DE CHANGEMENT DE CODE ---
+    # --- MODULE DE CHANGEMENT DE CODE ---
     st.divider()
     with st.expander("🔐 Modifier mon code secret"):
         st.write("Le nouveau code remplacera celui reçu par email.")
-        old_p = st.text_input("Code actuel :", type="password", key="old_p_field")
-        new_p = st.text_input("Nouveau code :", type="password", key="new_p_field")
-        conf_p = st.text_input("Confirmer :", type="password", key="conf_p_field")
+        old_p = st.text_input("Code actuel :", type="password", key="chng_old_p")
+        new_p = st.text_input("Nouveau code :", type="password", key="chng_new_p")
+        conf_p = st.text_input("Confirmer :", type="password", key="chng_conf_p")
         
-        if st.button("Mettre à jour mon accès", use_container_width=True):
+        if st.button("Mettre à jour mon accès", use_container_width=True, key="btn_update_pass"):
             if hash_pw(old_p) == user['password_hash']:
                 if new_p == conf_p and len(new_p) >= 4:
-                    supabase.table("enseignants_auth").update({
-                        "password_hash": hash_pw(new_p)
-                    }).eq("email", user['email']).execute()
-                    # Mise à jour locale pour éviter les déconnexions immédiates
-                    st.session_state["user_data"]['password_hash'] = hash_pw(new_p)
-                    st.success("✅ Code mis à jour !")
+                    try:
+                        supabase.table("enseignants_auth").update({
+                            "password_hash": hash_pw(new_p)
+                        }).eq("email", user['email']).execute()
+                        st.session_state["user_data"]['password_hash'] = hash_pw(new_p)
+                        st.success("✅ Code mis à jour !")
+                    except Exception as e:
+                        st.error(f"Erreur Supabase : {e}")
                 else:
                     st.error("❌ Erreur : codes différents ou trop courts.")
             else:
                 st.error("❌ L'ancien code est incorrect.")
 
     st.divider()
-    if st.button("🚪 Déconnexion", use_container_width=True, key="btn_logout_sidebar"):
-        st.session_state["user_data"] = None
-        st.rerun()
-
-    if st.button("🚪 Déconnexion", use_container_width=True, key="btn_logout_sidebar"):
+    # UN SEUL BOUTON DE DÉCONNEXION ICI AVEC UNE CLÉ UNIQUE
+    if st.button("🚪 Déconnexion", use_container_width=True, key="sidebar_logout_final"):
         st.session_state["user_data"] = None
         st.rerun()
 
@@ -641,6 +640,7 @@ with t_admin:
             st.info("La base de données est vide.")
     else:
         st.warning("⚠️ Accès restreint à l'administrateur de la plateforme.")
+
 
 
 
