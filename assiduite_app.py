@@ -237,7 +237,7 @@ with t_saisie:
     st.markdown("### 📝 Notation / Participation")
     cn1, cn2, cn3 = st.columns(3)
     etudiant_note = cn1.selectbox("Cibler un étudiant :", ["Aucun"] + eff_liste['Full_N'].tolist(), key="sb_note_target")
-    critere = cn2.selectbox("Critère :", ["Test", "Examen de TD", "Participation", "Interrogation"], key="sb_note_critere")
+    critere = cn2.selectbox("Evaluation :", ["Test", "Examen de TD", "Examen de TP", "Participation", "Interrogation"], key="sb_note_critere")
     valeur = cn3.text_input("Note/Observation :", key="ti_note_val")
 
     obs = st.text_area("🗒️ Observations générales :", key="ta_obs_gen")
@@ -330,7 +330,7 @@ with t_suivi:
     st.divider()
 
     # --- SECTION B : ÉVALUATIONS ---
-    st.subheader("📝 2. Résultats des Évaluations (Critères)")
+    st.subheader("📝 2. Résultats des Évaluations (Evaluations)")
     nom_eval = st.selectbox("Sélectionner l'étudiant ou global :", options_selection, key="search_eval")
 
     if nom_eval != "--":
@@ -349,7 +349,7 @@ with t_suivi:
                 
                 df_evals['G/SG'] = df_evals['groupe'].astype(str) + " / " + df_evals['sous_groupe'].astype(str)
                 df_view_e = df_evals[['etudiant_nom', 'promotion', 'G/SG', 'matiere', 'Enseignants', 'Horaire', 'date_seance', 'note_evaluation', 'observations']]
-                df_view_e.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Chargé de Matière', 'Horaire', 'Date', 'Critère (Note)', 'Observations']
+                df_view_e.columns = ['Nom & Prénom', 'Promotion', 'G/SG', 'Matière', 'Chargé de Matière', 'Horaire', 'Date', 'Evaluation (Note)', 'Observations']
                 
                 st.dataframe(df_view_e.sort_values(by=["Date", "Nom & Prénom"], ascending=False), use_container_width=True)
                 
@@ -376,6 +376,7 @@ with t_admin:
             buf = io.BytesIO(); df_all.to_excel(buf, index=False)
             st.download_button("📊 Exporter Registre (Excel)", buf.getvalue(), "Archives_Globales.xlsx", key="btn_download_admin")
     else: st.warning("Espace réservé à l'administration.")
+
 
 
 
