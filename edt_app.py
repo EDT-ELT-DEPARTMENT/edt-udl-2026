@@ -1114,14 +1114,21 @@ if df is not None:
                         msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
                         
                         corps_html = f"""
-                        <html><body>
-                            <h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
-                            <p>Sallem,</p>
-                            {df_mail.to_html(index=False, border=1, justify='center')}
-                            <br><p>Cordialement.</p>
-                            <p><b>Service d'enseignement du département d'électrotechnique.</b></p>
-                        </body></html>
-                        """
+                            <html>
+                            <body style="font-family: Arial, sans-serif;">
+                                <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                                <p>Sallem M. <b>{row['Enseignant']}</b>,</p>
+                                <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
+                                <div style="margin: 20px 0;">
+                                    {df_mail.to_html(index=False, border=1, justify='center')}
+                                </div>
+                                <p>Cordialement.</p>
+                                <p>---<br>
+                                <b>Service d'enseignement du département d'électrotechnique.</b><br>
+                                Faculté de génie électrique - UDL-SBA</p>
+                            </body>
+                            </html>
+                            """
                         msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
                         
                         # Mise à jour Supabase avec timestamp ISO
@@ -1152,6 +1159,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
