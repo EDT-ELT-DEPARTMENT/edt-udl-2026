@@ -755,7 +755,7 @@ if df is not None:
             grid_s.columns = jours_list
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
-        import streamlit as st
+import streamlit as st
 import pandas as pd
 import io
 import os
@@ -1152,6 +1152,7 @@ elif portail == "📅 Surveillances Examens":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
