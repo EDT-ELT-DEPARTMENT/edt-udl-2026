@@ -120,8 +120,13 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- CHARGEMENT DES DONNÉES ---
+# Titre : Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA
+
 NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
+NOM_FICHIER_CONTACTS = "Permanents-Vacataires-ELT2-2025-2026.xlsx"
+
 df = None
+repertoire_source = {}
 
 def normalize(s):
     if not s or s == "Non défini": 
@@ -131,6 +136,24 @@ def normalize(s):
     s = s.replace(":00", "").replace("h00", "h")
     return s
 
+# 1. Chargement du répertoire depuis le fichier Permanent/Vacataires
+if os.path.exists(NOM_FICHIER_CONTACTS):
+    try:
+        df_contacts = pd.read_excel(NOM_FICHIER_CONTACTS)
+        # On nettoie les noms de colonnes au cas où il y aurait des espaces
+        df_contacts.columns = [str(c).strip() for c in df_contacts.columns]
+        
+        for _, row in df_contacts.iterrows():
+            # On récupère le NOM (clé principale)
+            nom_brut = str(row.get('NOM', '')).strip().upper()
+            email_brut = str(row.get('Email', '')).strip()
+            
+            if nom_brut and email_brut and email_brut.lower() != 'nan':
+                repertoire_source[nom_brut] = email_brut
+    except Exception as e:
+        st.error(f"Erreur lors de la lecture du fichier contacts: {e}")
+
+# 2. Chargement de l'Emploi du Temps
 if os.path.exists(NOM_FICHIER_FIXE):
     df = pd.read_excel(NOM_FICHIER_FIXE)
     df.columns = [str(c).strip() for c in df.columns]
@@ -1087,6 +1110,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
