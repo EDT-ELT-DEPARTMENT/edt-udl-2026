@@ -467,7 +467,21 @@ if user is None:
 is_admin = user.get("role") == "admin"
 
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
-horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
+horaires_list = [
+    "8h - 9h",
+    "8h - 9h30",
+    "9h - 10h",
+    "9h30 - 11h",
+    "10h - 11h",
+    "11h - 12h",
+    "11h - 12h30",
+    "11h - 14h",
+    "12h - 13h",
+    "12h30 - 14h",
+    "13h - 14h",
+    "14h - 15h30",
+    "15h30 - 17h"
+]
 
 map_h = {normalize(h): h for h in horaires_list}
 map_j = {normalize(j): j for j in jours_list}
@@ -1078,6 +1092,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
