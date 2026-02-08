@@ -890,9 +890,7 @@ elif is_admin and mode_view == "🚩 Vérificateur de conflits":
                 st.warning(f"⚠️ Aucune surveillance trouvée pour : {prof_sel}")
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
-
-
-        
+       
     elif portail == "🤖 Générateur Automatique":
         if not is_admin:
             st.error("Accès réservé au Bureau des Examens.")
@@ -1102,6 +1100,7 @@ elif is_admin and mode_view == "🚩 Vérificateur de conflits":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
