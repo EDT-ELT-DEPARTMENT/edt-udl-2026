@@ -974,7 +974,7 @@ if df is not None:
             "MASSOUM": "ahmassoum@yahoo.fr", "MILOUA": "milouafarid@gmail.com", "MILOUDI": "el.houcine@yahoo.fr",
             "MIMOUNI": "mimounichahinez@gmail.com", "NACERI": "abdnaceri@yahoo.fr", "NASSOUR": "nass_ka@yahoo.fr",
             "NEMMICH": "nemmichsaid@gmail.com", "OUKLI": "mounaoukli@yahoo.fr", "RAMI": "abc_rim20052003@yahoo.fr",
-            "REZOUG": "rezoug.med@gmail.com", "SEHALI": "ya_sahali@yahoo.fr", "SEMMAH": "hafid.semmah@yahoo.fr",
+            "REZOUG": "rezoug.med@gmail.com", "SAHALI": "ya_sahali@yahoo.fr", "SEMMAH": "hafid.semmah@yahoo.fr",
             "TABET DERRAZ": "htabet05@yahoo.fr", "TILMATINE": "atilmatine@gmail.com", "TOUHAMI": "seddik.touhami@gmail.com",
             "ZEBLAH": "azeblah@yahoo.fr", "ZENASNI": "zenasnimeriem29@gmail.com", "ZIDI": "sbzidi@yahoo.fr",
             "ABBES": "abbasmohammed@gmail.com", "ABED": "zoulikhaabed3@gmail.com", "AISSANI": "aliaissani97@gmail.com",
@@ -1100,6 +1100,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
