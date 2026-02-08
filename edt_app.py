@@ -758,10 +758,11 @@ if df is not None:
         import streamlit as st
 import pandas as pd
 import io
+import os
 
-# Hypothèse : La variable is_admin et mode_view sont définies en amont
+# --- SECTION : VÉRIFICATEUR DE CONFLITS ---
 if mode_view == "🚩 Vérificateur de conflits":
-    st.subheader("🚩 Analyse détaillée des Conflits et Collisions")
+    st.subheader("🚩 Analyse et Résolution des Chevauchements (S2-2026)")
     st.write(f"**Date de l'analyse :** Dimanche 08/02/2026")
     st.markdown("---")
 
@@ -784,7 +785,8 @@ if mode_view == "🚩 Vérificateur de conflits":
     # --- A. DÉTECTION DES CONFLITS LIEUX & MATIÈRES (ENSEIGNANTS) ---
     p_groups = df.groupby(['Jours', 'Horaire', 'Enseignants'])
     for (jour, horaire, prof), group in p_groups:
-        if prof == "Non défini" or prof == "ND": continue
+        if prof == "Non défini" or prof == "ND": 
+            continue
         
         if len(group) > 1:
             lieux = group['Lieu'].unique()
@@ -859,12 +861,31 @@ if mode_view == "🚩 Vérificateur de conflits":
     else:
         st.success("✅ Aucun chevauchement détecté après analyse profonde.")
 
-    elif portail == "📅 Surveillances Examens":
-        FILE_S = "surveillances_2026.xlsx"
-        if os.path.exists(FILE_S):
-            df_surv = pd.read_excel(FILE_S)
-            df_surv.columns = [str(c).strip() for c in df_surv.columns]
-            df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
+# --- SECTION : SURVEILLANCES EXAMENS ---
+elif portail == "📅 Surveillances Examens":
+    st.subheader("📅 Gestion et Planning des Surveillances - S2-2026")
+    FILE_S = "surveillances_2026.xlsx"
+    
+    if os.path.exists(FILE_S):
+        df_surv = pd.read_excel(FILE_S)
+        # Nettoyage des colonnes
+        df_surv.columns = [str(c).strip() for c in df_surv.columns]
+        
+        # Gestion des dates
+        df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
+        df_surv = df_surv.sort_values(by='Date_Tri')
+
+        # Filtre par enseignant pour les surveillances
+        prof_search = st.selectbox("🔍 Sélectionner un enseignant :", ["Tous"] + list(df_surv['Enseignant'].unique()))
+        
+        if prof_search != "Tous":
+            df_display = df_surv[df_surv['Enseignant'] == prof_search]
+        else:
+            df_display = df_surv
+
+        st.dataframe(df_display.drop(columns=['Date_Tri']), use_container_width=True)
+    else:
+        st.warning("⚠️ Le fichier 'surveillances_2026.xlsx' est introuvable. Veuillez l'importer dans le répertoire.")
             
             for c in df_surv.columns: 
                 df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
@@ -1126,6 +1147,7 @@ if mode_view == "🚩 Vérificateur de conflits":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
