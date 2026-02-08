@@ -755,88 +755,146 @@ if df is not None:
             grid_s.columns = jours_list
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
-elif is_admin and "Vérificateur" in mode_view:
-    st.subheader("🚩 Analyse détaillée des Conflits et Collisions")
-    
-    # --- PRÉPARATION DES DONNÉES ---
-    # On nettoie les espaces et on s'assure que le DF n'est pas vide
-    df_check = df.copy()
-    df_check.columns = [c.strip() for c in df_check.columns]
-    
-    st.info(f"Analyse de la base de données : **{len(df_check)} lignes** chargées.")
+elif is_admin and mode_view == "🚩 Vérificateur de conflits":
+            st.subheader("🚩 Analyse détaillée des Conflits et Collisions")
+            st.markdown("---")
+            
+            errs_text = []      
+            errs_for_df = []    
+            
+            p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
 
-    # Listes pour stocker les résultats
-    errs_for_df = []    
+            for (jour, horaire, prof), group in p_groups:
+                if len(group) > 1:
+                    lieux_uniques = group['Lieu'].unique()
+                    matieres_uniques = group['Enseignements'].unique()
+                    promos_uniques = group['Promotion'].unique()
+                    
+                    if len(lieux_uniques) == 1 and len(matieres_uniques) == 1:
+                        type_err = "🔵 DOUBLE"
+                        msg = f"**{type_err}** : {prof} | {jour} {horaire} | {matieres_uniques[0]} ({', '.join(promos_uniques)})"
+                        errs_text.append(("info", msg))
+                        detail = "Fusion Groupes/Promotions"
+                    elif len(lieux_uniques) > 1:
+                        type_err = "❌ CONFLIT LIEU"
+                        msg = f"**{type_err}** : {prof} attendu dans plusieurs salles ({', '.join(lieux_uniques)}) à {horaire}"
+                        errs_text.append(("error", msg))
+                        detail = f"Salles différentes : {', '.join(lieux_uniques)}"
+                    else:
+                        type_err = "⚠️ CONFLIT MATIÈRE"
+                        msg = f"**{type_err}** : {prof} a deux matières différentes ({', '.join(matieres_uniques)}) à {horaire}"
+                        errs_text.append(("warning", msg))
+                        detail = "Matières différentes (Même salle)"
 
-    # --- 1. FONCTION : TROUVER UNE SALLE LIBRE ---
-    salles_totales = ["S02", "S04", "S06", "S08", "S08bis", "S10", "S11", "S12", "S13", "S14", "S16", "S17", "S18", "A08", "A09", "A10", "A12", "SN"]
-    def trouver_salle_libre(j, h, df_actuel):
-        occ = df_actuel[(df_actuel["Jours"] == j) & (df_actuel["Horaire"] == h)]["Lieu"].unique()
-        libres = [s for s in salles_totales if s not in occ]
-        return libres[0] if libres else "🚨 SATURATION"
+                    errs_for_df.append({
+                        "Type": type_err, "Enseignant": prof, "Jour": jour, "Horaire": horaire, 
+                        "Détail": detail, "Lieu": ", ".join(lieux_uniques), 
+                        "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
+                    })
 
-    # --- 2. DÉTECTION DES CONFLITS ---
+            s_groups = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu'])
+            for (jour, horaire, salle), group in s_groups:
+                profs_uniques = group['Enseignants'].unique()
+                if len(profs_uniques) > 1:
+                    type_err = "🚫 COLLISION SALLE"
+                    mats = group['Enseignements'].unique()
+                    proms = group['Promotion'].unique()
+                    msg = f"**{type_err}** : Salle **{salle}** occupée par **{', '.join(profs_uniques)}** ({jour} à {horaire})"
+                    errs_text.append(("error", msg))
+                    errs_for_df.append({
+                        "Type": type_err, "Enseignant": "/".join(profs_uniques), "Jour": jour, "Horaire": horaire, 
+                        "Détail": f"Collision salle {salle}", "Lieu": salle, 
+                        "Matières": ", ".join(mats), "Promotions": ", ".join(proms)
+                    })
 
-    # A. CONFLIT ENSEIGNANT (Un prof à deux endroits au même moment)
-    p_groups = df_check[df_check["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
-    for (j, h, prof), group in p_groups:
-        if len(group) > 1:
-            lieux = group['Lieu'].unique()
-            if len(lieux) > 1:
-                errs_for_df.append({
-                    "Type": "❌ CONFLIT ENSEIGNANT",
-                    "Enseignements": " / ".join(group['Enseignements'].unique()),
-                    "Code": "Multi", "Enseignants": prof, "Horaire": h, "Jours": j,
-                    "Lieu": " / ".join(lieux), "Promotion": " / ".join(group['Promotion'].unique()),
-                    "Solution": f"Rapatrier sur {lieux[0]}"
-                })
+            if errs_text:
+                for style, m in errs_text:
+                    if style == "info": st.info(m)
+                    elif style == "warning": st.warning(m)
+                    else: st.error(m)
+                
+                st.divider()
+                df_report = pd.DataFrame(errs_for_df)
+                
+                with st.expander("👁️ Voir le tableau récapitulatif des erreurs"):
+                    st.dataframe(df_report, use_container_width=True)
 
-    # B. COLLISION SALLE (Deux profs dans la même salle)
-    s_groups = df_check[(df_check["Lieu"] != "Non défini") & (df_check["Lieu"] != "Distance")].groupby(['Jours', 'Horaire', 'Lieu'])
-    for (j, h, salle), group in s_groups:
-        profs = group['Enseignants'].unique()
-        if len(profs) > 1:
-            errs_for_df.append({
-                "Type": "🚫 COLLISION SALLE",
-                "Enseignements": " / ".join(group['Enseignements'].unique()),
-                "Code": "Multi", "Enseignants": " / ".join(profs), "Horaire": h, "Jours": j,
-                "Lieu": salle, "Promotion": " / ".join(group['Promotion'].unique()),
-                "Solution": f"Déplacer vers {trouver_salle_libre(j, h, df_check)}"
-            })
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                    df_report.to_excel(writer, index=False, sheet_name='Anomalies_EDT')
+                
+                st.download_button(
+                    label="📥 Imprimer le Rapport Complet",
+                    data=buf.getvalue(),
+                    file_name="Rapport_Conflits_Detaillé_ELT.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            else:
+                st.success("✅ Aucun conflit détecté dans l'emploi du temps.")
 
-    # C. CONFLIT PROMO (Étudiants avec deux cours en même temps)
-    pr_groups = df_check[df_check["Promotion"] != "Non défini"].groupby(['Jours', 'Horaire', 'Promotion'])
-    for (j, h, promo), group in pr_groups:
-        if len(group['Enseignements'].unique()) > 1:
-            errs_for_df.append({
-                "Type": "🎓 CONFLIT PROMO",
-                "Enseignements": " / ".join(group['Enseignements'].unique()),
-                "Code": "Multi", "Enseignants": " / ".join(group['Enseignants'].unique()),
-                "Horaire": h, "Jours": j, "Lieu": " / ".join(group['Lieu'].unique()),
-                "Promotion": promo, "Solution": "Décaler une séance."
-            })
+    elif portail == "📅 Surveillances Examens":
+        FILE_S = "surveillances_2026.xlsx"
+        if os.path.exists(FILE_S):
+            df_surv = pd.read_excel(FILE_S)
+            df_surv.columns = [str(c).strip() for c in df_surv.columns]
+            df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
+            
+            for c in df_surv.columns: 
+                df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
+                
+            c_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_surv.columns else 'Enseignants'
+            u_nom = user['nom_officiel']
+            u_email = user.get('email', '').lower().strip()
 
-    # --- 3. AFFICHAGE ---
-    if errs_for_df:
-        df_report = pd.DataFrame(errs_for_df)
-        st.error(f"Attention : {len(df_report)} anomalies détectées.")
-        
-        # Ordre des colonnes strictement respecté
-        cols = ["Type", "Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion", "Solution"]
-        st.dataframe(df_report[cols], use_container_width=True)
-        
-        # Bouton d'export
-        buf = io.BytesIO()
-        df_report[cols].to_excel(buf, index=False)
-        st.download_button("📥 Télécharger le rapport (.xlsx)", buf.getvalue(), "conflits.xlsx")
-    else:
-        st.success("✅ Aucun conflit détecté dans l'emploi du temps.")  
+            is_master_admin = (u_email == "milouafarid@gmail.com")
 
-elif portail == "🤖 Générateur Automatique":
-    if not is_admin:
-        st.error("Accès réservé au Bureau des Examens.")
-    else:
-        # Suite du code pour le générateur
+            if is_master_admin:
+                tous_les_profs = []
+                for entry in df_surv[c_prof].unique():
+                    for p in entry.split('&'):
+                        clean_p = p.strip()
+                        if clean_p and clean_p not in ["nan", "Non défini", ""]:
+                            tous_les_profs.append(clean_p)
+                liste_profs = sorted(list(set(tous_les_profs)))
+                st.success("🔓 Accès Maître : milouafarid@gmail.com")
+                prof_sel = st.selectbox("🔍 Choisir un enseignant :", liste_profs)
+            else:
+                prof_sel = u_nom
+                st.info(f"👤 Espace Personnel : **{u_nom}**")
+
+            df_u_surv = df_surv[df_surv[c_prof].str.contains(prof_sel, case=False, na=False)].sort_values(by='Date_Tri')
+            st.markdown(f"### 📋 Planning de : {prof_sel}")
+            
+            c1, c2, c3 = st.columns(3)
+            nb_mat = len(df_u_surv[df_u_surv['Heure'].str.contains("08h|09h|10h", case=False)])
+            c1.metric("Séances Total", len(df_u_surv))
+            c2.metric("Matin", nb_mat)
+            c3.metric("Après-midi", len(df_u_surv) - nb_mat)
+            
+            st.divider()
+
+            if not df_u_surv.empty:
+                for _, r in df_u_surv.iterrows():
+                    st.markdown(f"""
+                    <div style="background:#f9f9f9;padding:12px;border-radius:8px;border-left:5px solid #1E3A8A;margin-bottom:8px;">
+                        <span style="font-weight:bold;color:#1E3A8A;">📅 {r['Jour']} {r['Date']}</span> | 🕒 {r['Heure']}<br>
+                        <b>📖 {r['Matière']}</b><br>
+                        <small>📍 {r['Salle']} | 🎓 {r['Promotion']} | 👥 {r[c_prof]}</small>
+                    </div>""", unsafe_allow_html=True)
+                
+                buf = io.BytesIO()
+                df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
+                st.download_button(f"📥 Télécharger l'EDT de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
+            else:
+                st.warning(f"⚠️ Aucune surveillance trouvée pour : {prof_sel}")
+        else:
+            st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
+
+    elif portail == "🤖 Générateur Automatique":
+        if not is_admin:
+            st.error("Accès réservé au Bureau des Examens.")
+        else:
             st.header("⚙️ Moteur de Génération de Surveillances")
             if "effectifs_db" not in st.session_state:
                 st.session_state.effectifs_db = {"ING1": [50, 4], "MCIL1": [40, 3], "L1MCIL": [288, 4], "L2ELT": [90, 2], "M1RE": [15, 1], "ING2": [16, 1]}
@@ -892,101 +950,90 @@ elif portail == "🤖 Générateur Automatique":
                     xlsx_buf = io.BytesIO()
                     with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer: st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER LE PLANNING", xlsx_buf.getvalue(), "EDT_Surveillances_2026.xlsx")
-elif portail == "👥 Portail Enseignants":
 
-        # <--- Tout ce qui suit doit être décalé d'un cran par rapport au elif
+    elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
             st.stop()
-
-        # 1. RÉPÉRTOIRE SOURCE COMPLET
-        repertoire_source = {
-            "ABID": "irecom_abid@yahoo.fr", "AKSA": "wpierlo@hotmail.fr", "ARDJOUN": "ardjoun.s.e.m@gmail.com",
-            "AYAD": "ayad_abdelghani@yahoo.fr", "AZAIZ": "ahazaiz2011@yahoo.fr", "BADIS": "karis483@hotmail.fr",
-            "BAHLIL": "bahlilmounir@yahoo.fr", "BECHEKIR": "seyfeddine.electrotechnique@gmail.com",
-            "BELLEBNA": "yassinebellebna@yahoo.fr", "BENAISSA": "aek_benaissa@yahoo.fr",
-            "BENBALIL": "nn.nn.phy.chi@gmail.com", "BENDAOUD": "babdelber22@yahoo.fr",
-            "BENDIMERAD": "s_bendimerad@yahoo.fr", "BENGRIT": "malikabengrit@gmail.com",
-            "BENHAMIDA": "farid.benhamida@yahoo.fr", "BENTAALLAH": "bentaallah65@yahoo.fr",
-            "BERMAKI": "bermaki.hamza@gmail.com", "BOUKHOULDA": "boukhoulda.fodil@yahoo.fr",
-            "BOUNOUA": "hsemmach@yahoo.fr", "M.BRAHAMI": "mbrahami@yahoo.com", "MN.BRAHAMI": "nadjbrahami@gmail.com", "DJERIRI": "djeriri_youcef@yahoo.fr",
-            "FELLAH": "mkfellah@gmail.com", "GHEZAL": "nour73_fac@yahoo.fr", "HADJERI": "shadjeri2@yahoo.fr",
-            "HANAFI": "sal_hanafi@outlook.com", "HASSANI": "naimahassani69@yahoo.fr", "JBILOU": "harmel71@yahoo.fr",
-            "KHATIR": "med_khatir@yahoo.fr", "LALEDJ": "nadjet_69@hotmail.fr", "MAAMMAR": "mohamed.maammar@gmail.com",
-            "MASSOUM": "ahmassoum@yahoo.fr", "MILOUA": "milouafarid@gmail.com", "MILOUDI": "el.houcine@yahoo.fr",
-            "MIMOUNI": "mimounichahinez@gmail.com", "NACERI": "abdnaceri@yahoo.fr", "NASSOUR": "nass_ka@yahoo.fr",
-            "NEMMICH": "nemmichsaid@gmail.com", "OUKLI": "mounaoukli@yahoo.fr", "RAMI": "abc_rim20052003@yahoo.fr",
-            "REZOUG": "rezoug.med@gmail.com", "SAHALI": "ya_sahali@yahoo.fr", "SEMMAH": "hafid.semmah@yahoo.fr",
-            "TABET DERRAZ": "htabet05@yahoo.fr", "TILMATINE": "atilmatine@gmail.com", "TOUHAMI": "seddik.touhami@gmail.com",
-            "ZEBLAH": "azeblah@yahoo.fr", "ZENASNI": "zenasnimeriem29@gmail.com", "ZIDI": "sbzidi@yahoo.fr",
-            "ABBES": "abbasmohammed@gmail.com", "ABED": "zoulikhaabed3@gmail.com", "AISSANI": "aliaissani97@gmail.com",
-            "ARAB": "arab4abdelmajid@gmail", "BELABED": "meriembelabed5@gmail.com", "BELHABRI": "ri123hab@gmail.com",
-            "BELHALOUCHE": "lakhdar_belhallouche@hotmail.fr", "BENCELLA": "sarrabencella@gmail.com",
-            "BENDIDA": "bendida65@gmail.com", "BENKABOU": "bkbhbb22@gmail.com", "BENMASOUD": "l.benmessaoud@yahoo.fr",
-            "BENSALEM": "rawnakritedj@gmail.com", "BERROUNA": "berhenen@yahoo.fr", "BOUBKEUR": "boubkeurhalima97sba@gmail.com",
-            "BOUKHARI": "boukhari_sf@yahoo.com", "BOULARAF": "douaaboularaf@gmail.com", "CHIKHI": "chikhi nawel75@yahoo.fr",
-            "DELLOUM": "amiradelloum28@gmail.com", "DJELLOULI": "djellouli08younes08@gmail.com", "DJIZIRI": "soumiadjiziri22@gmail.com",
-            "DRICI": "Lamia_du22@hotmail.com", "ELGHODASSE": "elghodasseabdelmadjid@gmail.com", "FENTAZY": "fantazibelkisse.13@gmail.com",
-            "FEZAZI": "khadidjafezazi90@gmail", "GHALEM": "ghalem.abdelhak@yahoo.com", "HADER": "aer.hader91@gmail.com",
-            "HAMMAR": "protoboy9999@gmail.com", "KADA ZAIR": "ikram.kadazair@gmail.com", "KADRI": "kadrirania51@gmail.com",
-            "LATRECHE": "m_latreche@yahoo.com", "LAYATI": "layatimedi@gmail.com", "LOUSDAD": "lousdadaymen.aziz@gmail.com",
-            "MAHKOUKA": "mahkouka.zaza@gmail.com", "MECHETTEM": "khalidamet4@gmail.com", "MEKHALEF": "mekhalefleila@gmail.com",
-            "MESLEM": "mehadjiameslem@gmail.com", "MESTARI": "wahibaelmestarii@gmail.com", "F.MILOUA": "fethi22miloua@gmail.com",
-            "MIR": "khelifa-mir@outlook.fr", "MOKADEM": "mokeddem.amina2222@gmail.com", "MOULAY": "mmiloud@yahoo.fr",
-            "NEFAHA": "Boba1620@hotmail.com", "REDJALA": "majdaredjala1492@gmail.com", "SACI": "sacihamza40@gmail.com",
-            "TURKI": "turkibilal22@gmail.com", "ZAREB": "zarebmohamedamine@gmail.com", "ZERDANI": "medzerdani@gmail.com",
-            "ZIDI-2": "larbi.zidi6@gmail.com", "RAIS": "amrais@yahoo.com", "REGUIG": "abdeldjalil.reguig@outlook.com"
-        }
-
-        # --- EN-TÊTE ---
+        
+        # --- EN-TÊTE DE LA PAGE AVEC LOGO ---
         col_l, col_t = st.columns([1, 5])
-        with col_l: st.image("logo.PNG", width=80)
+        with col_l:
+            st.image("logo.PNG", width=80)
         with col_t:
             st.header("🏢 Répertoire et Envoi Automatisé")
             st.write("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique")
 
-        # --- FUSION SUPABASE + RÉPERTOIRE ---
+        # 1. RÉCUPÉRATION DES DONNÉES
         res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, last_sent").execute()
-        dict_auth = {str(row['nom_officiel']).strip().upper(): row for row in res_auth.data} if res_auth.data else {}
-        
-        noms_edt = sorted([e for e in df['Enseignants'].unique() if str(e) not in ["Non défini", "nan", ""]])
-        
-        donnees_finales = []
-        for nom in noms_edt:
-            nom_key = str(nom).strip().upper()
-            email_db = dict_auth.get(nom_key, {}).get("email")
-            email_source = repertoire_source.get(nom_key, "⚠️ Email manquant")
-            
-            email_final = email_db if email_db else email_source
-            last_sent = dict_auth.get(nom_key, {}).get("last_sent")
-            
-            donnees_finales.append({
-                "Enseignant": nom,
-                "Email": email_final,
-                "Statut": "✅ Envoyé" if last_sent else "⏳ En attente" if "@" in str(email_final) else "❌ Absent"
-            })
+        dict_info = {str(row['nom_officiel']).strip().upper(): {"email": row['email'], "statut": "✅ Envoyé" if row['last_sent'] else "⏳ En attente"} for row in res_auth.data} if res_auth.data else {}
+        noms_excel = sorted([e for e in df['Enseignants'].unique() if str(e) not in ["Non défini", "nan", ""]])
+        donnees_finales = [{"Enseignant": nom, "Email": dict_info.get(str(nom).strip().upper(), {"email": "⚠️ Non inscrit", "statut": "❌ Absent"})["email"], "État d'envoi": dict_info.get(str(nom).strip().upper(), {"email": "", "statut": "❌ Absent"})["statut"]} for nom in noms_excel]
 
+        # 2. BOUTONS D'ACTION (GLOBAL)
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🔄 Actualiser & Réinitialiser les statuts", use_container_width=True):
+                supabase.table("enseignants_auth").update({"last_sent": None}).neq("email", "").execute()
+                st.success("✅ Statuts réinitialisés !")
+                st.rerun()
+        
+        with c2:
+            if st.button("🚀 Lancer l'envoi groupé (En attente)", type="primary", use_container_width=True):
+                import smtplib
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+                from datetime import datetime
+                try:
+                    server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
+                    server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
+                    for row in donnees_finales:
+                        if row["État d'envoi"] == "⏳ En attente" and "@" in str(row["Email"]):
+                            df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
+                            df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+                            msg = MIMEMultipart()
+                            msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
+                            msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
+                            corps_html = f"<html><body><h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2><p>Sallem, Veuillez recevoir votre emploie du temps du semestre 02</p>{df_mail.to_html(index=False, border=1, justify='center')}<br><p>Cordialement.</p><p><b>Service d'enseignement du département d'électrotechnique.</b></p></body></html>"
+                            msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
+                            supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
+                    server.quit(); st.success("✅ Envoi groupé terminé !"); st.rerun()
+                except Exception as e: st.error(f"Erreur : {e}")
+
+        st.divider()
+
+        # 3. LISTE INDIVIDUELLE AVEC FILTRES DE RECHERCHE ET STATUT
         st.divider()
         st.subheader("📬 Gestion individuelle des envois")
 
-        f1, f2 = st.columns(2)
-        with f1:
-            choix_ens = st.selectbox("🔍 Chercher un nom :", ["TOUS"] + [d["Enseignant"] for d in donnees_finales])
-        with f2:
+        # --- ZONE DE FILTRES ---
+        col_f1, col_f2 = st.columns(2)
+        
+        with col_f1:
+            liste_noms = ["TOUS"] + sorted([row["Enseignant"] for row in donnees_finales])
+            choix_enseignant = st.selectbox("🔍 Chercher un nom :", liste_noms)
+            
+        with col_f2:
+            # Filtre demandé : permet d'afficher uniquement ceux en attente
             choix_statut = st.selectbox("📊 Filtrer par statut :", ["TOUS", "⏳ En attente", "✅ Envoyé", "❌ Absent"])
 
-        # --- BOUCLE D'AFFICHAGE ---
+        # --- AFFICHAGE FILTRÉ ---
         for idx, row in enumerate(donnees_finales):
-            if choix_ens != "TOUS" and row["Enseignant"] != choix_ens: continue
-            if choix_statut != "TOUS" and row["Statut"] != choix_statut: continue
-
-            col_e, col_m, col_s, col_a = st.columns([2, 2, 1, 1])
-            col_e.write(f"**{row['Enseignant']}**")
-            col_m.write(f"`{row['Email']}`")
-            col_s.write(row["Statut"])
-
+            # Filtre 1 : Par nom
+            if choix_enseignant != "TOUS" and row["Enseignant"] != choix_enseignant:
+                continue
+            
+            # Filtre 2 : Par statut (ex: afficher seulement 'En attente')
+            if choix_statut != "TOUS" and row["État d'envoi"] != choix_statut:
+                continue
+                
+            col_ens, col_mail, col_stat, col_act = st.columns([2, 2, 1, 1])
+            col_ens.write(f"**{row['Enseignant']}**")
+            col_mail.write(row['Email'])
+            col_stat.write(row["État d'envoi"])
+            
             if "@" in str(row["Email"]):
-                if col_a.button("📧 Envoyer", key=f"btn_{idx}"):
+                if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}_{idx}"):
                     import smtplib
                     from email.mime.text import MIMEText
                     from email.mime.multipart import MIMEMultipart
@@ -995,31 +1042,31 @@ elif portail == "👥 Portail Enseignants":
                         server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
                         server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
                         
+                        # Récupération des données selon la disposition demandée
                         df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
                         df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
                         
                         msg = MIMEMultipart()
-                        msg['Subject'] = f"EDT S2-2026 - {row['Enseignant']}"
+                        msg['Subject'] = f"Mise à jour Emploi du Temps - {row['Enseignant']}"
                         msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
                         
-                        html = f"""
+                        corps_html = f"""
                         <html><body>
-                            <h2>Plateforme de gestion des EDTs-S2-2026</h2>
-                            <h4>Département d'Électrotechnique - UDL-SBA</h4>
-                            <p>Salam, Veuillez trouver ci-dessous votre emploi du temps pour le Semestre 2 :</p>
+                            <h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                            <p>Sallem,</p>
                             {df_mail.to_html(index=False, border=1, justify='center')}
-                            <br><p>Cordialement,<br><b>Service d'enseignement.</b></p>
+                            <br><p>Cordialement.</p>
+                            <p><b>Service d'enseignement du département d'électrotechnique.</b></p>
                         </body></html>
                         """
-                        msg.attach(MIMEText(html, 'html'))
-                        server.send_message(msg); server.quit()
+                        msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
                         
-                        # Mise à jour Supabase si possible
-                        supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("nom_officiel", row["Enseignant"]).execute()
+                        # Mise à jour Supabase avec timestamp ISO
+                        supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
                         
-                        st.success(f"EDT envoyé à {row['Enseignant']} !"); st.rerun()
+                        server.quit(); st.success(f"✅ Envoyé à {row['Enseignant']}"); st.rerun()
                     except Exception as e: st.error(f"Erreur : {e}")
-elif portail == "🎓 Portail Étudiants":
+    elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
         # DISPOSITION : Enseignements, Code, Enseignants, Horaire, Jours, Lieu
@@ -1042,7 +1089,6 @@ elif portail == "🎓 Portail Étudiants":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
-
 
 
 
