@@ -466,20 +466,9 @@ if user is None:
 
 is_admin = user.get("role") == "admin"
 
-# --- CONFIGURATION DES HORAIRES ET JOURS ---
-
-# 1. Définition précise de votre nouvelle liste d'horaires (13 créneaux)
-horaires_list = [
-    "8h - 9h", "8h - 9h30", "9h - 10h", "9h30 - 11h", 
-    "10h - 11h", "11h - 12h", "11h - 12h30", "11h - 14h", 
-    "12h - 13h", "12h30 - 14h", "13h - 14h", "14h - 15h30", "15h30 - 17h"
-]
-
-# 2. Définition des jours de la semaine
 jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+horaires_list = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
 
-# 3. Mapping pour la normalisation (crucial pour faire le lien avec l'Excel)
-# Cela permet de faire correspondre "8h-9h30" (Excel) avec "8h - 9h30" (Affichage)
 map_h = {normalize(h): h for h in horaires_list}
 map_j = {normalize(j): j for j in jours_list}
 
@@ -755,7 +744,7 @@ if df is not None:
             grid_s.columns = jours_list
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
-elif is_admin and mode_view == "🚩 Vérificateur de conflits":
+        elif is_admin and mode_view == "🚩 Vérificateur de conflits":
             st.subheader("🚩 Analyse détaillée des Conflits et Collisions")
             st.markdown("---")
             
@@ -833,7 +822,7 @@ elif is_admin and mode_view == "🚩 Vérificateur de conflits":
             else:
                 st.success("✅ Aucun conflit détecté dans l'emploi du temps.")
 
-elif portail == "📅 Surveillances Examens":
+    elif portail == "📅 Surveillances Examens":
         FILE_S = "surveillances_2026.xlsx"
         if os.path.exists(FILE_S):
             df_surv = pd.read_excel(FILE_S)
@@ -891,7 +880,7 @@ elif portail == "📅 Surveillances Examens":
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
 
-elif portail == "🤖 Générateur Automatique":
+    elif portail == "🤖 Générateur Automatique":
         if not is_admin:
             st.error("Accès réservé au Bureau des Examens.")
         else:
@@ -951,7 +940,7 @@ elif portail == "🤖 Générateur Automatique":
                     with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer: st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER LE PLANNING", xlsx_buf.getvalue(), "EDT_Surveillances_2026.xlsx")
 
-elif portail == "👥 Portail Enseignants":
+    elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
             st.stop()
@@ -1066,7 +1055,7 @@ elif portail == "👥 Portail Enseignants":
                         
                         server.quit(); st.success(f"✅ Envoyé à {row['Enseignant']}"); st.rerun()
                     except Exception as e: st.error(f"Erreur : {e}")
-elif portail == "🎓 Portail Étudiants":
+    elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
         # DISPOSITION : Enseignements, Code, Enseignants, Horaire, Jours, Lieu
@@ -1089,31 +1078,6 @@ elif portail == "🎓 Portail Étudiants":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
