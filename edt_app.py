@@ -952,137 +952,131 @@ if df is not None:
                     st.download_button("📥 TÉLÉCHARGER LE PLANNING", xlsx_buf.getvalue(), "EDT_Surveillances_2026.xlsx")
 
     elif portail == "👥 Portail Enseignants":
-    if not is_admin:
-        st.error("🚫 ACCÈS RESTREINT.")
-        st.stop()
+        # <--- Tout ce qui suit doit être décalé d'un cran par rapport au elif
+        if not is_admin:
+            st.error("🚫 ACCÈS RESTREINT.")
+            st.stop()
 
-    # --- 1. RÉPERTOIRE SOURCE COMPLET (Fusion Permanents + Vacataires) ---
-    repertoire_source = {
-        "ABID": "irecom_abid@yahoo.fr", "AKSA": "wpierlo@hotmail.fr", "ARDJOUN": "ardjoun.s.e.m@gmail.com",
-        "AYAD": "ayad_abdelghani@yahoo.fr", "AZAIZ": "ahazaiz2011@yahoo.fr", "BADIS": "karis483@hotmail.fr",
-        "BAHLIL": "bahlilmounir@yahoo.fr", "BECHEKIR": "seyfeddine.electrotechnique@gmail.com",
-        "BELLEBNA": "yassinebellebna@yahoo.fr", "BENAISSA": "aek_benaissa@yahoo.fr",
-        "BENBALIL": "nn.nn.phy.chi@gmail.com", "BENDAOUD": "babdelber22@yahoo.fr",
-        "BENDIMERAD": "s_bendimerad@yahoo.fr", "BENGRIT": "malikabengrit@gmail.com",
-        "BENHAMIDA": "farid.benhamida@yahoo.fr", "BENTAALLAH": "bentaallah65@yahoo.fr",
-        "BERMAKI": "bermaki.hamza@gmail.com", "BOUKHOULDA": "boukhoulda.fodil@yahoo.fr",
-        "BOUNOUA": "hsemmach@yahoo.fr", "BRAHAMI": "mbrahami@yahoo.com", "DJERIRI": "djeriri_youcef@yahoo.fr",
-        "FELLAH": "mkfellah@gmail.com", "GHEZAL": "nour73_fac@yahoo.fr", "HADJERI": "shadjeri2@yahoo.fr",
-        "HANAFI": "sal_hanafi@outlook.com", "HASSANI": "naimahassani69@yahoo.fr", "JBILOU": "harmel71@yahoo.fr",
-        "KHATIR": "med_khatir@yahoo.fr", "LALEDJ": "nadjet_69@hotmail.fr", "MAAMMAR": "mohamed.maammar@gmail.com",
-        "MASSOUM": "ahmassoum@yahoo.fr", "MILOUA": "milouafarid@gmail.com", "MILOUDI": "el.houcine@yahoo.fr",
-        "MIMOUNI": "mimounichahinez@gmail.com", "NACERI": "abdnaceri@yahoo.fr", "NASSOUR": "nass_ka@yahoo.fr",
-        "NEMMICH": "nemmichsaid@gmail.com", "OUKLI": "mounaoukli@yahoo.fr", "RAMI": "abc_rim20052003@yahoo.fr",
-        "REZOUG": "rezoug.med@gmail.com", "SEHALI": "ya_sahali@yahoo.fr", "SEMMAH": "hafid.semmah@yahoo.fr",
-        "TABET DERRAZ": "htabet05@yahoo.fr", "TILMATINE": "atilmatine@gmail.com", "TOUHAMI": "seddik.touhami@gmail.com",
-        "ZEBLAH": "azeblah@yahoo.fr", "ZENASNI": "zenasnimeriem29@gmail.com", "ZIDI": "sbzidi@yahoo.fr",
-        "ABBES": "abbasmohammed@gmail.com", "ABED": "zoulikhaabed3@gmail.com", "AISSANI": "aliaissani97@gmail.com",
-        "ARAB": "arab4abdelmajid@gmail", "BELABED": "meriembelabed5@gmail.com", "BELHABRI": "ri123hab@gmail.com",
-        "BELHALOUCHE": "lakhdar_belhallouche@hotmail.fr", "BENCELLA": "sarrabencella@gmail.com",
-        "BENDIDA": "bendida65@gmail.com", "BENKABOU": "bkbhbb22@gmail.com", "BENMASOUD": "l.benmessaoud@yahoo.fr",
-        "BENSALEM": "rawnakritedj@gmail.com", "BERROUNA": "berhenen@yahoo.fr", "BOUBKEUR": "boubkeurhalima97sba@gmail.com",
-        "BOUKHARI": "boukhari_sf@yahoo.com", "BOULARAF": "douaaboularaf@gmail.com", "CHIKHI": "chikhi nawel75@yahoo.fr",
-        "DELLOUM": "amiradelloum28@gmail.com", "DJELLOULI": "djellouli08younes08@gmail.com", "DJIZIRI": "soumiadjiziri22@gmail.com",
-        "DRICI": "Lamia_du22@hotmail.com", "ELGHODASSE": "elghodasseabdelmadjid@gmail.com", "FENTAZY": "fantazibelkisse.13@gmail.com",
-        "FEZAZI": "khadidjafezazi90@gmail", "GHALEM": "ghalem.abdelhak@yahoo.com", "HADER": "aer.hader91@gmail.com",
-        "HAMMAR": "protoboy9999@gmail.com", "KADA ZAIR": "ikram.kadazair@gmail.com", "KADRI": "kadrirania51@gmail.com",
-        "LATRECHE": "m_latreche@yahoo.com", "LAYATI": "layatimedi@gmail.com", "LOUSDAD": "lousdadaymen.aziz@gmail.com",
-        "MAHKOUKA": "mahkouka.zaza@gmail.com", "MECHETTEM": "khalidamet4@gmail.com", "MEKHALEF": "mekhalefleila@gmail.com",
-        "MESLEM": "mehadjiameslem@gmail.com", "MESTARI": "wahibaelmestarii@gmail.com", "MILOUA": "fethi22miloua@gmail.com",
-        "MIR": "khelifa-mir@outlook.fr", "MOKADEM": "mokeddem.amina2222@gmail.com", "MOULAY": "mmiloud@yahoo.fr",
-        "NEFAHA": "Boba1620@hotmail.com", "REDJALA": "majdaredjala1492@gmail.com", "SACI": "sacihamza40@gmail.com",
-        "TURKI": "turkibilal22@gmail.com", "ZAREB": "zarebmohamedamine@gmail.com", "ZERDANI": "medzerdani@gmail.com",
-        "ZIDI": "larbi.zidi6@gmail.com", "RAIS": "amrais@yahoo.com", "REGUIG": "abdeldjalil.reguig@outlook.com"
-    }
+        # 1. RÉPÉRTOIRE SOURCE COMPLET
+        repertoire_source = {
+            "ABID": "irecom_abid@yahoo.fr", "AKSA": "wpierlo@hotmail.fr", "ARDJOUN": "ardjoun.s.e.m@gmail.com",
+            "AYAD": "ayad_abdelghani@yahoo.fr", "AZAIZ": "ahazaiz2011@yahoo.fr", "BADIS": "karis483@hotmail.fr",
+            "BAHLIL": "bahlilmounir@yahoo.fr", "BECHEKIR": "seyfeddine.electrotechnique@gmail.com",
+            "BELLEBNA": "yassinebellebna@yahoo.fr", "BENAISSA": "aek_benaissa@yahoo.fr",
+            "BENBALIL": "nn.nn.phy.chi@gmail.com", "BENDAOUD": "babdelber22@yahoo.fr",
+            "BENDIMERAD": "s_bendimerad@yahoo.fr", "BENGRIT": "malikabengrit@gmail.com",
+            "BENHAMIDA": "farid.benhamida@yahoo.fr", "BENTAALLAH": "bentaallah65@yahoo.fr",
+            "BERMAKI": "bermaki.hamza@gmail.com", "BOUKHOULDA": "boukhoulda.fodil@yahoo.fr",
+            "BOUNOUA": "hsemmach@yahoo.fr", "BRAHAMI": "mbrahami@yahoo.com", "DJERIRI": "djeriri_youcef@yahoo.fr",
+            "FELLAH": "mkfellah@gmail.com", "GHEZAL": "nour73_fac@yahoo.fr", "HADJERI": "shadjeri2@yahoo.fr",
+            "HANAFI": "sal_hanafi@outlook.com", "HASSANI": "naimahassani69@yahoo.fr", "JBILOU": "harmel71@yahoo.fr",
+            "KHATIR": "med_khatir@yahoo.fr", "LALEDJ": "nadjet_69@hotmail.fr", "MAAMMAR": "mohamed.maammar@gmail.com",
+            "MASSOUM": "ahmassoum@yahoo.fr", "MILOUA": "milouafarid@gmail.com", "MILOUDI": "el.houcine@yahoo.fr",
+            "MIMOUNI": "mimounichahinez@gmail.com", "NACERI": "abdnaceri@yahoo.fr", "NASSOUR": "nass_ka@yahoo.fr",
+            "NEMMICH": "nemmichsaid@gmail.com", "OUKLI": "mounaoukli@yahoo.fr", "RAMI": "abc_rim20052003@yahoo.fr",
+            "REZOUG": "rezoug.med@gmail.com", "SEHALI": "ya_sahali@yahoo.fr", "SEMMAH": "hafid.semmah@yahoo.fr",
+            "TABET DERRAZ": "htabet05@yahoo.fr", "TILMATINE": "atilmatine@gmail.com", "TOUHAMI": "seddik.touhami@gmail.com",
+            "ZEBLAH": "azeblah@yahoo.fr", "ZENASNI": "zenasnimeriem29@gmail.com", "ZIDI": "sbzidi@yahoo.fr",
+            "ABBES": "abbasmohammed@gmail.com", "ABED": "zoulikhaabed3@gmail.com", "AISSANI": "aliaissani97@gmail.com",
+            "ARAB": "arab4abdelmajid@gmail", "BELABED": "meriembelabed5@gmail.com", "BELHABRI": "ri123hab@gmail.com",
+            "BELHALOUCHE": "lakhdar_belhallouche@hotmail.fr", "BENCELLA": "sarrabencella@gmail.com",
+            "BENDIDA": "bendida65@gmail.com", "BENKABOU": "bkbhbb22@gmail.com", "BENMASOUD": "l.benmessaoud@yahoo.fr",
+            "BENSALEM": "rawnakritedj@gmail.com", "BERROUNA": "berhenen@yahoo.fr", "BOUBKEUR": "boubkeurhalima97sba@gmail.com",
+            "BOUKHARI": "boukhari_sf@yahoo.com", "BOULARAF": "douaaboularaf@gmail.com", "CHIKHI": "chikhi nawel75@yahoo.fr",
+            "DELLOUM": "amiradelloum28@gmail.com", "DJELLOULI": "djellouli08younes08@gmail.com", "DJIZIRI": "soumiadjiziri22@gmail.com",
+            "DRICI": "Lamia_du22@hotmail.com", "ELGHODASSE": "elghodasseabdelmadjid@gmail.com", "FENTAZY": "fantazibelkisse.13@gmail.com",
+            "FEZAZI": "khadidjafezazi90@gmail", "GHALEM": "ghalem.abdelhak@yahoo.com", "HADER": "aer.hader91@gmail.com",
+            "HAMMAR": "protoboy9999@gmail.com", "KADA ZAIR": "ikram.kadazair@gmail.com", "KADRI": "kadrirania51@gmail.com",
+            "LATRECHE": "m_latreche@yahoo.com", "LAYATI": "layatimedi@gmail.com", "LOUSDAD": "lousdadaymen.aziz@gmail.com",
+            "MAHKOUKA": "mahkouka.zaza@gmail.com", "MECHETTEM": "khalidamet4@gmail.com", "MEKHALEF": "mekhalefleila@gmail.com",
+            "MESLEM": "mehadjiameslem@gmail.com", "MESTARI": "wahibaelmestarii@gmail.com", "MILOUA": "fethi22miloua@gmail.com",
+            "MIR": "khelifa-mir@outlook.fr", "MOKADEM": "mokeddem.amina2222@gmail.com", "MOULAY": "mmiloud@yahoo.fr",
+            "NEFAHA": "Boba1620@hotmail.com", "REDJALA": "majdaredjala1492@gmail.com", "SACI": "sacihamza40@gmail.com",
+            "TURKI": "turkibilal22@gmail.com", "ZAREB": "zarebmohamedamine@gmail.com", "ZERDANI": "medzerdani@gmail.com",
+            "ZIDI": "larbi.zidi6@gmail.com", "RAIS": "amrais@yahoo.com", "REGUIG": "abdeldjalil.reguig@outlook.com"
+        }
 
-    # --- EN-TÊTE ---
-    col_l, col_t = st.columns([1, 5])
-    with col_l: st.image("logo.PNG", width=80)
-    with col_t:
-        st.header("🏢 Répertoire et Envoi Automatisé")
-        st.write("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique")
+        # --- EN-TÊTE ---
+        col_l, col_t = st.columns([1, 5])
+        with col_l: st.image("logo.PNG", width=80)
+        with col_t:
+            st.header("🏢 Répertoire et Envoi Automatisé")
+            st.write("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique")
 
-    # --- 2. FUSION SUPABASE + RÉPERTOIRE ---
-    res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, last_sent").execute()
-    dict_auth = {str(row['nom_officiel']).strip().upper(): row for row in res_auth.data} if res_auth.data else {}
-    
-    noms_edt = sorted([e for e in df['Enseignants'].unique() if str(e) not in ["Non défini", "nan", ""]])
-    
-    donnees_finales = []
-    for nom in noms_edt:
-        nom_key = str(nom).strip().upper()
-        email_db = dict_auth.get(nom_key, {}).get("email")
-        email_source = repertoire_source.get(nom_key, "⚠️ Email manquant")
+        # --- FUSION SUPABASE + RÉPERTOIRE ---
+        res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, last_sent").execute()
+        dict_auth = {str(row['nom_officiel']).strip().upper(): row for row in res_auth.data} if res_auth.data else {}
         
-        email_final = email_db if email_db else email_source
-        last_sent = dict_auth.get(nom_key, {}).get("last_sent")
+        noms_edt = sorted([e for e in df['Enseignants'].unique() if str(e) not in ["Non défini", "nan", ""]])
         
-        donnees_finales.append({
-            "Enseignant": nom,
-            "Email": email_final,
-            "Statut": "✅ Envoyé" if last_sent else "⏳ En attente" if "@" in str(email_final) else "❌ Absent"
-        })
+        donnees_finales = []
+        for nom in noms_edt:
+            nom_key = str(nom).strip().upper()
+            email_db = dict_auth.get(nom_key, {}).get("email")
+            email_source = repertoire_source.get(nom_key, "⚠️ Email manquant")
+            
+            email_final = email_db if email_db else email_source
+            last_sent = dict_auth.get(nom_key, {}).get("last_sent")
+            
+            donnees_finales.append({
+                "Enseignant": nom,
+                "Email": email_final,
+                "Statut": "✅ Envoyé" if last_sent else "⏳ En attente" if "@" in str(email_final) else "❌ Absent"
+            })
 
-    # --- 3. ACTIONS ---
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("🔄 Réinitialiser les statuts", use_container_width=True):
-            supabase.table("enseignants_auth").update({"last_sent": None}).execute()
-            st.success("Statuts réinitialisés !"); st.rerun()
+        st.divider()
+        st.subheader("📬 Gestion individuelle des envois")
 
-    st.divider()
-    st.subheader("📬 Gestion individuelle des envois")
+        f1, f2 = st.columns(2)
+        with f1:
+            choix_ens = st.selectbox("🔍 Chercher un nom :", ["TOUS"] + [d["Enseignant"] for d in donnees_finales])
+        with f2:
+            choix_statut = st.selectbox("📊 Filtrer par statut :", ["TOUS", "⏳ En attente", "✅ Envoyé", "❌ Absent"])
 
-    f1, f2 = st.columns(2)
-    with f1:
-        choix_ens = st.selectbox("🔍 Chercher un nom :", ["TOUS"] + [d["Enseignant"] for d in donnees_finales])
-    with f2:
-        choix_statut = st.selectbox("📊 Filtrer par statut :", ["TOUS", "⏳ En attente", "✅ Envoyé", "❌ Absent"])
+        # --- BOUCLE D'AFFICHAGE ---
+        for idx, row in enumerate(donnees_finales):
+            if choix_ens != "TOUS" and row["Enseignant"] != choix_ens: continue
+            if choix_statut != "TOUS" and row["Statut"] != choix_statut: continue
 
-    # --- 4. BOUCLE D'AFFICHAGE ---
-    for idx, row in enumerate(donnees_finales):
-        if choix_ens != "TOUS" and row["Enseignant"] != choix_ens: continue
-        if choix_statut != "TOUS" and row["Statut"] != choix_statut: continue
+            col_e, col_m, col_s, col_a = st.columns([2, 2, 1, 1])
+            col_e.write(f"**{row['Enseignant']}**")
+            col_m.write(f"`{row['Email']}`")
+            col_s.write(row["Statut"])
 
-        col_e, col_m, col_s, col_a = st.columns([2, 2, 1, 1])
-        col_e.write(f"**{row['Enseignant']}**")
-        col_m.write(f"`{row['Email']}`")
-        col_s.write(row["Statut"])
-
-        if "@" in str(row["Email"]):
-            if col_a.button("📧 Envoyer", key=f"btn_{idx}"):
-                import smtplib
-                from email.mime.text import MIMEText
-                from email.mime.multipart import MIMEMultipart
-                from datetime import datetime
-                try:
-                    server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
-                    server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
-                    
-                    df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
-                    df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
-                    
-                    msg = MIMEMultipart()
-                    msg['Subject'] = f"EDT S2-2026 - {row['Enseignant']}"
-                    msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
-                    
-                    html = f"""
-                    <html><body>
-                        <h2>Plateforme de gestion des EDTs-S2-2026</h2>
-                        <h4>Département d'Électrotechnique - UDL-SBA</h4>
-                        <p>Salam, Veuillez trouver ci-dessous votre emploi du temps pour le Semestre 2 :</p>
-                        {df_mail.to_html(index=False, border=1, justify='center')}
-                        <br><p>Cordialement,<br><b>Service d'enseignement.</b></p>
-                    </body></html>
-                    """
-                    msg.attach(MIMEText(html, 'html'))
-                    server.send_message(msg); server.quit()
-                    
-                    # Mise à jour Supabase si possible
-                    supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("nom_officiel", row["Enseignant"]).execute()
-                    
-                    st.success(f"EDT envoyé à {row['Enseignant']} !"); st.rerun()
-                except Exception as e: st.error(f"Erreur : {e}")
+            if "@" in str(row["Email"]):
+                if col_a.button("📧 Envoyer", key=f"btn_{idx}"):
+                    import smtplib
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    from datetime import datetime
+                    try:
+                        server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
+                        server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
+                        
+                        df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
+                        df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+                        
+                        msg = MIMEMultipart()
+                        msg['Subject'] = f"EDT S2-2026 - {row['Enseignant']}"
+                        msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
+                        
+                        html = f"""
+                        <html><body>
+                            <h2>Plateforme de gestion des EDTs-S2-2026</h2>
+                            <h4>Département d'Électrotechnique - UDL-SBA</h4>
+                            <p>Salam, Veuillez trouver ci-dessous votre emploi du temps pour le Semestre 2 :</p>
+                            {df_mail.to_html(index=False, border=1, justify='center')}
+                            <br><p>Cordialement,<br><b>Service d'enseignement.</b></p>
+                        </body></html>
+                        """
+                        msg.attach(MIMEText(html, 'html'))
+                        server.send_message(msg); server.quit()
+                        
+                        # Mise à jour Supabase si possible
+                        supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("nom_officiel", row["Enseignant"]).execute()
+                        
+                        st.success(f"EDT envoyé à {row['Enseignant']} !"); st.rerun()
+                    except Exception as e: st.error(f"Erreur : {e}")
     elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
@@ -1106,6 +1100,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
