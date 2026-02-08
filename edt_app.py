@@ -755,168 +755,117 @@ if df is not None:
             grid_s.columns = jours_list
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
-import streamlit as st
-import pandas as pd
-import io
-import os
-
-# --- SECTION : VÉRIFICATEUR DE CONFLITS (CRITÈRES 1, 2, 3 & 4) ---
-if mode_view == "🚩 Vérificateur de conflits":
-    st.subheader("🚩 Analyse et Résolution des Chevauchements (S2-2026)")
-    st.write(f"**Date de l'analyse :** Dimanche 08/02/2026")
-    st.markdown("---")
-
-    # 1. Base de données des salles pour recherche d'alternatives
-    salles_totales = [
-        "S02", "S04", "S06", "S08", "S08bis", "S10", "S11", "S12", "S13", "S14", 
-        "S16", "S17", "S18", "A08", "A09", "A10", "A12", "SN", "Labo HT", 
-        "Labo réseaux", "Labo Mach 1", "CC-ELT 1", "CC-ELT 2", "CC-ELT 3", 
-        "Salle Micro 1", "Salle Micro 3", "Distance"
-    ]
-
-    # Fonction pour trouver une salle libre dynamiquement
-    def trouver_salle_libre(jour, horaire, df_actuel):
-        salles_occupees = df_actuel[(df_actuel["Jours"] == jour) & (df_actuel["Horaire"] == horaire)]["Lieu"].unique()
-        libres = [s for s in salles_totales if s not in salles_occupees and s != "Distance"]
-        return libres[0] if libres else "🚨 SATURATION TOTALE"
-
-    conflits_data = []
-
-    # --- A. CRITÈRES 1 & 3 : CONFLITS ENSEIGNANTS (LIEU ET MATIÈRE) ---
-    p_groups = df.groupby(['Jours', 'Horaire', 'Enseignants'])
-    for (jour, horaire, prof), group in p_groups:
-        if prof in ["Non défini", "ND", ""]: 
-            continue
-        
-        if len(group) > 1:
-            lieux = group['Lieu'].unique()
-            mats = group['Enseignements'].unique()
-            proms = group['Promotion'].unique()
-
-            # Cas : Même prof, même heure, lieux différents (CONFLIT LIEU)
-            if len(lieux) > 1:
-                type_c = "❌ CONFLIT LIEU (PROF)"
-                adversaire = "Lui-même (Multi-salles)"
-                solution = f"Rapatrier les groupes sur {lieux[0]} ou déplacer un cours en {trouver_salle_libre(jour, horaire, df)}."
+elif is_admin and mode_view == "🚩 Vérificateur de conflits":
+            st.subheader("🚩 Analyse détaillée des Conflits et Collisions")
+            st.markdown("---")
             
-            # Cas : Même prof, même lieu, matières différentes (CONFLIT MATIÈRE)
-            elif len(mats) > 1:
-                # Vérification si c'est un cours mutualisé (même matière, plusieurs promos)
-                if len(mats) == 1: 
-                    continue # On ignore les cours mutualisés légitimes
-                else:
-                    type_c = "⚠️ CONFLIT MATIÈRE (PROF)"
-                    adversaire = f"Matières : {', '.join(mats)}"
-                    solution = "Vérifier s'il s'agit d'un examen ou d'un TP tournant. Sinon, décaler une matière."
+            errs_text = []      
+            errs_for_df = []    
+            
+            p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
+
+            for (jour, horaire, prof), group in p_groups:
+                if len(group) > 1:
+                    lieux_uniques = group['Lieu'].unique()
+                    matieres_uniques = group['Enseignements'].unique()
+                    promos_uniques = group['Promotion'].unique()
+                    
+                    if len(lieux_uniques) == 1 and len(matieres_uniques) == 1:
+                        type_err = "🔵 DOUBLE"
+                        msg = f"**{type_err}** : {prof} | {jour} {horaire} | {matieres_uniques[0]} ({', '.join(promos_uniques)})"
+                        errs_text.append(("info", msg))
+                        detail = "Fusion Groupes/Promotions"
+                    elif len(lieux_uniques) > 1:
+                        type_err = "❌ CONFLIT LIEU"
+                        msg = f"**{type_err}** : {prof} attendu dans plusieurs salles ({', '.join(lieux_uniques)}) à {horaire}"
+                        errs_text.append(("error", msg))
+                        detail = f"Salles différentes : {', '.join(lieux_uniques)}"
+                    else:
+                        type_err = "⚠️ CONFLIT MATIÈRE"
+                        msg = f"**{type_err}** : {prof} a deux matières différentes ({', '.join(matieres_uniques)}) à {horaire}"
+                        errs_text.append(("warning", msg))
+                        detail = "Matières différentes (Même salle)"
+
+                    errs_for_df.append({
+                        "Type": type_err, "Enseignant": prof, "Jour": jour, "Horaire": horaire, 
+                        "Détail": detail, "Lieu": ", ".join(lieux_uniques), 
+                        "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
+                    })
+
+            s_groups = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu'])
+            for (jour, horaire, salle), group in s_groups:
+                profs_uniques = group['Enseignants'].unique()
+                if len(profs_uniques) > 1:
+                    type_err = "🚫 COLLISION SALLE"
+                    mats = group['Enseignements'].unique()
+                    proms = group['Promotion'].unique()
+                    msg = f"**{type_err}** : Salle **{salle}** occupée par **{', '.join(profs_uniques)}** ({jour} à {horaire})"
+                    errs_text.append(("error", msg))
+                    errs_for_df.append({
+                        "Type": type_err, "Enseignant": "/".join(profs_uniques), "Jour": jour, "Horaire": horaire, 
+                        "Détail": f"Collision salle {salle}", "Lieu": salle, 
+                        "Matières": ", ".join(mats), "Promotions": ", ".join(proms)
+                    })
+
+            if errs_text:
+                for style, m in errs_text:
+                    if style == "info": st.info(m)
+                    elif style == "warning": st.warning(m)
+                    else: st.error(m)
+                
+                st.divider()
+                df_report = pd.DataFrame(errs_for_df)
+                
+                with st.expander("👁️ Voir le tableau récapitulatif des erreurs"):
+                    st.dataframe(df_report, use_container_width=True)
+
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                    df_report.to_excel(writer, index=False, sheet_name='Anomalies_EDT')
+                
+                st.download_button(
+                    label="📥 Imprimer le Rapport Complet",
+                    data=buf.getvalue(),
+                    file_name="Rapport_Conflits_Detaillé_ELT.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
             else:
-                continue
+                st.success("✅ Aucun conflit détecté dans l'emploi du temps.")
 
-            conflits_data.append({
-                "Type": type_c, "Enseignements": " / ".join(mats), "Code": " / ".join(group['Code'].unique()),
-                "Enseignants": prof, "Horaire": horaire, "Jours": jour, "Lieu": " / ".join(lieux),
-                "Promotion": " / ".join(proms), "Conflit avec": adversaire, "Solution Proposée": solution
-            })
-
-    # --- B. CRITÈRE 2 : COLLISIONS DE SALLES (DEUX PROFS DIFFÉRENTS) ---
-    s_groups = df[(df["Lieu"] != "Distance") & (df["Lieu"] != "ND")].groupby(['Jours', 'Horaire', 'Lieu'])
-    for (jour, horaire, salle), group in s_groups:
-        profs = group['Enseignants'].unique()
-        if len(profs) > 1:
-            type_c = "🚫 COLLISION SALLE"
-            mats = group['Enseignements'].unique()
-            proms = group['Promotion'].unique()
-            salle_alt = trouver_salle_libre(jour, horaire, df)
-            
-            conflits_data.append({
-                "Type": type_c, "Enseignements": " / ".join(mats), "Code": " / ".join(group['Code'].unique()),
-                "Enseignants": " / ".join(profs), "Horaire": horaire, "Jours": jour, "Lieu": salle,
-                "Promotion": " / ".join(proms), "Conflit avec": " vs ".join(profs),
-                "Solution Proposée": f"Salle saturée. Déplacer {profs[1]} vers {salle_alt}."
-            })
-
-    # --- C. CRITÈRE 4 : CONFLIT PROMOTION (STUDENTS OVERLAP) ---
-    pr_groups = df.groupby(['Jours', 'Horaire', 'Promotion'])
-    for (jour, horaire, promo), group in pr_groups:
-        mats_promo = group['Enseignements'].unique()
-        if len(mats_promo) > 1:
-            conflits_data.append({
-                "Type": "📅 CONFLIT PROMO", "Enseignements": " / ".join(mats_promo), 
-                "Code": " / ".join(group['Code'].unique()), "Enseignants": " / ".join(group['Enseignants'].unique()),
-                "Horaire": horaire, "Jours": jour, "Lieu": " / ".join(group['Lieu'].unique()),
-                "Promotion": promo, "Conflit avec": f"Chevauchement de {len(mats_promo)} cours",
-                "Solution Proposée": f"Les étudiants de {promo} ont deux cours simultanés. Décaler l'un des cours."
-            })
-
-    # --- AFFICHAGE ET EXPORT ---
-    if conflits_data:
-        df_report = pd.DataFrame(conflits_data)
-        st.write("### 📊 Tableau des Chevauchements et Solutions")
-        
-        # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
-        cols_final = ["Type", "Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion", "Conflit avec", "Solution Proposée"]
-        st.dataframe(df_report[cols_final], use_container_width=True)
-        
-        # Bouton d'export
-        buf = io.BytesIO()
-        df_report.to_excel(buf, index=False, engine='xlsxwriter')
-        st.download_button("📥 Télécharger le Plan de Résolution (Excel)", buf.getvalue(), "Plan_Resolution_EDT_S2_2026.xlsx")
-    else:
-        st.success("✅ Aucun chevauchement détecté dans les données.")
-
-# --- SECTION : SURVEILLANCES EXAMENS ---
-elif portail == "📅 Surveillances Examens":
-    st.subheader("📅 Gestion et Planning des Surveillances - S2-2026")
-    
-    # Possibilité d'importation Excel
-    uploaded_file = st.file_uploader("📥 Importer le fichier des surveillances (Excel)", type=["xlsx"])
-    FILE_S = "surveillances_2026.xlsx"
-
-    if uploaded_file:
-        df_surv = pd.read_excel(uploaded_file)
-        df_surv.to_excel(FILE_S, index=False)
-        st.success("✅ Fichier mis à jour avec succès.")
-    
-    if os.path.exists(FILE_S):
-        df_surv = pd.read_excel(FILE_S)
-        
-        # Nettoyage et formatage
-        for c in df_surv.columns: 
-            df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
-        
-        # Préparation des dates pour le tri
-        if 'Date' in df_surv.columns:
+    elif portail == "📅 Surveillances Examens":
+        FILE_S = "surveillances_2026.xlsx"
+        if os.path.exists(FILE_S):
+            df_surv = pd.read_excel(FILE_S)
+            df_surv.columns = [str(c).strip() for c in df_surv.columns]
             df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
-        
-        c_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_surv.columns else 'Enseignants'
-        u_email = user.get('email', '').lower().strip()
-        u_nom = user['nom_officiel']
+            
+            for c in df_surv.columns: 
+                df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
+                
+            c_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_surv.columns else 'Enseignants'
+            u_nom = user['nom_officiel']
+            u_email = user.get('email', '').lower().strip()
 
-        # Système Maître / Utilisateur
-        is_master_admin = (u_email == "milouafarid@gmail.com")
+            is_master_admin = (u_email == "milouafarid@gmail.com")
 
-        if is_master_admin:
-            st.success("🔓 Accès Maître : milouafarid@gmail.com")
-            tous_les_profs = []
-            for entry in df_surv[c_prof].unique():
-                for p in str(entry).split('&'):
-                    clean_p = p.strip()
-                    if clean_p and clean_p not in ["nan", "ND", ""]:
-                        tous_les_profs.append(clean_p)
-            liste_profs = sorted(list(set(tous_les_profs)))
-            prof_sel = st.selectbox("🔍 Choisir un enseignant à visualiser :", liste_profs)
-        else:
-            prof_sel = u_nom
-            st.info(f"👤 Espace Personnel : **{u_nom}**")
+            if is_master_admin:
+                tous_les_profs = []
+                for entry in df_surv[c_prof].unique():
+                    for p in entry.split('&'):
+                        clean_p = p.strip()
+                        if clean_p and clean_p not in ["nan", "Non défini", ""]:
+                            tous_les_profs.append(clean_p)
+                liste_profs = sorted(list(set(tous_les_profs)))
+                st.success("🔓 Accès Maître : milouafarid@gmail.com")
+                prof_sel = st.selectbox("🔍 Choisir un enseignant :", liste_profs)
+            else:
+                prof_sel = u_nom
+                st.info(f"👤 Espace Personnel : **{u_nom}**")
 
-        # Filtrage et affichage
-        df_u_surv = df_surv[df_surv[c_prof].str.contains(prof_sel, case=False, na=False)]
-        if 'Date_Tri' in df_u_surv.columns:
-            df_u_surv = df_u_surv.sort_values(by='Date_Tri')
-
-        st.markdown(f"### 📋 Planning de : {prof_sel}")
-        
-        # Statistiques rapides
-        if not df_u_surv.empty:
+            df_u_surv = df_surv[df_surv[c_prof].str.contains(prof_sel, case=False, na=False)].sort_values(by='Date_Tri')
+            st.markdown(f"### 📋 Planning de : {prof_sel}")
+            
             c1, c2, c3 = st.columns(3)
             nb_mat = len(df_u_surv[df_u_surv['Heure'].str.contains("08h|09h|10h", case=False)])
             c1.metric("Séances Total", len(df_u_surv))
@@ -925,24 +874,24 @@ elif portail == "📅 Surveillances Examens":
             
             st.divider()
 
-            for _, r in df_u_surv.iterrows():
-                st.markdown(f"""
-                <div style="background:#f9f9f9;padding:15px;border-radius:10px;border-left:6px solid #1E3A8A;margin-bottom:12px;box-shadow: 2px 2px 5px rgba(0,0,0,0.05);">
-                    <span style="font-weight:bold;color:#1E3A8A;font-size:1.1em;">📅 {r.get('Jour','')} {r.get('Date','')}</span> | 🕒 <b>{r.get('Heure','')}</b><br>
-                    <span style="font-size:1.2em;">📖 <b>{r.get('Matière','')}</b></span><br>
-                    <div style="margin-top:5px;color:#555;">
-                        📍 Salle: {r.get('Salle','')} | 🎓 Promo: {r.get('Promotion','')} | 👥 Collègues: {r.get(c_prof,'')}
-                    </div>
-                </div>""", unsafe_allow_html=True)
-            
-            # Export individuel
-            buf_p = io.BytesIO()
-            df_u_surv.drop(columns=['Date_Tri'], errors='ignore').to_excel(buf_p, index=False)
-            st.download_button(f"📥 Télécharger l'EDT de {prof_sel} (Excel)", buf_p.getvalue(), f"Surv_{prof_sel}.xlsx")
+            if not df_u_surv.empty:
+                for _, r in df_u_surv.iterrows():
+                    st.markdown(f"""
+                    <div style="background:#f9f9f9;padding:12px;border-radius:8px;border-left:5px solid #1E3A8A;margin-bottom:8px;">
+                        <span style="font-weight:bold;color:#1E3A8A;">📅 {r['Jour']} {r['Date']}</span> | 🕒 {r['Heure']}<br>
+                        <b>📖 {r['Matière']}</b><br>
+                        <small>📍 {r['Salle']} | 🎓 {r['Promotion']} | 👥 {r[c_prof]}</small>
+                    </div>""", unsafe_allow_html=True)
+                
+                buf = io.BytesIO()
+                df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
+                st.download_button(f"📥 Télécharger l'EDT de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
+            else:
+                st.warning(f"⚠️ Aucune surveillance trouvée pour : {prof_sel}")
         else:
-            st.warning(f"⚠️ Aucune surveillance trouvée pour : {prof_sel}")
-    else:
-        st.error("Le fichier 'surveillances_2026.xlsx' est absent. Veuillez l'importer ci-dessus.")
+            st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
+
+
         
     elif portail == "🤖 Générateur Automatique":
         if not is_admin:
@@ -1153,6 +1102,7 @@ elif portail == "📅 Surveillances Examens":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
