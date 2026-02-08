@@ -1061,7 +1061,7 @@ elif portail == "👥 Portail Enseignants":
                         
                         st.success(f"EDT envoyé à {row['Enseignant']} !"); st.rerun()
                     except Exception as e: st.error(f"Erreur : {e}")
-    elif portail == "🎓 Portail Étudiants":
+elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
         # DISPOSITION : Enseignements, Code, Enseignants, Horaire, Jours, Lieu
@@ -1084,6 +1084,7 @@ elif portail == "👥 Portail Enseignants":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
