@@ -1016,11 +1016,11 @@ if df is not None:
             "HAMMAR": "protoboy9999@gmail.com", "KADA ZAIR": "ikram.kadazair@gmail.com", "KADRI": "kadrirania51@gmail.com",
             "LATRECHE": "m_latreche@yahoo.com", "LAYATI": "layatimedi@gmail.com", "LOUSDAD": "lousdadaymen.aziz@gmail.com",
             "MAHKOUKA": "mahkouka.zaza@gmail.com", "MECHETTEM": "khalidamet4@gmail.com", "MEKHALEF": "mekhalefleila@gmail.com",
-            "MESLEM": "mehadjiameslem@gmail.com", "MESTARI": "wahibaelmestarii@gmail.com", "MILOUA": "fethi22miloua@gmail.com",
+            "MESLEM": "mehadjiameslem@gmail.com", "MESTARI": "wahibaelmestarii@gmail.com", "F.MILOUA": "fethi22miloua@gmail.com",
             "MIR": "khelifa-mir@outlook.fr", "MOKADEM": "mokeddem.amina2222@gmail.com", "MOULAY": "mmiloud@yahoo.fr",
             "NEFAHA": "Boba1620@hotmail.com", "REDJALA": "majdaredjala1492@gmail.com", "SACI": "sacihamza40@gmail.com",
             "TURKI": "turkibilal22@gmail.com", "ZAREB": "zarebmohamedamine@gmail.com", "ZERDANI": "medzerdani@gmail.com",
-            "ZIDI": "larbi.zidi6@gmail.com", "RAIS": "amrais@yahoo.com", "REGUIG": "abdeldjalil.reguig@outlook.com"
+            "ZIDI-2": "larbi.zidi6@gmail.com", "RAIS": "amrais@yahoo.com", "REGUIG": "abdeldjalil.reguig@outlook.com"
         }
 
         # --- EN-TÊTE ---
@@ -1127,6 +1127,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
