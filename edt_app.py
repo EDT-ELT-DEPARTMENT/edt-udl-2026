@@ -831,65 +831,7 @@ elif is_admin and mode_view == "🚩 Vérificateur de conflits":
                     use_container_width=True
                 )
             else:
-                st.success("✅ Aucun conflit détecté dans l'emploi du temps.")
-
-    elif portail == "📅 Surveillances Examens":
-        FILE_S = "surveillances_2026.xlsx"
-        if os.path.exists(FILE_S):
-            df_surv = pd.read_excel(FILE_S)
-            df_surv.columns = [str(c).strip() for c in df_surv.columns]
-            df_surv['Date_Tri'] = pd.to_datetime(df_surv['Date'], dayfirst=True, errors='coerce')
-            
-            for c in df_surv.columns: 
-                df_surv[c] = df_surv[c].fillna("").astype(str).str.strip()
-                
-            c_prof = 'Surveillant(s)' if 'Surveillant(s)' in df_surv.columns else 'Enseignants'
-            u_nom = user['nom_officiel']
-            u_email = user.get('email', '').lower().strip()
-
-            is_master_admin = (u_email == "milouafarid@gmail.com")
-
-            if is_master_admin:
-                tous_les_profs = []
-                for entry in df_surv[c_prof].unique():
-                    for p in entry.split('&'):
-                        clean_p = p.strip()
-                        if clean_p and clean_p not in ["nan", "Non défini", ""]:
-                            tous_les_profs.append(clean_p)
-                liste_profs = sorted(list(set(tous_les_profs)))
-                st.success("🔓 Accès Maître : milouafarid@gmail.com")
-                prof_sel = st.selectbox("🔍 Choisir un enseignant :", liste_profs)
-            else:
-                prof_sel = u_nom
-                st.info(f"👤 Espace Personnel : **{u_nom}**")
-
-            df_u_surv = df_surv[df_surv[c_prof].str.contains(prof_sel, case=False, na=False)].sort_values(by='Date_Tri')
-            st.markdown(f"### 📋 Planning de : {prof_sel}")
-            
-            c1, c2, c3 = st.columns(3)
-            nb_mat = len(df_u_surv[df_u_surv['Heure'].str.contains("08h|09h|10h", case=False)])
-            c1.metric("Séances Total", len(df_u_surv))
-            c2.metric("Matin", nb_mat)
-            c3.metric("Après-midi", len(df_u_surv) - nb_mat)
-            
-            st.divider()
-
-            if not df_u_surv.empty:
-                for _, r in df_u_surv.iterrows():
-                    st.markdown(f"""
-                    <div style="background:#f9f9f9;padding:12px;border-radius:8px;border-left:5px solid #1E3A8A;margin-bottom:8px;">
-                        <span style="font-weight:bold;color:#1E3A8A;">📅 {r['Jour']} {r['Date']}</span> | 🕒 {r['Heure']}<br>
-                        <b>📖 {r['Matière']}</b><br>
-                        <small>📍 {r['Salle']} | 🎓 {r['Promotion']} | 👥 {r[c_prof]}</small>
-                    </div>""", unsafe_allow_html=True)
-                
-                buf = io.BytesIO()
-                df_u_surv.drop(columns=['Date_Tri']).to_excel(buf, index=False)
-                st.download_button(f"📥 Télécharger l'EDT de {prof_sel}", buf.getvalue(), f"Surv_{prof_sel}.xlsx")
-            else:
-                st.warning(f"⚠️ Aucune surveillance trouvée pour : {prof_sel}")
-        else:
-            st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
+                st.success("✅ Aucun conflit détecté dans l'emploi du temps.")  
 
     elif portail == "🤖 Générateur Automatique":
         if not is_admin:
@@ -1101,6 +1043,7 @@ elif is_admin and mode_view == "🚩 Vérificateur de conflits":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
