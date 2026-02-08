@@ -755,122 +755,82 @@ if df is not None:
             grid_s.columns = jours_list
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
-elif is_admin and mode_view == "🚩 Vérificateur de conflits":
+elif is_admin and "Vérificateur" in mode_view:
     st.subheader("🚩 Analyse détaillée des Conflits et Collisions")
-    st.write(f"**Analyse en temps réel du :** {nom_jour_fr} {date_str}")
-    st.markdown("---")
+    
+    # --- PRÉPARATION DES DONNÉES ---
+    # On nettoie les espaces et on s'assure que le DF n'est pas vide
+    df_check = df.copy()
+    df_check.columns = [c.strip() for c in df_check.columns]
+    
+    st.info(f"Analyse de la base de données : **{len(df_check)} lignes** chargées.")
 
-    # Initialisation des listes pour le rapport
-    errs_text = []      
+    # Listes pour stocker les résultats
     errs_for_df = []    
 
-    # --- 1. FONCTION DE SECOURS : TROUVER UNE SALLE LIBRE ---
-    salles_totales = [
-        "S02", "S04", "S06", "S08", "S08bis", "S10", "S11", "S12", "S13", "S14", 
-        "S16", "S17", "S18", "A08", "A09", "A10", "A12", "SN", "Labo HT", 
-        "Labo réseaux", "Labo Mach 1", "CC-ELT 1", "CC-ELT 2", "CC-ELT 3", 
-        "Salle Micro 1", "Salle Micro 3", "Distance"
-    ]
-
-    def trouver_salle_libre(jour, horaire, df_actuel):
-        salles_occupees = df_actuel[(df_actuel["Jours"] == jour) & (df_actuel["Horaire"] == horaire)]["Lieu"].unique()
-        libres = [s for s in salles_totales if s not in salles_occupees and s != "Distance"]
+    # --- 1. FONCTION : TROUVER UNE SALLE LIBRE ---
+    salles_totales = ["S02", "S04", "S06", "S08", "S08bis", "S10", "S11", "S12", "S13", "S14", "S16", "S17", "S18", "A08", "A09", "A10", "A12", "SN"]
+    def trouver_salle_libre(j, h, df_actuel):
+        occ = df_actuel[(df_actuel["Jours"] == j) & (df_actuel["Horaire"] == h)]["Lieu"].unique()
+        libres = [s for s in salles_totales if s not in occ]
         return libres[0] if libres else "🚨 SATURATION"
 
-    # --- 2. ANALYSE DES CONFLITS ENSEIGNANTS (Plusieurs lieux ou matières au même moment) ---
-    # On ignore "Non défini" pour ne pas créer de faux conflits
-    p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
+    # --- 2. DÉTECTION DES CONFLITS ---
 
-    for (jour, horaire, prof), group in p_groups:
+    # A. CONFLIT ENSEIGNANT (Un prof à deux endroits au même moment)
+    p_groups = df_check[df_check["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
+    for (j, h, prof), group in p_groups:
         if len(group) > 1:
-            lieux_uniques = group['Lieu'].unique()
-            matieres_uniques = group['Enseignements'].unique()
-            promos_uniques = group['Promotion'].unique()
-            
-            # Cas A : Même prof, même heure, même salle, même matière = Fusion de groupes (OK)
-            if len(lieux_uniques) == 1 and len(matieres_uniques) == 1:
-                errs_text.append(("info", f"🔵 **DOUBLE (OK)** : {prof} | {jour} {horaire} | {matieres_uniques[0]} (Groupes: {', '.join(promos_uniques)})"))
-            
-            # Cas B : Même prof, même heure, Salles différentes = CONFLIT
-            elif len(lieux_uniques) > 1:
-                errs_text.append(("error", f"❌ **CONFLIT LIEU** : {prof} est attendu dans plusieurs salles ({', '.join(lieux_uniques)}) à {horaire} ({jour})"))
+            lieux = group['Lieu'].unique()
+            if len(lieux) > 1:
                 errs_for_df.append({
-                    "Type": "❌ CONFLIT LIEU", "Enseignements": " / ".join(matieres_uniques),
-                    "Code": " / ".join(group['Code'].unique()), "Enseignants": prof,
-                    "Horaire": horaire, "Jours": jour, "Lieu": " / ".join(lieux_uniques),
-                    "Promotion": " / ".join(promos_uniques), "Solution": "Rapatrier dans une seule salle."
-                })
-            
-            # Cas C : Même prof, même heure, Matières différentes = CONFLIT
-            else:
-                errs_text.append(("warning", f"⚠️ **CONFLIT MATIÈRE** : {prof} a deux cours différents à {horaire} ({jour})"))
-                errs_for_df.append({
-                    "Type": "⚠️ CONFLIT MATIÈRE", "Enseignements": " / ".join(matieres_uniques),
-                    "Code": " / ".join(group['Code'].unique()), "Enseignants": prof,
-                    "Horaire": horaire, "Jours": jour, "Lieu": lieux_uniques[0],
-                    "Promotion": " / ".join(promos_uniques), "Solution": "Vérifier le planning des matières."
+                    "Type": "❌ CONFLIT ENSEIGNANT",
+                    "Enseignements": " / ".join(group['Enseignements'].unique()),
+                    "Code": "Multi", "Enseignants": prof, "Horaire": h, "Jours": j,
+                    "Lieu": " / ".join(lieux), "Promotion": " / ".join(group['Promotion'].unique()),
+                    "Solution": f"Rapatrier sur {lieux[0]}"
                 })
 
-    # --- 3. ANALYSE DES COLLISIONS DE SALLES (Deux profs différents dans la même salle) ---
-    s_groups = df[(df["Lieu"] != "Non défini") & (df["Lieu"] != "Distance")].groupby(['Jours', 'Horaire', 'Lieu'])
-    
-    for (jour, horaire, salle), group in s_groups:
-        profs_uniques = group['Enseignants'].unique()
-        if len(profs_uniques) > 1:
-            errs_text.append(("error", f"🚫 **COLLISION SALLE** : La salle **{salle}** est occupée par {', '.join(profs_uniques)} le {jour} à {horaire}"))
+    # B. COLLISION SALLE (Deux profs dans la même salle)
+    s_groups = df_check[(df_check["Lieu"] != "Non défini") & (df_check["Lieu"] != "Distance")].groupby(['Jours', 'Horaire', 'Lieu'])
+    for (j, h, salle), group in s_groups:
+        profs = group['Enseignants'].unique()
+        if len(profs) > 1:
             errs_for_df.append({
-                "Type": "🚫 COLLISION SALLE", "Enseignements": " / ".join(group['Enseignements'].unique()),
-                "Code": " / ".join(group['Code'].unique()), "Enseignants": " / ".join(profs_uniques),
-                "Horaire": horaire, "Jours": jour, "Lieu": salle,
-                "Promotion": " / ".join(group['Promotion'].unique()), 
-                "Solution": f"Déplacer l'un des cours vers {trouver_salle_libre(jour, horaire, df)}"
+                "Type": "🚫 COLLISION SALLE",
+                "Enseignements": " / ".join(group['Enseignements'].unique()),
+                "Code": "Multi", "Enseignants": " / ".join(profs), "Horaire": h, "Jours": j,
+                "Lieu": salle, "Promotion": " / ".join(group['Promotion'].unique()),
+                "Solution": f"Déplacer vers {trouver_salle_libre(j, h, df_check)}"
             })
 
-    # --- 4. ANALYSE DES CONFLITS PROMOTIONS (Étudiants ayant deux cours en même temps) ---
-    pr_groups = df[df["Promotion"] != "Non défini"].groupby(['Jours', 'Horaire', 'Promotion'])
-    
-    for (jour, horaire, promo), group in pr_groups:
+    # C. CONFLIT PROMO (Étudiants avec deux cours en même temps)
+    pr_groups = df_check[df_check["Promotion"] != "Non défini"].groupby(['Jours', 'Horaire', 'Promotion'])
+    for (j, h, promo), group in pr_groups:
         if len(group['Enseignements'].unique()) > 1:
-            # On vérifie si ce n'est pas déjà listé (pour éviter les doublons avec les erreurs profs)
-            errs_text.append(("error", f"🎓 **CONFLIT PROMO** : La promotion **{promo}** a plusieurs cours simultanés le {jour} à {horaire}"))
             errs_for_df.append({
-                "Type": "🎓 CONFLIT PROMO", "Enseignements": " / ".join(group['Enseignements'].unique()),
-                "Code": " / ".join(group['Code'].unique()), "Enseignants": " / ".join(group['Enseignants'].unique()),
-                "Horaire": horaire, "Jours": jour, "Lieu": " / ".join(group['Lieu'].unique()),
-                "Promotion": promo, "Solution": "Décaler une séance pour cette promotion."
+                "Type": "🎓 CONFLIT PROMO",
+                "Enseignements": " / ".join(group['Enseignements'].unique()),
+                "Code": "Multi", "Enseignants": " / ".join(group['Enseignants'].unique()),
+                "Horaire": h, "Jours": j, "Lieu": " / ".join(group['Lieu'].unique()),
+                "Promotion": promo, "Solution": "Décaler une séance."
             })
 
-    # --- 5. AFFICHAGE DES RÉSULTATS ---
-    if errs_text:
-        # Affichage des alertes visuelles
-        for style, m in errs_text:
-            if style == "info": st.info(m)
-            elif style == "warning": st.warning(m)
-            else: st.error(m)
-        
-        st.divider()
-        
-        # Tableau récapitulatif avec l'ordre de colonnes demandé
+    # --- 3. AFFICHAGE ---
+    if errs_for_df:
         df_report = pd.DataFrame(errs_for_df)
-        cols_ordre = ["Type", "Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion", "Solution"]
+        st.error(f"Attention : {len(df_report)} anomalies détectées.")
         
-        with st.expander("👁️ Voir le tableau récapitulatif des anomalies"):
-            st.dataframe(df_report[cols_ordre], use_container_width=True)
-
-        # Bouton d'export Excel
+        # Ordre des colonnes strictement respecté
+        cols = ["Type", "Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion", "Solution"]
+        st.dataframe(df_report[cols], use_container_width=True)
+        
+        # Bouton d'export
         buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-            df_report[cols_ordre].to_excel(writer, index=False, sheet_name='Anomalies_S2_2026')
-        
-        st.download_button(
-            label="📥 Télécharger le Rapport d'Erreurs (.xlsx)",
-            data=buf.getvalue(),
-            file_name=f"Rapport_Conflits_ELT_{date_str.replace('/','-')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
-        )
+        df_report[cols].to_excel(buf, index=False)
+        st.download_button("📥 Télécharger le rapport (.xlsx)", buf.getvalue(), "conflits.xlsx")
     else:
-        st.success("✅ Félicitations ! Aucun conflit (Enseignants, Salles ou Promotions) n'a été détecté.")  
+        st.success("✅ Aucun conflit détecté dans l'emploi du temps.")  
 
 elif portail == "🤖 Générateur Automatique":
     if not is_admin:
@@ -1083,6 +1043,7 @@ elif portail == "🎓 Portail Étudiants":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
