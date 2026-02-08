@@ -466,23 +466,20 @@ if user is None:
 
 is_admin = user.get("role") == "admin"
 
-jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+# --- CONFIGURATION DES HORAIRES ET JOURS ---
+
+# 1. Définition précise de votre nouvelle liste d'horaires (13 créneaux)
 horaires_list = [
-    "8h - 9h",
-    "8h - 9h30",
-    "9h - 10h",
-    "9h30 - 11h",
-    "10h - 11h",
-    "11h - 12h",
-    "11h - 12h30",
-    "11h - 14h",
-    "12h - 13h",
-    "12h30 - 14h",
-    "13h - 14h",
-    "14h - 15h30",
-    "15h30 - 17h"
+    "8h - 9h", "8h - 9h30", "9h - 10h", "9h30 - 11h", 
+    "10h - 11h", "11h - 12h", "11h - 12h30", "11h - 14h", 
+    "12h - 13h", "12h30 - 14h", "13h - 14h", "14h - 15h30", "15h30 - 17h"
 ]
 
+# 2. Définition des jours de la semaine
+jours_list = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+
+# 3. Mapping pour la normalisation (crucial pour faire le lien avec l'Excel)
+# Cela permet de faire correspondre "8h-9h30" (Excel) avec "8h - 9h30" (Affichage)
 map_h = {normalize(h): h for h in horaires_list}
 map_j = {normalize(j): j for j in jours_list}
 
@@ -1092,6 +1089,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
