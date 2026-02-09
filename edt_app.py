@@ -829,7 +829,7 @@ if df is not None:
                             "Matières": ", ".join(mats), "Promotions": ", ".join(proms)
                         })
 
-            # --- 3. NOUVEAUTÉ : SYSTÈME DE RÉSOLUTION FILTRÉ ---
+            # --- 3. SYSTÈME DE RÉSOLUTION FILTRÉ (VERSION CORRIGÉE) ---
             if errs_for_df:
                 st.markdown("### 🔍 Résolution ciblée par Enseignant")
                 # On extrait les noms uniques des profs impliqués dans une erreur
@@ -840,7 +840,8 @@ if df is not None:
                     st.info(f"Analyse des conflits pour : **{selected_prof}**")
                     conflits_p = [e for e in errs_for_df if e["Enseignant"] == selected_prof]
                     
-                    for cp in conflits_p:
+                    # Correction : On utilise enumerate pour garantir une clé unique par bouton
+                    for i, cp in enumerate(conflits_p):
                         with st.expander(f"📌 {cp['Type']} - {cp['Jour']} à {cp['Horaire']}", expanded=True):
                             st.error(f"**Problème :** {cp['Détail']}")
                             st.markdown("💡 **Solutions suggérées :**")
@@ -850,11 +851,12 @@ if df is not None:
                             else:
                                 st.write("Vérifiez que le nom de la matière est écrit exactement de la même façon pour permettre la fusion.")
                             
-                            if st.button(f"🔗 Aller à l'éditeur pour {selected_prof}", key=f"btn_{cp['Enseignant']}_{cp['Horaire']}"):
+                            # La clé (key) contient maintenant l'index 'i' pour être unique
+                            btn_key = f"btn_{cp['Enseignant']}_{cp['Jour']}_{cp['Horaire']}_{i}"
+                            if st.button(f"🔗 Aller à l'éditeur pour {selected_prof}", key=btn_key):
                                 st.session_state.mode_view = "✍️ Éditeur de données"
                                 st.rerun()
                     st.divider()
-
                 # --- 4. AFFICHAGE GLOBAL ET EXPORT (RESTE INCHANGÉ MAIS FILTRABLE) ---
                 st.markdown("### 🌍 Rapport Global des Anomalies")
                 for style, m in errs_text:
@@ -1187,6 +1189,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
