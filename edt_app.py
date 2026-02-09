@@ -783,6 +783,7 @@ if df is not None:
             errs_text = []      
             errs_for_df = []    
             
+            # --- 1. DÉTECTION DES CONFLITS ENSEIGNANTS ---
             p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
 
             for (jour, horaire, prof), group in p_groups:
@@ -792,27 +793,21 @@ if df is not None:
                     promos_uniques = group['Promotion'].unique()
                     
                     if len(lieux_uniques) == 1 and len(matieres_uniques) == 1:
-                        type_err = "🔵 DOUBLE"
-                        msg = f"**{type_err}** : {prof} | {jour} {horaire} | {matieres_uniques[0]} ({', '.join(promos_uniques)})"
-                        errs_text.append(("info", msg))
-                        detail = "Fusion Groupes/Promotions"
+                        type_err, style, detail = "🔵 DOUBLE", "info", "Fusion Groupes/Promotions"
                     elif len(lieux_uniques) > 1:
-                        type_err = "❌ CONFLIT LIEU"
-                        msg = f"**{type_err}** : {prof} attendu dans plusieurs salles ({', '.join(lieux_uniques)}) à {horaire}"
-                        errs_text.append(("error", msg))
-                        detail = f"Salles différentes : {', '.join(lieux_uniques)}"
+                        type_err, style, detail = "❌ CONFLIT LIEU", "error", f"Salles : {', '.join(lieux_uniques)}"
                     else:
-                        type_err = "⚠️ CONFLIT MATIÈRE"
-                        msg = f"**{type_err}** : {prof} a deux matières différentes ({', '.join(matieres_uniques)}) à {horaire}"
-                        errs_text.append(("warning", msg))
-                        detail = "Matières différentes (Même salle)"
+                        type_err, style, detail = "⚠️ CONFLIT MATIÈRE", "warning", "Matières différentes (Même salle)"
 
+                    msg = f"**{type_err}** : {prof} | {jour} {horaire}"
+                    errs_text.append((style, msg))
                     errs_for_df.append({
                         "Type": type_err, "Enseignant": prof, "Jour": jour, "Horaire": horaire, 
                         "Détail": detail, "Lieu": ", ".join(lieux_uniques), 
                         "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
                     })
 
+            # --- 2. DÉTECTION DES COLLISIONS SALLES ---
             s_groups = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu'])
             for (jour, horaire, salle), group in s_groups:
                 profs_uniques = group['Enseignants'].unique()
@@ -820,24 +815,53 @@ if df is not None:
                     type_err = "🚫 COLLISION SALLE"
                     mats = group['Enseignements'].unique()
                     proms = group['Promotion'].unique()
-                    msg = f"**{type_err}** : Salle **{salle}** occupée par **{', '.join(profs_uniques)}** ({jour} à {horaire})"
+                    msg = f"**{type_err}** : Salle **{salle}** occupée par **{', '.join(profs_uniques)}** ({jour} {horaire})"
                     errs_text.append(("error", msg))
-                    errs_for_df.append({
-                        "Type": type_err, "Enseignant": "/".join(profs_uniques), "Jour": jour, "Horaire": horaire, 
-                        "Détail": f"Collision salle {salle}", "Lieu": salle, 
-                        "Matières": ", ".join(mats), "Promotions": ", ".join(proms)
-                    })
+                    for p in profs_uniques:
+                        errs_for_df.append({
+                            "Type": type_err, "Enseignant": p, "Jour": jour, "Horaire": horaire, 
+                            "Détail": f"Collision salle {salle}", "Lieu": salle, 
+                            "Matières": ", ".join(mats), "Promotions": ", ".join(proms)
+                        })
 
-            if errs_text:
+            # --- 3. NOUVEAUTÉ : SYSTÈME DE RÉSOLUTION FILTRÉ ---
+            if errs_for_df:
+                st.markdown("### 🔍 Résolution ciblée par Enseignant")
+                # On extrait les noms uniques des profs impliqués dans une erreur
+                profs_conflits = sorted(list(set([e["Enseignant"] for e in errs_for_df])))
+                selected_prof = st.selectbox("🎯 Choisir un enseignant pour corriger ses erreurs :", ["Tous"] + profs_conflits)
+
+                if selected_prof != "Tous":
+                    st.info(f"Analyse des conflits pour : **{selected_prof}**")
+                    conflits_p = [e for e in errs_for_df if e["Enseignant"] == selected_prof]
+                    
+                    for cp in conflits_p:
+                        with st.expander(f"📌 {cp['Type']} - {cp['Jour']} à {cp['Horaire']}", expanded=True):
+                            st.error(f"**Problème :** {cp['Détail']}")
+                            st.markdown("💡 **Solutions suggérées :**")
+                            if "LIEU" in cp['Type'] or "COLLISION" in cp['Type']:
+                                st.write("1. Vérifiez la disponibilité d'une autre salle.")
+                                st.write("2. Modifiez le créneau ou la salle via l'Editeur.")
+                            else:
+                                st.write("Vérifiez que le nom de la matière est écrit exactement de la même façon pour permettre la fusion.")
+                            
+                            if st.button(f"🔗 Aller à l'éditeur pour {selected_prof}", key=f"btn_{cp['Enseignant']}_{cp['Horaire']}"):
+                                st.session_state.mode_view = "✍️ Éditeur de données"
+                                st.rerun()
+                    st.divider()
+
+                # --- 4. AFFICHAGE GLOBAL ET EXPORT (RESTE INCHANGÉ MAIS FILTRABLE) ---
+                st.markdown("### 🌍 Rapport Global des Anomalies")
                 for style, m in errs_text:
-                    if style == "info": st.info(m)
-                    elif style == "warning": st.warning(m)
-                    else: st.error(m)
-                
+                    # On affiche tout si "Tous", sinon on filtre par le nom du prof
+                    if selected_prof == "Tous" or selected_prof in m:
+                        if style == "info": st.info(m)
+                        elif style == "warning": st.warning(m)
+                        else: st.error(m)
+
                 st.divider()
                 df_report = pd.DataFrame(errs_for_df)
-                
-                with st.expander("👁️ Voir le tableau récapitulatif des erreurs"):
+                with st.expander("👁️ Voir le tableau récapitulatif"):
                     st.dataframe(df_report, use_container_width=True)
 
                 buf = io.BytesIO()
@@ -845,15 +869,14 @@ if df is not None:
                     df_report.to_excel(writer, index=False, sheet_name='Anomalies_EDT')
                 
                 st.download_button(
-                    label="📥 Imprimer le Rapport Complet",
+                    label="📥 Télécharger le Rapport Excel",
                     data=buf.getvalue(),
-                    file_name="Rapport_Conflits_Detaillé_ELT.xlsx",
+                    file_name="Rapport_Conflits_ELT_S2_2026.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
             else:
                 st.success("✅ Aucun conflit détecté dans l'emploi du temps.")
-
     elif portail == "📅 Surveillances Examens":
         FILE_S = "surveillances_2026.xlsx"
         if os.path.exists(FILE_S):
@@ -1159,6 +1182,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
