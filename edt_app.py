@@ -807,22 +807,25 @@ if df is not None:
                         "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
                     })
 
-            # --- 2. INTERFACE DE FILTRAGE ET BOUTON RESET ---
+            # --- 2. INTERFACE DE FILTRAGE ET BOUTON RESET (VERSION STABLE) ---
             if errs_for_df:
                 st.markdown("### 🔍 Résolution ciblée")
                 profs_conflits = sorted(list(set([e["Enseignant"] for e in errs_for_df])))
                 
-                # Le selectbox avec une clé pour le reset
+                # On s'assure que la clé existe pour éviter les erreurs au premier chargement
+                if "filtre_prof_conflit" not in st.session_state:
+                    st.session_state.filtre_prof_conflit = "Tous"
+
                 selected_prof = st.selectbox(
                     "🎯 Filtrer par enseignant :", 
                     ["Tous"] + profs_conflits,
                     key="filtre_prof_conflit"
                 )
 
-                # BOUTON RESET (Apparaît si un filtre est actif)
+                # BOUTON RESET : Utilise 'del' pour éviter l'erreur StreamlitAPIException
                 if selected_prof != "Tous":
                     if st.button("🔄 Réinitialiser la vue (Afficher tout)", use_container_width=True):
-                        st.session_state.filtre_prof_conflit = "Tous"
+                        del st.session_state.filtre_prof_conflit
                         st.rerun()
 
                 st.divider()
@@ -834,6 +837,10 @@ if df is not None:
                     for i, cp in enumerate(conflits_p):
                         with st.expander(f"📌 {cp['Type']} - {cp['Jour']} {cp['Horaire']}", expanded=True):
                             st.error(f"**Problème :** {cp['Détail']}")
+                            
+                            # On rappelle la solution suggérée pour aider l'administrateur
+                            st.markdown("💡 **Solution :** Allez dans l'éditeur pour modifier l'horaire, la salle ou harmoniser le nom de la matière.")
+                            
                             btn_key = f"btn_solve_{cp['Enseignant']}_{i}"
                             if st.button(f"🔗 Corriger l'EDT de {selected_prof}", key=btn_key):
                                 st.session_state.mode_view = "✍️ Éditeur de données"
@@ -1170,6 +1177,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
