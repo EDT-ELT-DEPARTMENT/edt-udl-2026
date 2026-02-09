@@ -777,24 +777,21 @@ if df is not None:
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
         elif is_admin and mode_view == "🚩 Vérificateur de conflits":
-            st.subheader("🚩 Analyse détaillée des Conflits et Collisions")
+            st.subheader("🚩 Analyse des Conflits Individuels")
             st.markdown("---")
             
             errs_text = []      
             errs_for_df = []    
             
-            # --- 1. DÉTECTION DES CONFLITS PAR ENSEIGNANT (LOGIQUE INDIVIDUELLE) ---
-            # On groupe par Jour, Horaire et Enseignant
+            # --- 1. DÉTECTION INDIVIDUELLE PAR ENSEIGNANT ---
             p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
 
             for (jour, horaire, prof), group in p_groups:
-                # On vérifie SI CET ENSEIGNANT PRÉCIS est affecté à plusieurs choses
                 lieux_uniques = group['Lieu'].unique()
                 matieres_uniques = group['Enseignements'].unique()
                 promos_uniques = group['Promotion'].unique()
 
-                # Un conflit n'existe que si LE MÊME PROF doit être à deux endroits 
-                # ou enseigner deux matières différentes en même temps.
+                # Un conflit n'est retenu que si le même prof a plusieurs salles ou matières
                 if len(lieux_uniques) > 1 or len(matieres_uniques) > 1:
                     if len(lieux_uniques) > 1:
                         type_err, style = "❌ CONFLIT LIEU", "error"
@@ -810,28 +807,50 @@ if df is not None:
                         "Détail": detail, "Lieu": ", ".join(lieux_uniques), 
                         "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
                     })
-                
-                # Note : Le cas "🔵 DOUBLE" (Même salle, même matière, plusieurs groupes) 
-                # est ignoré ici car c'est une fusion normale (ex: G1+G2).
 
-            # --- LE SYSTÈME DE RÉSOLUTION ET D'AFFICHAGE RESTE LE MÊME ---
+            # --- 2. INTERFACE DE RÉSOLUTION ---
             if errs_for_df:
-                st.markdown("### 🔍 Résolution ciblée par Enseignant")
+                st.markdown("### 🔍 Résolution ciblée")
                 profs_conflits = sorted(list(set([e["Enseignant"] for e in errs_for_df])))
-                selected_prof = st.selectbox("🎯 Choisir un enseignant pour corriger ses erreurs :", ["Tous"] + profs_conflits)
+                selected_prof = st.selectbox("🎯 Filtrer par enseignant :", ["Tous"] + profs_conflits)
 
                 if selected_prof != "Tous":
+                    st.info(f"Analyse des conflits pour : **{selected_prof}**")
                     conflits_p = [e for e in errs_for_df if e["Enseignant"] == selected_prof]
                     for i, cp in enumerate(conflits_p):
                         with st.expander(f"📌 {cp['Type']} - {cp['Jour']} à {cp['Horaire']}", expanded=True):
                             st.error(f"**Problème :** {cp['Détail']}")
-                            btn_key = f"btn_{cp['Enseignant']}_{cp['Jour']}_{cp['Horaire']}_{i}"
+                            st.markdown("💡 **Solutions suggérées :**")
+                            st.write("1. Modifiez la salle ou l'horaire pour cet enseignant.")
+                            st.write("2. S'il s'agit d'une fusion, harmonisez le nom de la matière.")
+                            
+                            btn_key = f"btn_solve_{cp['Enseignant']}_{i}"
                             if st.button(f"🔗 Aller à l'éditeur pour {selected_prof}", key=btn_key):
                                 st.session_state.mode_view = "✍️ Éditeur de données"
                                 st.rerun()
-                # ... suite du code (Rapport Global et Export)
+                
+                st.divider()
+                st.markdown("### 🌍 Rapport Global des Anomalies")
+                for style, m in errs_text:
+                    if selected_prof == "Tous" or selected_prof in m:
+                        if style == "error": st.error(m)
+                        else: st.warning(m)
+
+                # Export Excel
+                df_report = pd.DataFrame(errs_for_df)
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                    df_report.to_excel(writer, index=False, sheet_name='Anomalies')
+                
+                st.download_button(
+                    label="📥 Télécharger le Rapport Excel",
+                    data=buf.getvalue(),
+                    file_name="Rapport_Conflits_ELT_2026.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
             else:
-                st.success("✅ Aucun conflit détecté. Les binômes et salles partagées sont corrects.")
+                st.success("✅ Aucun conflit d'enseignant détecté. Les binômes et salles séparées sont valides.")
 
             # --- 2. DÉTECTION DES COLLISIONS SALLES (CORRIGÉE) ---
             s_groups = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu'])
@@ -1215,6 +1234,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
