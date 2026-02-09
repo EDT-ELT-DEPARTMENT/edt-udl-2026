@@ -783,21 +783,25 @@ if df is not None:
             errs_text = []      
             errs_for_df = []    
             
-            # --- 1. DÉTECTION DES CONFLITS ENSEIGNANTS ---
+            # --- 1. DÉTECTION DES CONFLITS PAR ENSEIGNANT (LOGIQUE INDIVIDUELLE) ---
+            # On groupe par Jour, Horaire et Enseignant
             p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
 
             for (jour, horaire, prof), group in p_groups:
-                if len(group) > 1:
-                    lieux_uniques = group['Lieu'].unique()
-                    matieres_uniques = group['Enseignements'].unique()
-                    promos_uniques = group['Promotion'].unique()
-                    
-                    if len(lieux_uniques) == 1 and len(matieres_uniques) == 1:
-                        type_err, style, detail = "🔵 DOUBLE", "info", "Fusion Groupes/Promotions"
-                    elif len(lieux_uniques) > 1:
-                        type_err, style, detail = "❌ CONFLIT LIEU", "error", f"Salles : {', '.join(lieux_uniques)}"
+                # On vérifie SI CET ENSEIGNANT PRÉCIS est affecté à plusieurs choses
+                lieux_uniques = group['Lieu'].unique()
+                matieres_uniques = group['Enseignements'].unique()
+                promos_uniques = group['Promotion'].unique()
+
+                # Un conflit n'existe que si LE MÊME PROF doit être à deux endroits 
+                # ou enseigner deux matières différentes en même temps.
+                if len(lieux_uniques) > 1 or len(matieres_uniques) > 1:
+                    if len(lieux_uniques) > 1:
+                        type_err, style = "❌ CONFLIT LIEU", "error"
+                        detail = f"Attendu dans plusieurs salles : {', '.join(lieux_uniques)}"
                     else:
-                        type_err, style, detail = "⚠️ CONFLIT MATIÈRE", "warning", "Matières différentes (Même salle)"
+                        type_err, style = "⚠️ CONFLIT MATIÈRE", "warning"
+                        detail = f"Deux matières différentes : {', '.join(matieres_uniques)}"
 
                     msg = f"**{type_err}** : {prof} | {jour} {horaire}"
                     errs_text.append((style, msg))
@@ -806,6 +810,28 @@ if df is not None:
                         "Détail": detail, "Lieu": ", ".join(lieux_uniques), 
                         "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
                     })
+                
+                # Note : Le cas "🔵 DOUBLE" (Même salle, même matière, plusieurs groupes) 
+                # est ignoré ici car c'est une fusion normale (ex: G1+G2).
+
+            # --- LE SYSTÈME DE RÉSOLUTION ET D'AFFICHAGE RESTE LE MÊME ---
+            if errs_for_df:
+                st.markdown("### 🔍 Résolution ciblée par Enseignant")
+                profs_conflits = sorted(list(set([e["Enseignant"] for e in errs_for_df])))
+                selected_prof = st.selectbox("🎯 Choisir un enseignant pour corriger ses erreurs :", ["Tous"] + profs_conflits)
+
+                if selected_prof != "Tous":
+                    conflits_p = [e for e in errs_for_df if e["Enseignant"] == selected_prof]
+                    for i, cp in enumerate(conflits_p):
+                        with st.expander(f"📌 {cp['Type']} - {cp['Jour']} à {cp['Horaire']}", expanded=True):
+                            st.error(f"**Problème :** {cp['Détail']}")
+                            btn_key = f"btn_{cp['Enseignant']}_{cp['Jour']}_{cp['Horaire']}_{i}"
+                            if st.button(f"🔗 Aller à l'éditeur pour {selected_prof}", key=btn_key):
+                                st.session_state.mode_view = "✍️ Éditeur de données"
+                                st.rerun()
+                # ... suite du code (Rapport Global et Export)
+            else:
+                st.success("✅ Aucun conflit détecté. Les binômes et salles partagées sont corrects.")
 
             # --- 2. DÉTECTION DES COLLISIONS SALLES (CORRIGÉE) ---
             s_groups = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu'])
@@ -1189,6 +1215,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
