@@ -807,15 +807,15 @@ if df is not None:
                         "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
                     })
 
-            # --- 2. DÉTECTION DES COLLISIONS SALLES (CORRIGÉE POUR LES BINÔMES) ---
+            # --- 2. DÉTECTION DES COLLISIONS SALLES (CORRIGÉE) ---
             s_groups = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu'])
             for (jour, horaire, salle), group in s_groups:
-                # On regarde combien de matières différentes il y a dans cette salle à cette heure
-                matieres_dans_salle = group['Enseignements'].unique()
+                # On identifie les matières et les profs présents
+                matieres_uniques_salle = group['Enseignements'].unique()
                 profs_uniques = group['Enseignants'].unique()
                 
-                # Il y a conflit SEULEMENT SI plus d'un prof ET des matières différentes
-                # Si c'est la même matière avec deux profs, c'est un binôme accepté.
+                # CONDITION : Conflit si plusieurs profs ET matières différentes
+                # Si c'est la même matière avec plusieurs profs, le code ignore (binôme accepté)
                 if len(profs_uniques) > 1 and len(matieres_uniques_salle) > 1:
                     type_err = "🚫 COLLISION SALLE"
                     mats = group['Enseignements'].unique()
@@ -828,11 +828,6 @@ if df is not None:
                             "Détail": f"Collision : Matières différentes dans {salle}", "Lieu": salle, 
                             "Matières": ", ".join(mats), "Promotions": ", ".join(proms)
                         })
-                
-                # CAS PARTICULIER : Si même matière mais profs différents (Optionnel : juste pour info)
-                # elif len(profs_uniques) > 1 and len(matieres_uniques_salle) == 1:
-                #    # On ne fait rien, c'est un binôme normal sur la même matière.
-                #    pass
 
             # --- 3. NOUVEAUTÉ : SYSTÈME DE RÉSOLUTION FILTRÉ ---
             if errs_for_df:
@@ -1192,6 +1187,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
