@@ -783,7 +783,7 @@ if df is not None:
             errs_text = []      
             errs_for_df = []    
             
-            # --- 1. DÉTECTION INDIVIDUELLE PAR ENSEIGNANT ---
+            # --- 1. DÉTECTION INDIVIDUELLE (Un prof ne peut pas être à 2 lieux/matières) ---
             p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
 
             for (jour, horaire, prof), group in p_groups:
@@ -791,14 +791,13 @@ if df is not None:
                 matieres_uniques = group['Enseignements'].unique()
                 promos_uniques = group['Promotion'].unique()
 
-                # Un conflit n'est retenu que si le même prof a plusieurs salles ou matières
                 if len(lieux_uniques) > 1 or len(matieres_uniques) > 1:
                     if len(lieux_uniques) > 1:
                         type_err, style = "❌ CONFLIT LIEU", "error"
-                        detail = f"Attendu dans plusieurs salles : {', '.join(lieux_uniques)}"
+                        detail = f"Salles différentes détectées : {', '.join(lieux_uniques)}"
                     else:
                         type_err, style = "⚠️ CONFLIT MATIÈRE", "warning"
-                        detail = f"Deux matières différentes : {', '.join(matieres_uniques)}"
+                        detail = f"Matières différentes détectées : {', '.join(matieres_uniques)}"
 
                     msg = f"**{type_err}** : {prof} | {jour} {horaire}"
                     errs_text.append((style, msg))
@@ -808,36 +807,51 @@ if df is not None:
                         "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
                     })
 
-            # --- 2. INTERFACE DE RÉSOLUTION ---
+            # --- 2. INTERFACE DE FILTRAGE ET BOUTON RESET ---
             if errs_for_df:
                 st.markdown("### 🔍 Résolution ciblée")
                 profs_conflits = sorted(list(set([e["Enseignant"] for e in errs_for_df])))
-                selected_prof = st.selectbox("🎯 Filtrer par enseignant :", ["Tous"] + profs_conflits)
+                
+                # Le selectbox avec une clé pour le reset
+                selected_prof = st.selectbox(
+                    "🎯 Filtrer par enseignant :", 
+                    ["Tous"] + profs_conflits,
+                    key="filtre_prof_conflit"
+                )
 
+                # BOUTON RESET (Apparaît si un filtre est actif)
                 if selected_prof != "Tous":
-                    st.info(f"Analyse des conflits pour : **{selected_prof}**")
+                    if st.button("🔄 Réinitialiser la vue (Afficher tout)", use_container_width=True):
+                        st.session_state.filtre_prof_conflit = "Tous"
+                        st.rerun()
+
+                st.divider()
+
+                # Affichage des détails par enseignant
+                if selected_prof != "Tous":
+                    st.info(f"Analyse pour : **{selected_prof}**")
                     conflits_p = [e for e in errs_for_df if e["Enseignant"] == selected_prof]
                     for i, cp in enumerate(conflits_p):
-                        with st.expander(f"📌 {cp['Type']} - {cp['Jour']} à {cp['Horaire']}", expanded=True):
+                        with st.expander(f"📌 {cp['Type']} - {cp['Jour']} {cp['Horaire']}", expanded=True):
                             st.error(f"**Problème :** {cp['Détail']}")
-                            st.markdown("💡 **Solutions suggérées :**")
-                            st.write("1. Modifiez la salle ou l'horaire pour cet enseignant.")
-                            st.write("2. S'il s'agit d'une fusion, harmonisez le nom de la matière.")
-                            
                             btn_key = f"btn_solve_{cp['Enseignant']}_{i}"
-                            if st.button(f"🔗 Aller à l'éditeur pour {selected_prof}", key=btn_key):
+                            if st.button(f"🔗 Corriger l'EDT de {selected_prof}", key=btn_key):
                                 st.session_state.mode_view = "✍️ Éditeur de données"
                                 st.rerun()
                 
-                st.divider()
+                # --- 3. RAPPORT GLOBAL ---
                 st.markdown("### 🌍 Rapport Global des Anomalies")
                 for style, m in errs_text:
                     if selected_prof == "Tous" or selected_prof in m:
                         if style == "error": st.error(m)
                         else: st.warning(m)
 
-                # Export Excel
+                # --- 4. TABLEAU RÉCAPITULATIF ET EXPORT ---
+                st.divider()
                 df_report = pd.DataFrame(errs_for_df)
+                with st.expander("👁️ Voir le tableau récapitulatif"):
+                    st.dataframe(df_report, use_container_width=True)
+
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
                     df_report.to_excel(writer, index=False, sheet_name='Anomalies')
@@ -850,85 +864,7 @@ if df is not None:
                     use_container_width=True
                 )
             else:
-                st.success("✅ Aucun conflit d'enseignant détecté. Les binômes et salles séparées sont valides.")
-
-            # --- 2. DÉTECTION DES COLLISIONS SALLES (CORRIGÉE) ---
-            s_groups = df[df["Lieu"] != "Non défini"].groupby(['Jours', 'Horaire', 'Lieu'])
-            for (jour, horaire, salle), group in s_groups:
-                # On identifie les matières et les profs présents
-                matieres_uniques_salle = group['Enseignements'].unique()
-                profs_uniques = group['Enseignants'].unique()
-                
-                # CONDITION : Conflit si plusieurs profs ET matières différentes
-                # Si c'est la même matière avec plusieurs profs, le code ignore (binôme accepté)
-                if len(profs_uniques) > 1 and len(matieres_uniques_salle) > 1:
-                    type_err = "🚫 COLLISION SALLE"
-                    mats = group['Enseignements'].unique()
-                    proms = group['Promotion'].unique()
-                    msg = f"**{type_err}** : Salle **{salle}** occupée par des matières différentes ({', '.join(mats)}) à {horaire}"
-                    errs_text.append(("error", msg))
-                    for p in profs_uniques:
-                        errs_for_df.append({
-                            "Type": type_err, "Enseignant": p, "Jour": jour, "Horaire": horaire, 
-                            "Détail": f"Collision : Matières différentes dans {salle}", "Lieu": salle, 
-                            "Matières": ", ".join(mats), "Promotions": ", ".join(proms)
-                        })
-
-            # --- 3. SYSTÈME DE RÉSOLUTION FILTRÉ (VERSION CORRIGÉE) ---
-            if errs_for_df:
-                st.markdown("### 🔍 Résolution ciblée par Enseignant")
-                # On extrait les noms uniques des profs impliqués dans une erreur
-                profs_conflits = sorted(list(set([e["Enseignant"] for e in errs_for_df])))
-                selected_prof = st.selectbox("🎯 Choisir un enseignant pour corriger ses erreurs :", ["Tous"] + profs_conflits)
-
-                if selected_prof != "Tous":
-                    st.info(f"Analyse des conflits pour : **{selected_prof}**")
-                    conflits_p = [e for e in errs_for_df if e["Enseignant"] == selected_prof]
-                    
-                    # Correction : On utilise enumerate pour garantir une clé unique par bouton
-                    for i, cp in enumerate(conflits_p):
-                        with st.expander(f"📌 {cp['Type']} - {cp['Jour']} à {cp['Horaire']}", expanded=True):
-                            st.error(f"**Problème :** {cp['Détail']}")
-                            st.markdown("💡 **Solutions suggérées :**")
-                            if "LIEU" in cp['Type'] or "COLLISION" in cp['Type']:
-                                st.write("1. Vérifiez la disponibilité d'une autre salle.")
-                                st.write("2. Modifiez le créneau ou la salle via l'Editeur.")
-                            else:
-                                st.write("Vérifiez que le nom de la matière est écrit exactement de la même façon pour permettre la fusion.")
-                            
-                            # La clé (key) contient maintenant l'index 'i' pour être unique
-                            btn_key = f"btn_{cp['Enseignant']}_{cp['Jour']}_{cp['Horaire']}_{i}"
-                            if st.button(f"🔗 Aller à l'éditeur pour {selected_prof}", key=btn_key):
-                                st.session_state.mode_view = "✍️ Éditeur de données"
-                                st.rerun()
-                    st.divider()
-                # --- 4. AFFICHAGE GLOBAL ET EXPORT (RESTE INCHANGÉ MAIS FILTRABLE) ---
-                st.markdown("### 🌍 Rapport Global des Anomalies")
-                for style, m in errs_text:
-                    # On affiche tout si "Tous", sinon on filtre par le nom du prof
-                    if selected_prof == "Tous" or selected_prof in m:
-                        if style == "info": st.info(m)
-                        elif style == "warning": st.warning(m)
-                        else: st.error(m)
-
-                st.divider()
-                df_report = pd.DataFrame(errs_for_df)
-                with st.expander("👁️ Voir le tableau récapitulatif"):
-                    st.dataframe(df_report, use_container_width=True)
-
-                buf = io.BytesIO()
-                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                    df_report.to_excel(writer, index=False, sheet_name='Anomalies_EDT')
-                
-                st.download_button(
-                    label="📥 Télécharger le Rapport Excel",
-                    data=buf.getvalue(),
-                    file_name="Rapport_Conflits_ELT_S2_2026.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-            else:
-                st.success("✅ Aucun conflit détecté dans l'emploi du temps.")
+                st.success("✅ Aucun conflit d'enseignant détecté. La Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA est à jour.")
     elif portail == "📅 Surveillances Examens":
         FILE_S = "surveillances_2026.xlsx"
         if os.path.exists(FILE_S):
@@ -1234,6 +1170,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
