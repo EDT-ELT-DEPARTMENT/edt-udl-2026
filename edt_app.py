@@ -120,7 +120,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # --- CHARGEMENT DES DONNÉES ---
-# Titre : Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA
+# Titre : Plateforme de gestion des emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA
 
 NOM_FICHIER_FIXE = "dataEDT-ELT-S2-2026.xlsx"
 NOM_FICHIER_CONTACTS = "Permanents-Vacataires-ELT2-2025-2026.xlsx"
@@ -534,7 +534,7 @@ if st.button("🚪 Déconnexion du compte"):
 # --- ESPACE ÉDITEUR AVANCÉ (ADMIN UNIQUEMENT) ---
 if is_admin and mode_view == "✍️ Éditeur de données":
     st.divider()
-    st.subheader("✍️ Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+    st.subheader("✍️ Plateforme de gestion des emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
     # 1. STRUCTURE ET NETTOYAGE
     cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
@@ -679,7 +679,7 @@ with col_logo:
         st.markdown("🏛️") # Secours si le fichier est manquant
 
 with col_titre:
-    st.markdown("<h1 class='main-title' style='border-bottom: none; margin-top: 0;'>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='main-title' style='border-bottom: none; margin-top: 0;'>Plateforme de gestion des emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h1>", unsafe_allow_html=True)
 
 with col_date:
     st.markdown(f"<div class='date-badge' style='float: right;'>📅 {nom_jour_fr}<br>{date_str}</div>", unsafe_allow_html=True)
@@ -1020,7 +1020,7 @@ if df is not None:
             st.image("logo.PNG", width=80)
         with col_t:
             st.header("🏢 Répertoire et Envoi Automatisé")
-            st.write("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+            st.write("Plateforme de gestion des emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
 
         # 1. RÉCUPÉRATION DES DONNÉES (Supabase + Répertoire Source Excel)
         res_auth = supabase.table("enseignants_auth").select("nom_officiel, email, last_sent").execute()
@@ -1083,7 +1083,7 @@ if df is not None:
                             
                             corps_html = f"""
                             <html><body>
-                                <h2>Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                                <h2>Plateforme de gestion des emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
                                 <p>Sallem, Veuillez recevoir votre emploi du temps du semestre 02.</p>
                                 {df_mail.to_html(index=False, border=1, justify='center')}
                                 <br><p>Cordialement.</p>
@@ -1153,7 +1153,7 @@ if df is not None:
                         corps_html = f"""
                             <html>
                             <body style="font-family: Arial, sans-serif;">
-                                <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                                <h2 style="color: #1E3A8A;">Plateforme de gestion des emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
                                 <p>Sallem M. <b>{row['Enseignant']}</b>,</p>
                                 <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
                                 <div style="margin: 20px 0;">
@@ -1196,6 +1196,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
