@@ -1224,39 +1224,45 @@ for idx, row in enumerate(donnees_finales):
                 server.quit(); st.success(f"✅ Envoyé à {row['Enseignant']}"); st.rerun()
             except Exception as e: st.error(f"Erreur : {e}")
     elif portail == "🎓 Portail Étudiants":
-        st.header("📚 Espace Étudiants")
-        p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
-        # DISPOSITION : Enseignements, Code, Enseignants, Horaire, Jours, Lieu
-        disp_etu = df[df["Promotion"] == p_etu][['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu']]
-        st.table(disp_etu.sort_values(by=["Jours", "Horaire"]))
-
-        if is_admin:
-            st.divider(); st.subheader("✍️ Espace Éditeur de Données (Admin)")
-            search_query = st.text_input("🔍 Rechercher une ligne :")
-            cols_format = ['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion', 'Chevauchement']
-            for col in cols_format: 
-                if col not in df.columns: df[col] = ""
-            df_to_edit = df[df[cols_format].apply(lambda r: r.astype(str).str.contains(search_query, case=False).any(), axis=1)].copy() if search_query else df[cols_format].copy()
-            edited_df = st.data_editor(df_to_edit, use_container_width=True, num_rows="dynamic", key="admin_master_editor")
-
-            if st.button("💾 Sauvegarder les modifications"):
-                try:
-                    if search_query: df.update(edited_df)
-                    else: df = edited_df
-                    df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                    st.success("✅ Modifications enregistrées !"); st.rerun()
-                except Exception as e: st.error(f"Erreur : {e}")
-
-
-
-
-
-
-
-
-
-
-
+    st.subheader("🎓 Consultation des Emplois du Temps par Promotion")
+    
+    if df is not None:
+        # 1. Sélection de la promotion
+        liste_promos = sorted(df["Promotion"].unique())
+        promo_choisie = st.selectbox("Sélectionnez votre promotion :", liste_promos)
+        
+        # 2. Filtrage des données
+        df_promo = df[df["Promotion"] == promo_choisie].copy()
+        
+        if not df_promo.empty:
+            # Préparation des données pour l'affichage (Disposition demandée)
+            # On s'assure que la variable existe ici
+            donnees_finales = df_promo[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+            
+            # 3. Affichage du tableau propre
+            st.dataframe(
+                donnees_finales, 
+                use_container_width=True, 
+                hide_index=True
+            )
+            
+            # Optionnel : Vue Calendrier pour les étudiants
+            st.markdown("### 📅 Vue Hebdomadaire")
+            def fmt_etudiant(rows):
+                return "<div class='separator'></div>".join(
+                    [f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _, r in rows.iterrows()]
+                )
+            
+            grid_etd = df_promo.groupby(['h_norm', 'j_norm']).apply(fmt_etudiant, include_groups=False).unstack('j_norm')
+            grid_etd = grid_etd.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
+            
+            # Remplacement des index/colonnes par les noms propres
+            grid_etd.index = [map_h.get(i, i) for i in grid_etd.index]
+            grid_etd.columns = [map_j.get(c, c) for c in grid_etd.columns]
+            
+            st.write(grid_etd.to_html(escape=False), unsafe_allow_html=True)
+        else:
+            st.info("Aucun cours répertorié pour cette promotion.")
 
 
 
