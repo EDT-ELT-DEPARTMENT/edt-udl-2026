@@ -1054,7 +1054,7 @@ if df is not None:
 
         # --- SECTION : GESTION DES ENVOIS (CODE COMPLET MIS À JOUR) ---
 
-# --- 2. BOUTONS D'ACTION ---
+# 2. BOUTONS D'ACTION
 c1, c2 = st.columns(2)
 
 with c1:
@@ -1068,7 +1068,8 @@ with c1:
 
 with c2:
     if st.button("🚀 Lancer l'envoi groupé (Excel joint)", type="primary", use_container_width=True):
-        import smtplib, io
+        import smtplib
+        import io
         import pandas as pd
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
@@ -1094,9 +1095,11 @@ with c2:
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                         df_mail.to_excel(writer, index=False, sheet_name='Mon_EDT')
                         workbook, worksheet = writer.book, writer.sheets['Mon_EDT']
-                        f_cours = workbook.add_format({'bg_color': '#D9EAD3', 'border': 1})
-                        f_td = workbook.add_format({'bg_color': '#FFF2CC', 'border': 1})
-                        f_tp = workbook.add_format({'bg_color': '#F4CCCC', 'border': 1})
+                        
+                        # Formats Excel
+                        f_cours = workbook.add_format({'bg_color': '#D9EAD3', 'border': 1}) # Vert
+                        f_td = workbook.add_format({'bg_color': '#FFF2CC', 'border': 1})    # Jaune
+                        f_tp = workbook.add_format({'bg_color': '#F4CCCC', 'border': 1})    # Rouge
                         f_head = workbook.add_format({'bg_color': '#1E3A8A', 'font_color': 'white', 'bold': True})
                         
                         for col_num, value in enumerate(df_mail.columns.values):
@@ -1112,12 +1115,11 @@ with c2:
                     msg['From'] = st.secrets["EMAIL_USER"]
                     msg['To'] = row["Email"]
 
-                    # Corps du message avec l'introduction officielle
+                    # Corps du message avec votre texte exact corrigé
                     corps_html = f"""
                     <html><body>
                         <h3 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h3>
                         <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
-                        <p>J'ai été chargé par le <b>Vice-Doyen</b>, suite à une réunion tenue aujourd'hui avec les responsables des équipes de spécialité, de filière et de domaine ainsi que le Chef de Département, de vous envoyer cet e-mail.</p>
                         <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
                         <p style="background-color: #FDF2F2; padding: 15px; border-left: 5px solid #1E3A8A; font-style: italic;">
                             Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
@@ -1143,11 +1145,11 @@ with c2:
             st.rerun()
         except Exception as e: st.error(f"Erreur groupée : {e}")
 
-# --- 3. AFFICHAGE RECAPITULATIF ---
+# 3. AFFICHAGE RECAPITULATIF
 st.divider()
 st.dataframe(pd.DataFrame(donnees_finales), use_container_width=True, hide_index=True)
 
-# --- 4. GESTION INDIVIDUELLE ---
+# 4. GESTION INDIVIDUELLE
 st.divider()
 st.subheader("📬 Gestion individuelle des envois")
 col_f1, col_f2 = st.columns(2)
@@ -1203,7 +1205,6 @@ for idx, row in enumerate(donnees_finales):
                 <html><body>
                     <h3 style="color:#1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h3>
                     <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
-                    <p>J'ai été chargé par le <b>Vice-Doyen</b>, suite à une réunion tenue aujourd'hui avec les responsables des équipes de spécialité, de filière et de domaine ainsi que le Chef de Département, de vous envoyer cet e-mail.</p>
                     <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
                     <p style="background-color: #f4f4f4; padding: 10px; border-left: 5px solid #1E3A8A;">
                         Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
