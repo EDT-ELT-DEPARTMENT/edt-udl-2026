@@ -1224,45 +1224,51 @@ for idx, row in enumerate(donnees_finales):
                 server.quit(); st.success(f"✅ Envoyé à {row['Enseignant']}"); st.rerun()
             except Exception as e: st.error(f"Erreur : {e}")
     elif portail == "🎓 Portail Étudiants":
-    st.subheader("🎓 Consultation des Emplois du Temps par Promotion")
-    
-    if df is not None:
-        # 1. Sélection de la promotion
-        liste_promos = sorted(df["Promotion"].unique())
-        promo_choisie = st.selectbox("Sélectionnez votre promotion :", liste_promos)
-        
-        # 2. Filtrage des données
-        df_promo = df[df["Promotion"] == promo_choisie].copy()
-        
-        if not df_promo.empty:
-            # Préparation des données pour l'affichage (Disposition demandée)
-            # On s'assure que la variable existe ici
-            donnees_finales = df_promo[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+            st.subheader("🎓 Consultation des Emplois du Temps par Promotion")
             
-            # 3. Affichage du tableau propre
-            st.dataframe(
-                donnees_finales, 
-                use_container_width=True, 
-                hide_index=True
-            )
-            
-            # Optionnel : Vue Calendrier pour les étudiants
-            st.markdown("### 📅 Vue Hebdomadaire")
-            def fmt_etudiant(rows):
-                return "<div class='separator'></div>".join(
-                    [f"<b>{r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>" for _, r in rows.iterrows()]
-                )
-            
-            grid_etd = df_promo.groupby(['h_norm', 'j_norm']).apply(fmt_etudiant, include_groups=False).unstack('j_norm')
-            grid_etd = grid_etd.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
-            
-            # Remplacement des index/colonnes par les noms propres
-            grid_etd.index = [map_h.get(i, i) for i in grid_etd.index]
-            grid_etd.columns = [map_j.get(c, c) for c in grid_etd.columns]
-            
-            st.write(grid_etd.to_html(escape=False), unsafe_allow_html=True)
-        else:
-            st.info("Aucun cours répertorié pour cette promotion.")
+            if df is not None:
+                # 1. Sélection de la promotion
+                liste_promos = sorted(df["Promotion"].unique())
+                promo_choisie = st.selectbox("Sélectionnez votre promotion :", liste_promos, key="sel_promo_etd")
+                
+                # 2. Filtrage des données
+                df_promo = df[df["Promotion"] == promo_choisie].copy()
+                
+                if not df_promo.empty:
+                    # Correction de la NameError : on définit explicitement la variable
+                    donnees_finales = df_promo[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+                    
+                    # Affichage du tableau (Ligne 1150 corrigée)
+                    st.dataframe(donnees_finales, use_container_width=True, hide_index=True)
+                    
+                    # 3. Vue Calendrier (Grille)
+                    st.markdown("### 📅 Vue Hebdomadaire")
+                    
+                    def fmt_etudiant(rows):
+                        items = []
+                        for _, r in rows.iterrows():
+                            # Style compact pour les étudiants
+                            type_m = "📘" if "COURS" in str(r['Code']).upper() else "📗" if "TD" in str(r['Code']).upper() else "📙"
+                            items.append(f"<b>{type_m} {r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>")
+                        return "<div class='separator'></div>".join(items)
+                    
+                    # Création de la grille
+                    grid_etd = df_promo.groupby(['h_norm', 'j_norm']).apply(fmt_etudiant, include_groups=False).unstack('j_norm')
+                    
+                    # Réindexation avec vos listes mémorisées (horaires_list et jours_list)
+                    grid_etd = grid_etd.reindex(
+                        index=[normalize(h) for h in horaires_list], 
+                        columns=[normalize(j) for j in jours_list]
+                    ).fillna("")
+                    
+                    # Remise des noms propres
+                    grid_etd.index = [map_h.get(i, i) for i in grid_etd.index]
+                    grid_etd.columns = [map_j.get(c, c) for c in grid_etd.columns]
+                    
+                    st.write(grid_etd.to_html(escape=False), unsafe_allow_html=True)
+                else:
+                    st.warning("Aucune donnée trouvée pour cette promotion.")
+
 
 
 
