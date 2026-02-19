@@ -1052,177 +1052,127 @@ if df is not None:
                 "État d'envoi": etat
             })
 
-        # --- SECTION : GESTION DES ENVOIS (CODE COMPLET MIS À JOUR) ---
-
-# 2. BOUTONS D'ACTION
-c1, c2 = st.columns(2)
-
-with c1:
-    if st.button("🔄 Réinitialiser les statuts (Comptes)", use_container_width=True):
-        try:
-            supabase.table("enseignants_auth").update({"last_sent": None}).neq("email", "").execute()
-            st.success("✅ Statuts réinitialisés !")
-            st.rerun()
-        except Exception as e:
-            st.error(f"Erreur : {e}")
-
-with c2:
-    if st.button("🚀 Lancer l'envoi groupé (Excel joint)", type="primary", use_container_width=True):
-        import smtplib
-        import io
-        import pandas as pd
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.base import MIMEBase
-        from email import encoders
-        from datetime import datetime
-
-        try:
-            server = smtplib.SMTP('smtp.gmail.com', 587)
-            server.starttls()
-            server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
-            
-            compteur = 0
-            for row in donnees_finales:
-                if (row["État d'envoi"] in ["⏳ En attente", "🟡 Dispo (Source Excel)"]) and "@" in str(row["Email"]):
-                    
-                    # Disposition des colonnes demandée
-                    df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
-                    df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
-
-                    # Création du fichier Excel coloré
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df_mail.to_excel(writer, index=False, sheet_name='Mon_EDT')
-                        workbook, worksheet = writer.book, writer.sheets['Mon_EDT']
-                        
-                        # Formats Excel
-                        f_cours = workbook.add_format({'bg_color': '#D9EAD3', 'border': 1}) # Vert
-                        f_td = workbook.add_format({'bg_color': '#FFF2CC', 'border': 1})    # Jaune
-                        f_tp = workbook.add_format({'bg_color': '#F4CCCC', 'border': 1})    # Rouge
-                        f_head = workbook.add_format({'bg_color': '#1E3A8A', 'font_color': 'white', 'bold': True})
-                        
-                        for col_num, value in enumerate(df_mail.columns.values):
-                            worksheet.write(0, col_num, value, f_head)
-                        for r_idx in range(len(df_mail)):
-                            val_type = str(df_mail.iloc[r_idx, 0]).upper()
-                            fmt = f_cours if "COURS" in val_type else f_td if "TD" in val_type else f_tp if "TP" in val_type else None
-                            if fmt: worksheet.set_row(r_idx + 1, None, fmt)
-                        worksheet.set_column('A:G', 18)
-
-                    msg = MIMEMultipart()
-                    msg['Subject'] = f"EDT S2-2026 - {row['Enseignant']}"
-                    msg['From'] = st.secrets["EMAIL_USER"]
-                    msg['To'] = row["Email"]
-
-                    # Corps du message avec votre texte exact corrigé
-                    corps_html = f"""
-                    <html><body>
-                        <h3 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h3>
-                        <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
-                        <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
-                        <p style="background-color: #FDF2F2; padding: 15px; border-left: 5px solid #1E3A8A; font-style: italic;">
-                            Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
-                            cela nous permettra de régler le problème de chevauchement de salles, ou de cours, TD ou TP. 
-                            Merci de nous renseigner le fichier Excel corrigé, au cas où votre emploi du temps est bon merci de nous envoyer <b>RAS</b>.
-                        </p>
-                        {df_mail.to_html(index=False, border=1, justify='center')}
-                        <br><p>Cordialement,<br><b>Service d'enseignement du département d'électrotechnique.</b></p>
-                    </body></html>"""
-                    
-                    msg.attach(MIMEText(corps_html, 'html'))
-                    part = MIMEBase('application', 'octet-stream')
-                    part.set_payload(output.getvalue()); encoders.encode_base64(part)
-                    part.add_header('Content-Disposition', f'attachment; filename="EDT_S2_2026_{row["Enseignant"]}.xlsx"')
-                    msg.attach(part); server.send_message(msg)
-                    compteur += 1
-                    
-                    if row["État d'envoi"] == "⏳ En attente":
-                        supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
-
-            server.quit()
-            st.success(f"✅ Terminé : {compteur} e-mails envoyés avec succès !")
-            st.rerun()
-        except Exception as e: st.error(f"Erreur groupée : {e}")
-
-# 3. AFFICHAGE RECAPITULATIF
-st.divider()
-st.dataframe(pd.DataFrame(donnees_finales), use_container_width=True, hide_index=True)
-
-# 4. GESTION INDIVIDUELLE
-st.divider()
-st.subheader("📬 Gestion individuelle des envois")
-col_f1, col_f2 = st.columns(2)
-with col_f1:
-    choix_ens = st.selectbox("🔍 Chercher un nom :", ["TOUS"] + sorted([row["Enseignant"] for row in donnees_finales]))
-with col_f2:
-    choix_stat = st.selectbox("📊 Filtrer par statut :", ["TOUS", "⏳ En attente", "✅ Envoyé", "❌ Absent"])
-
-for idx, row in enumerate(donnees_finales):
-    if (choix_ens != "TOUS" and row["Enseignant"] != choix_ens) or (choix_stat != "TOUS" and row["État d'envoi"] != choix_stat):
-        continue
+        # 2. BOUTONS D'ACTION
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🔄 Réinitialiser les statuts (Comptes)", use_container_width=True):
+                supabase.table("enseignants_auth").update({"last_sent": None}).neq("email", "").execute()
+                st.success("✅ Statuts réinitialisés !")
+                st.rerun()
         
-    c_ens, c_mail, c_st, c_btn = st.columns([2, 2, 1, 1])
-    c_ens.write(f"**{row['Enseignant']}**")
-    c_mail.write(row['Email'])
-    c_st.write(row["État d'envoi"])
-    
-    if "@" in str(row["Email"]):
-        if c_btn.button("📧 Envoyer", key=f"btn_{idx}"):
-            import smtplib, io
-            from email.mime.text import MIMEText
-            from email.mime.multipart import MIMEMultipart
-            from email.mime.base import MIMEBase
-            from email import encoders
-            from datetime import datetime
-            try:
-                server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
-                server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
-                
-                df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
-                df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
-                
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df_mail.to_excel(writer, index=False, sheet_name='EDT')
-                    workbook, worksheet = writer.book, writer.sheets['EDT']
-                    f_cours = workbook.add_format({'bg_color': '#D9EAD3', 'border': 1})
-                    f_td = workbook.add_format({'bg_color': '#FFF2CC', 'border': 1})
-                    f_tp = workbook.add_format({'bg_color': '#F4CCCC', 'border': 1})
-                    f_head = workbook.add_format({'bg_color': '#1E3A8A', 'font_color': 'white', 'bold': True})
-                    for c, val in enumerate(df_mail.columns): worksheet.write(0, c, val, f_head)
-                    for r in range(len(df_mail)):
-                        v = str(df_mail.iloc[r, 0]).upper()
-                        fmt = f_cours if "COURS" in v else f_td if "TD" in v else f_tp if "TP" in v else None
-                        if fmt: worksheet.set_row(r + 1, None, fmt)
-                    worksheet.set_column('A:G', 18)
+        with c2:
+            if st.button("🚀 Lancer l'envoi groupé", type="primary", use_container_width=True):
+                import smtplib
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+                from datetime import datetime
+                try:
+                    server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
+                    server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
+                    
+                    for row in donnees_finales:
+                        # On envoie si c'est "En attente" OU si c'est un mail trouvé dans le fichier source
+                        if (row["État d'envoi"] in ["⏳ En attente", "🟡 Dispo (Source Excel)"]) and "@" in str(row["Email"]):
+                            df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
+                            # Respect de la disposition demandée
+                            df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+                            
+                            msg = MIMEMultipart()
+                            msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
+                            msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
+                            
+                            corps_html = f"""
+                            <html><body>
+                                <h2>Plateforme de gestion des emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                                <p>Sallem, Veuillez recevoir votre emploi du temps du semestre 02.</p>
+                                {df_mail.to_html(index=False, border=1, justify='center')}
+                                <br><p>Cordialement.</p>
+                                <p><b>Service d'enseignement du département d'électrotechnique.</b></p>
+                            </body></html>
+                            """
+                            msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
+                            
+                            # Si c'est un inscrit, on marque comme envoyé dans Supabase
+                            if row["État d'envoi"] == "⏳ En attente":
+                                supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
+                    
+                    server.quit(); st.success("✅ Envoi groupé terminé !"); st.rerun()
+                except Exception as e: st.error(f"Erreur : {e}")
 
-                msg = MIMEMultipart()
-                msg['Subject'] = f"Mise à jour EDT - {row['Enseignant']}"
-                msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
+        # 3. AFFICHAGE DU TABLEAU RECAPITULATIF
+        st.divider()
+        st.dataframe(pd.DataFrame(donnees_finales), use_container_width=True, hide_index=True)
+        # 3. LISTE INDIVIDUELLE AVEC FILTRES DE RECHERCHE ET STATUT
+        st.divider()
+        st.subheader("📬 Gestion individuelle des envois")
+
+        # --- ZONE DE FILTRES ---
+        col_f1, col_f2 = st.columns(2)
+        
+        with col_f1:
+            liste_noms = ["TOUS"] + sorted([row["Enseignant"] for row in donnees_finales])
+            choix_enseignant = st.selectbox("🔍 Chercher un nom :", liste_noms)
+            
+        with col_f2:
+            # Filtre demandé : permet d'afficher uniquement ceux en attente
+            choix_statut = st.selectbox("📊 Filtrer par statut :", ["TOUS", "⏳ En attente", "✅ Envoyé", "❌ Absent"])
+
+        # --- AFFICHAGE FILTRÉ ---
+        for idx, row in enumerate(donnees_finales):
+            # Filtre 1 : Par nom
+            if choix_enseignant != "TOUS" and row["Enseignant"] != choix_enseignant:
+                continue
+            
+            # Filtre 2 : Par statut (ex: afficher seulement 'En attente')
+            if choix_statut != "TOUS" and row["État d'envoi"] != choix_statut:
+                continue
                 
-                corps_html = f"""
-                <html><body>
-                    <h3 style="color:#1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h3>
-                    <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
-                    <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
-                    <p style="background-color: #f4f4f4; padding: 10px; border-left: 5px solid #1E3A8A;">
-                        Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
-                        cela nous permettra de régler le problème de chevauchement de salles, ou de cours, TD ou TP. 
-                        Merci de nous renseigner le fichier Excel corrigé, au cas où votre emploi du temps est bon merci de nous envoyer <b>RAS</b>.
-                    </p>
-                    {df_mail.to_html(index=False, border=1)}
-                </body></html>"""
-                
-                msg.attach(MIMEText(corps_html, 'html'))
-                part = MIMEBase('application', 'octet-stream')
-                part.set_payload(output.getvalue()); encoders.encode_base64(part)
-                part.add_header('Content-Disposition', f'attachment; filename="EDT_{row["Enseignant"]}.xlsx"')
-                msg.attach(part); server.send_message(msg)
-                
-                supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
-                server.quit(); st.success(f"✅ Envoyé à {row['Enseignant']}"); st.rerun()
-            except Exception as e: st.error(f"Erreur : {e}")
+            col_ens, col_mail, col_stat, col_act = st.columns([2, 2, 1, 1])
+            col_ens.write(f"**{row['Enseignant']}**")
+            col_mail.write(row['Email'])
+            col_stat.write(row["État d'envoi"])
+            
+            if "@" in str(row["Email"]):
+                if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}_{idx}"):
+                    import smtplib
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    from datetime import datetime
+                    try:
+                        server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
+                        server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
+                        
+                        # Récupération des données selon la disposition demandée
+                        df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
+                        df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+                        
+                        msg = MIMEMultipart()
+                        msg['Subject'] = f"Mise à jour Emploi du Temps - {row['Enseignant']}"
+                        msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
+                        
+                        corps_html = f"""
+                            <html>
+                            <body style="font-family: Arial, sans-serif;">
+                                <h2 style="color: #1E3A8A;">Plateforme de gestion des emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                                <p>Sallem M. <b>{row['Enseignant']}</b>,</p>
+                                <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
+                                <div style="margin: 20px 0;">
+                                    {df_mail.to_html(index=False, border=1, justify='center')}
+                                </div>
+                                <p>Cordialement.</p>
+                                <p>---<br>
+                                <b>Service d'enseignement du département d'électrotechnique.</b><br>
+                                Faculté de génie électrique - UDL-SBA</p>
+                            </body>
+                            </html>
+                            """
+                        msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
+                        
+                        # Mise à jour Supabase avec timestamp ISO
+                        supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
+                        
+                        server.quit(); st.success(f"✅ Envoyé à {row['Enseignant']}"); st.rerun()
+                    except Exception as e: st.error(f"Erreur : {e}")
     elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
@@ -1246,7 +1196,6 @@ for idx, row in enumerate(donnees_finales):
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
-
 
 
 
