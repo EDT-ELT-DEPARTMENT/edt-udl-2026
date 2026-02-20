@@ -1183,7 +1183,7 @@ if df is not None:
             col_mail.write(row['Email'])
             col_stat.write(row["État d'envoi"])
             
-        if "@" in str(row["Email"]):
+           if "@" in str(row["Email"]):
                 if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}_{idx}"):
                 import smtplib
                 import os
@@ -1286,6 +1286,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
