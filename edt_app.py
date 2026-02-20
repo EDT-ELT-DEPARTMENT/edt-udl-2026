@@ -1159,22 +1159,16 @@ if df is not None:
 
         # --- ZONE DE FILTRES ---
         col_f1, col_f2 = st.columns(2)
-        
         with col_f1:
             liste_noms = ["TOUS"] + sorted([row["Enseignant"] for row in donnees_finales])
             choix_enseignant = st.selectbox("🔍 Chercher un nom :", liste_noms)
-            
         with col_f2:
-            # Filtre demandé : permet d'afficher uniquement ceux en attente
             choix_statut = st.selectbox("📊 Filtrer par statut :", ["TOUS", "⏳ En attente", "✅ Envoyé", "❌ Absent"])
 
-        # --- AFFICHAGE FILTRÉ ---
+        # --- BOUCLE D'AFFICHAGE ET D'ENVOI ---
         for idx, row in enumerate(donnees_finales):
-            # Filtre 1 : Par nom
             if choix_enseignant != "TOUS" and row["Enseignant"] != choix_enseignant:
                 continue
-            
-            # Filtre 2 : Par statut (ex: afficher seulement 'En attente')
             if choix_statut != "TOUS" and row["État d'envoi"] != choix_statut:
                 continue
                 
@@ -1183,68 +1177,88 @@ if df is not None:
             col_mail.write(row['Email'])
             col_stat.write(row["État d'envoi"])
             
-if "@" in str(row["Email"]):
-    if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}_{idx}"):
-       import smtplib
-       import os
-       from email.mime.text import MIMEText
-       from email.mime.multipart import MIMEMultipart
-       from email.mime.base import MIMEBase
-       from email import encoders
-       from datetime import datetime
+            if "@" in str(row["Email"]):
+                # Le bouton individuel
+                if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}_{idx}"):
+                    import smtplib
+                    import os
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    from email.mime.base import MIMEBase
+                    from email import encoders
+                    from datetime import datetime
 
-    try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
-        
-        nom_fichier_pj = "dataEDT-ELT-S2-2026.xlsx" 
+                    try:
+                        server = smtplib.SMTP('smtp.gmail.com', 587)
+                        server.starttls()
+                        server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
+                        
+                        nom_fichier_pj = "dataEDT-ELT-S2-2026.xlsx" 
 
-        # --- CORRECTION DU FILTRE ICI ---
-        # On compare le nom de la ligne actuelle (row['Enseignant']) avec la colonne 'Enseignants' du DataFrame global
-        enseignant_cible = str(row['Enseignant']).strip().upper()
-        df_perso = df[df["Enseignants"].astype(str).str.strip().str.upper() == enseignant_cible]
-        
-        # Sélection des colonnes dans l'ordre demandé
-        df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
-        
-        msg = MIMEMultipart()
-        msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
-        msg['From'] = st.secrets["EMAIL_USER"]
-        msg['To'] = row["Email"]
-        
-        corps_html = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6;">
-            <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
-            <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
-            <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
-            <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic;">
-                Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel...
-            </div>
-            {df_mail.to_html(index=False, border=1, justify='center')}
-            <p>Cordialement.</p>
-        </body>
-        </html>
-        """
-        msg.attach(MIMEText(corps_html, 'html'))
+                        # FILTRAGE STRICT : On cherche uniquement l'enseignant concerné
+                        nom_cible = str(row['Enseignant']).strip().upper()
+                        df_perso = df[df["Enseignants"].astype(str).str.strip().str.upper() == nom_cible]
+                        
+                        # Disposition demandée
+                        df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
+                        
+                        msg = MIMEMultipart()
+                        msg['Subject'] = f"Mise à jour Emploi du Temps - {row['Enseignant']}"
+                        msg['From'] = st.secrets["EMAIL_USER"]
+                        msg['To'] = row["Email"]
+                        
+                        # MESSAGE PERSONNALISÉ AVEC "RAS"
+                        corps_html = f"""
+                        <html>
+                        <body style="font-family: Arial, sans-serif; line-height: 1.6;">
+                            <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                            
+                            <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
+                            
+                            <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
+                            
+                            <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic; border-radius: 5px;">
+                                Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
+                                cela nous permettra de régler le problème de chevauchement de salles, ou de cours, TD ou TP. 
+                                Merci de nous renseigner le fichier Excel corrigé, au cas où votre emploi du temps est bon merci de nous envoyer <b>RAS</b>.
+                            </div>
 
-        # Pièce jointe
-        if os.path.exists(nom_fichier_pj):
-            with open(nom_fichier_pj, "rb") as attachment:
-                part = MIMEBase('application', 'octet-stream')
-                part.set_payload(attachment.read())
-                encoders.encode_base64(part)
-                part.add_header('Content-Disposition', f'attachment; filename={nom_fichier_pj}')
-                msg.attach(part)
-        
-        server.send_message(msg)
-        server.quit()
-        st.success(f"✅ Envoyé spécifiquement à {row['Enseignant']}")
-        st.rerun()
+                            <div style="margin: 20px 0;">
+                                {df_mail.to_html(index=False, border=1, justify='center')}
+                            </div>
 
-    except Exception as e:
-        st.error(f"Erreur : {e}")
+                            <p>Cordialement.</p>
+                            <p>---<br>
+                            <b>Service d'enseignement du département d'électrotechnique.</b><br>
+                            Faculté de génie électrique - UDL-SBA</p>
+                        </body>
+                        </html>
+                        """
+                        msg.attach(MIMEText(corps_html, 'html'))
+
+                        # PIÈCE JOINTE
+                        if os.path.exists(nom_fichier_pj):
+                            with open(nom_fichier_pj, "rb") as attachment:
+                                part = MIMEBase('application', 'octet-stream')
+                                part.set_payload(attachment.read())
+                                encoders.encode_base64(part)
+                                part.add_header('Content-Disposition', f'attachment; filename={nom_fichier_pj}')
+                                msg.attach(part)
+                        
+                        server.send_message(msg)
+                        server.quit()
+
+                        # Mise à jour Supabase
+                        supabase.table("enseignants_auth").update({
+                            "last_sent": datetime.now().isoformat()
+                        }).eq("email", row["Email"]).execute()
+                        
+                        st.success(f"✅ Envoyé à {row['Enseignant']}")
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"Erreur : {e}")
+        # --- FIN DE LA BOUCLE ---
     elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
@@ -1268,6 +1282,7 @@ if "@" in str(row["Email"]):
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
