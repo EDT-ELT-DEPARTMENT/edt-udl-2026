@@ -1178,10 +1178,10 @@ if df is not None:
             col_stat.write(row["État d'envoi"])
             
             if "@" in str(row["Email"]):
-                # Le bouton individuel
                 if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}_{idx}"):
                     import smtplib
-                    import os
+                    import io
+                    import pandas as pd
                     from email.mime.text import MIMEText
                     from email.mime.multipart import MIMEMultipart
                     from email.mime.base import MIMEBase
@@ -1193,31 +1193,28 @@ if df is not None:
                         server.starttls()
                         server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
                         
-                        nom_fichier_pj = "dataEDT-ELT-S2-2026.xlsx" 
-
-                        # FILTRAGE STRICT : On cherche uniquement l'enseignant concerné
+                        # 1. FILTRAGE STRICT DU TABLEAU (On ne prend que MILOUA)
                         nom_cible = str(row['Enseignant']).strip().upper()
+                        # On s'assure de ne prendre QUE les lignes où l'enseignant correspond exactement
                         df_perso = df[df["Enseignants"].astype(str).str.strip().str.upper() == nom_cible]
                         
-                        # Disposition demandée
+                        # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
                         df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
                         
                         msg = MIMEMultipart()
-                        msg['Subject'] = f"Mise à jour Emploi du Temps - {row['Enseignant']}"
+                        msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
                         msg['From'] = st.secrets["EMAIL_USER"]
                         msg['To'] = row["Email"]
                         
-                        # MESSAGE PERSONNALISÉ AVEC "RAS"
+                        # 2. CORPS DU MESSAGE (Votre texte avec RAS)
                         corps_html = f"""
                         <html>
                         <body style="font-family: Arial, sans-serif; line-height: 1.6;">
                             <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
-                            
                             <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
-                            
                             <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
                             
-                            <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic; border-radius: 5px;">
+                            <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic;">
                                 Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
                                 cela nous permettra de régler le problème de chevauchement de salles, ou de cours, TD ou TP. 
                                 Merci de nous renseigner le fichier Excel corrigé, au cas où votre emploi du temps est bon merci de nous envoyer <b>RAS</b>.
@@ -1228,36 +1225,40 @@ if df is not None:
                             </div>
 
                             <p>Cordialement.</p>
-                            <p>---<br>
-                            <b>Service d'enseignement du département d'électrotechnique.</b><br>
-                            Faculté de génie électrique - UDL-SBA</p>
+                            <p>---<br><b>Service d'enseignement du département d'électrotechnique.</b></p>
                         </body>
                         </html>
                         """
                         msg.attach(MIMEText(corps_html, 'html'))
 
-                        # PIÈCE JOINTE
-                        if os.path.exists(nom_fichier_pj):
-                            with open(nom_fichier_pj, "rb") as attachment:
-                                part = MIMEBase('application', 'octet-stream')
-                                part.set_payload(attachment.read())
-                                encoders.encode_base64(part)
-                                part.add_header('Content-Disposition', f'attachment; filename={nom_fichier_pj}')
-                                msg.attach(part)
+                        # 3. GÉNÉRATION DE LA PIÈCE JOINTE FILTRÉE (CORRECTION MAJEURE)
+                        # Au lieu d'ouvrir un fichier existant, on crée un Excel à partir de df_mail
+                        buffer = io.BytesIO()
+                        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                            df_mail.to_excel(writer, index=False, sheet_name='Mon EDT')
+                        buffer.seek(0)
                         
+                        part = MIMEBase('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                        part.set_payload(buffer.read())
+                        encoders.encode_base64(part)
+                        
+                        # Nom du fichier personnalisé pour l'enseignant
+                        nom_fichier_joint = f"EDT_2026_{row['Enseignant']}.xlsx"
+                        part.add_header('Content-Disposition', f'attachment; filename="{nom_fichier_joint}"')
+                        msg.attach(part)
+                        
+                        # 4. ENVOI ET MISE À JOUR
                         server.send_message(msg)
-                        server.quit()
-
-                        # Mise à jour Supabase
                         supabase.table("enseignants_auth").update({
                             "last_sent": datetime.now().isoformat()
                         }).eq("email", row["Email"]).execute()
                         
-                        st.success(f"✅ Envoyé à {row['Enseignant']}")
+                        server.quit()
+                        st.success(f"✅ Succès : Tableau et Excel identiques envoyés à {row['Enseignant']}")
                         st.rerun()
 
                     except Exception as e:
-                        st.error(f"Erreur : {e}")
+                        st.error(f"Erreur lors de l'envoi : {e}")
         # --- FIN DE LA BOUCLE ---
     elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
@@ -1282,6 +1283,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
