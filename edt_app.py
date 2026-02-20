@@ -1063,41 +1063,92 @@ if df is not None:
         with c2:
             if st.button("🚀 Lancer l'envoi groupé", type="primary", use_container_width=True):
                 import smtplib
+                import os
                 from email.mime.text import MIMEText
                 from email.mime.multipart import MIMEMultipart
+                from email.mime.base import MIMEBase
+                from email import encoders
                 from datetime import datetime
+
                 try:
-                    server = smtplib.SMTP('smtp.gmail.com', 587); server.starttls()
+                    # Configuration du serveur
+                    server = smtplib.SMTP('smtp.gmail.com', 587)
+                    server.starttls()
                     server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
                     
+                    nom_fichier_pj = "EDT_S2_2026.xlsx" # Nom du fichier à joindre
+
                     for row in donnees_finales:
-                        # On envoie si c'est "En attente" OU si c'est un mail trouvé dans le fichier source
+                        # On envoie si c'est "En attente" OU si c'est un mail trouvé dans la source Excel
                         if (row["État d'envoi"] in ["⏳ En attente", "🟡 Dispo (Source Excel)"]) and "@" in str(row["Email"]):
+                            
+                            # Filtrage des données de l'enseignant
                             df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
-                            # Respect de la disposition demandée
+                            
+                            # Respect de la disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
                             df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
                             
+                            # Création du message
                             msg = MIMEMultipart()
                             msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
-                            msg['From'] = st.secrets["EMAIL_USER"]; msg['To'] = row["Email"]
+                            msg['From'] = st.secrets["EMAIL_USER"]
+                            msg['To'] = row["Email"]
                             
+                            # Corps de l'e-mail avec le message personnalisé
                             corps_html = f"""
-                            <html><body>
-                                <h2>Plateforme de gestion des emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
-                                <p>Sallem, Veuillez recevoir votre emploi du temps du semestre 02.</p>
-                                {df_mail.to_html(index=False, border=1, justify='center')}
-                                <br><p>Cordialement.</p>
-                                <p><b>Service d'enseignement du département d'électrotechnique.</b></p>
-                            </body></html>
+                            <html>
+                            <body style="font-family: Arial, sans-serif; line-height: 1.6;">
+                                <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                                <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
+                                <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
+                                
+                                <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic;">
+                                    Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
+                                    cela nous permettra de régler le problème de chevauchement de salles, ou de cours, TD ou TP. 
+                                    Merci de nous renseigner le fichier Excel corrigé, au cas où votre emploi du temps est bon merci de nous envoyer <b>RAS</b>.
+                                </div>
+
+                                <div style="margin: 20px 0;">
+                                    {df_mail.to_html(index=False, border=1, justify='center')}
+                                </div>
+
+                                <p>Cordialement.</p>
+                                <p>---<br>
+                                <b>Service d'enseignement du département d'électrotechnique.</b><br>
+                                Faculté de génie électrique - UDL-SBA</p>
+                            </body>
+                            </html>
                             """
-                            msg.attach(MIMEText(corps_html, 'html')); server.send_message(msg)
+                            msg.attach(MIMEText(corps_html, 'html'))
+
+                            # --- AJOUT DE LA PIÈCE JOINTE ---
+                            # Assurez-vous que le fichier existe sur votre serveur/ordinateur
+                            if os.path.exists(nom_fichier_pj):
+                                with open(nom_fichier_pj, "rb") as attachment:
+                                    part = MIMEBase('application', 'octet-stream')
+                                    part.set_payload(attachment.read())
+                                    encoders.encode_base64(part)
+                                    part.add_header(
+                                        'Content-Disposition',
+                                        f'attachment; filename={nom_fichier_pj}',
+                                    )
+                                    msg.attach(part)
+
+                            # Envoi de l'e-mail
+                            server.send_message(msg)
                             
-                            # Si c'est un inscrit, on marque comme envoyé dans Supabase
+                            # Si c'est un compte inscrit (Supabase), on marque comme envoyé
                             if row["État d'envoi"] == "⏳ En attente":
-                                supabase.table("enseignants_auth").update({"last_sent": datetime.now().isoformat()}).eq("email", row["Email"]).execute()
+                                supabase.table("enseignants_auth").update({
+                                    "last_sent": datetime.now().isoformat()
+                                }).eq("email", row["Email"]).execute()
                     
-                    server.quit(); st.success("✅ Envoi groupé terminé !"); st.rerun()
-                except Exception as e: st.error(f"Erreur : {e}")
+                    server.quit()
+                    st.success("✅ Envoi groupé terminé avec succès !")
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Une erreur est survenue lors de l'envoi : {e}")
 
         # 3. AFFICHAGE DU TABLEAU RECAPITULATIF
         st.divider()
@@ -1196,6 +1247,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
