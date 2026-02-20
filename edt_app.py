@@ -1103,7 +1103,7 @@ if df is not None:
                                 <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
                                 
                                 <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic;">
-                                    Remarques:Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
+                                    Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
                                     cela nous permettra de régler le problème de chevauchement de salles, ou de cours, TD ou TP. 
                                     Merci de nous renseigner le fichier Excel corrigé, au cas où votre emploi du temps est bon merci de nous envoyer <b>RAS</b>.
                                 </div>
@@ -1193,72 +1193,94 @@ if df is not None:
                         server.starttls()
                         server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
                         
-                        # 1. FILTRAGE STRICT DU TABLEAU (On ne prend que MILOUA)
+                        # 1. FILTRAGE ET RECAPITULATIF
                         nom_cible = str(row['Enseignant']).strip().upper()
-                        # On s'assure de ne prendre QUE les lignes où l'enseignant correspond exactement
-                        df_perso = df[df["Enseignants"].astype(str).str.strip().str.upper() == nom_cible]
-                        
-                        # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+                        # On utilise .contains pour attraper "FETHIMILOUA" si vous êtes MILOUA
+                        df_perso = df[df["Enseignants"].astype(str).str.upper().str.contains(nom_cible, na=False)]
                         df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
                         
+                        # Calcul du récapitulatif
+                        nb_cours = df_mail['Enseignements'].str.contains('Cours', case=False).sum()
+                        nb_td = df_mail['Enseignements'].str.contains('TD', case=False).sum()
+                        nb_tp = df_mail['Enseignements'].str.contains('TP', case=False).sum()
+
                         msg = MIMEMultipart()
                         msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
                         msg['From'] = st.secrets["EMAIL_USER"]
                         msg['To'] = row["Email"]
                         
-                        # 2. CORPS DU MESSAGE (Votre texte avec RAS)
+                        # 2. CORPS DU MESSAGE AVEC RÉCAPITULATIF
                         corps_html = f"""
                         <html>
                         <body style="font-family: Arial, sans-serif; line-height: 1.6;">
                             <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
                             <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
-                            <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
                             
+                            <div style="background-color: #f8f9fa; padding: 10px; border: 1px solid #dee2e6; border-radius: 5px;">
+                                <b>📊 Récapitulatif de votre charge (S2-2026) :</b><br>
+                                <ul>
+                                    <li>Nombre de Cours : <b>{nb_cours}</b></li>
+                                    <li>Nombre de TD : <b>{nb_td}</b></li>
+                                    <li>Nombre de TP : <b>{nb_tp}</b></li>
+                                </ul>
+                            </div>
+
                             <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic;">
-                                Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
-                                cela nous permettra de régler le problème de chevauchement de salles, ou de cours, TD ou TP. 
-                                Merci de nous renseigner le fichier Excel corrigé, au cas où votre emploi du temps est bon merci de nous envoyer <b>RAS</b>.
+                                <p>J'ai été chargé en tant que représentant des responsables des équipes de formation, en concertation avec le chef de département et le vice doyen chargé de la graduation, de coordonner l'élaboration de ces emplois du temps.</p>
+                                <p>Je vous prie de bien vouloir nous signaler une éventuelle anomalie. Merci de nous renseigner le fichier Excel corrigé, au cas où tout est bon merci de nous envoyer <b>RAS</b>.</p>
                             </div>
 
-                            <div style="margin: 20px 0;">
-                                {df_mail.to_html(index=False, border=1, justify='center')}
-                            </div>
+                            {df_mail.to_html(index=False, border=1, justify='center')}
 
-                            <p>Cordialement.</p>
-                            <p>---<br><b>Service d'enseignement du département d'électrotechnique.</b></p>
+                            <p><br>Cordialement.<br>---<br><b>Service d'enseignement du département d'électrotechnique.</b></p>
                         </body>
                         </html>
                         """
                         msg.attach(MIMEText(corps_html, 'html'))
 
-                        # 3. GÉNÉRATION DE LA PIÈCE JOINTE FILTRÉE (CORRECTION MAJEURE)
-                        # Au lieu d'ouvrir un fichier existant, on crée un Excel à partir de df_mail
+                        # 3. CRÉATION DE L'EXCEL COLORÉ
                         buffer = io.BytesIO()
                         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                             df_mail.to_excel(writer, index=False, sheet_name='Mon EDT')
-                        buffer.seek(0)
+                            workbook  = writer.book
+                            worksheet = writer.sheets['Mon EDT']
+
+                            # Définition des formats de couleurs
+                            fmt_cours = workbook.add_format({'bg_color': '#D9EAD3', 'border': 1}) # Vert clair
+                            fmt_td    = workbook.add_format({'bg_color': '#FFF2CC', 'border': 1}) # Jaune clair
+                            fmt_tp    = workbook.add_format({'bg_color': '#F4CCCC', 'border': 1}) # Rouge clair
+                            fmt_header = workbook.add_format({'bold': True, 'bg_color': '#4472C4', 'font_color': 'white', 'border': 1})
+
+                            # Appliquer le format aux en-têtes
+                            for col_num, value in enumerate(df_mail.columns.values):
+                                worksheet.write(0, col_num, value, fmt_header)
+
+                            # Appliquer les couleurs selon le contenu (Colonne A: Enseignements)
+                            for i, enseignement in enumerate(df_mail['Enseignements']):
+                                current_fmt = None
+                                if 'Cours' in str(enseignement): current_fmt = fmt_cours
+                                elif 'TD' in str(enseignement): current_fmt = fmt_td
+                                elif 'TP' in str(enseignement): current_fmt = fmt_tp
+                                
+                                if current_fmt:
+                                    worksheet.set_row(i + 1, None, current_fmt)
+
+                            worksheet.set_column('A:G', 18) # Ajuster la largeur des colonnes
                         
+                        buffer.seek(0)
                         part = MIMEBase('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
                         part.set_payload(buffer.read())
                         encoders.encode_base64(part)
-                        
-                        # Nom du fichier personnalisé pour l'enseignant
-                        nom_fichier_joint = f"EDT_2026_{row['Enseignant']}.xlsx"
-                        part.add_header('Content-Disposition', f'attachment; filename="{nom_fichier_joint}"')
+                        part.add_header('Content-Disposition', f'attachment; filename="EDT_2026_{row["Enseignant"]}.xlsx"')
                         msg.attach(part)
                         
-                        # 4. ENVOI ET MISE À JOUR
                         server.send_message(msg)
-                        supabase.table("enseignants_auth").update({
-                            "last_sent": datetime.now().isoformat()
-                        }).eq("email", row["Email"]).execute()
-                        
                         server.quit()
-                        st.success(f"✅ Succès : Tableau et Excel identiques envoyés à {row['Enseignant']}")
+                        st.success(f"✅ Envoyé avec récapitulatif et Excel coloré à {row['Enseignant']}")
                         st.rerun()
 
                     except Exception as e:
-                        st.error(f"Erreur lors de l'envoi : {e}")
+                        st.error(f"Erreur : {e}")
         # --- FIN DE LA BOUCLE ---
     elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
@@ -1283,6 +1305,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
