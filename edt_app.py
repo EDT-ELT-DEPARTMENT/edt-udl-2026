@@ -783,28 +783,64 @@ if df is not None:
             errs_text = []      
             errs_for_df = []    
             
-            # --- 1. DÉTECTION INDIVIDUELLE (Un prof ne peut pas être à 2 lieux/matières) ---
-            p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
+            # --- 1. DÉTECTION DES CONFLITS (ENSEIGNANTS, SALLES ET PROMOS) ---
+            errs_text = []      
+            errs_for_df = []    
 
+            # A. CONFLITS D'ENSEIGNANTS (Un prof ne peut pas être à 2 lieux/matières)
+            p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
             for (jour, horaire, prof), group in p_groups:
                 lieux_uniques = group['Lieu'].unique()
                 matieres_uniques = group['Enseignements'].unique()
-                promos_uniques = group['Promotion'].unique()
-
                 if len(lieux_uniques) > 1 or len(matieres_uniques) > 1:
-                    if len(lieux_uniques) > 1:
-                        type_err, style = "❌ CONFLIT LIEU", "error"
-                        detail = f"Salles différentes détectées : {', '.join(lieux_uniques)}"
-                    else:
-                        type_err, style = "⚠️ CONFLIT MATIÈRE", "warning"
-                        detail = f"Matières différentes détectées : {', '.join(matieres_uniques)}"
-
+                    type_err = "❌ CONFLIT ENSEIGNANT"
+                    style = "error"
+                    detail = f"L'enseignant est affecté à plusieurs lieux ({', '.join(lieux_uniques)}) ou matières."
+                    
                     msg = f"**{type_err}** : {prof} | {jour} {horaire}"
                     errs_text.append((style, msg))
                     errs_for_df.append({
                         "Type": type_err, "Enseignant": prof, "Jour": jour, "Horaire": horaire, 
                         "Détail": detail, "Lieu": ", ".join(lieux_uniques), 
-                        "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
+                        "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(group['Promotion'].unique())
+                    })
+
+            # B. CONFLITS DE SALLES (Deux profs différents dans la même salle) -> RÉSOUT VOTRE PROBLÈME
+            s_groups = df[(df["Lieu"] != "Non défini") & (df["Lieu"] != "A distance")].groupby(['Jours', 'Horaire', 'Lieu'])
+            for (jour, horaire, lieu), group in s_groups:
+                if len(group['Enseignants'].unique()) > 1:
+                    type_err = "❌ CONFLIT SALLE OCCUPÉE"
+                    style = "error"
+                    profs_concernees = group['Enseignants'].unique()
+                    detail = f"La salle '{lieu}' est utilisée par : {', '.join(profs_concernees)}"
+                    
+                    msg = f"**{type_err}** : {lieu} | {jour} {horaire} ({', '.join(profs_concernees)})"
+                    errs_text.append((style, msg))
+                    
+                    # On ajoute l'erreur pour chaque enseignant impliqué pour qu'ils la voient dans leur filtre
+                    for p in profs_concernees:
+                        errs_for_df.append({
+                            "Type": type_err, "Enseignant": p, "Jour": jour, "Horaire": horaire, 
+                            "Détail": detail, "Lieu": lieu, 
+                            "Matières": ", ".join(group['Enseignements'].unique()), 
+                            "Promotions": ", ".join(group['Promotion'].unique())
+                        })
+
+            # C. CONFLITS DE PROMOTION (Une classe ne peut pas avoir deux cours en même temps)
+            pr_groups = df[df["Promotion"] != "Non défini"].groupby(['Jours', 'Horaire', 'Promotion'])
+            for (jour, horaire, promo), group in pr_groups:
+                if len(group['Enseignements'].unique()) > 1:
+                    type_err = "⚠️ CONFLIT PROMOTION"
+                    style = "warning"
+                    matieres = group['Enseignements'].unique()
+                    detail = f"La promotion {promo} a plusieurs cours simultanés : {', '.join(matieres)}"
+                    
+                    msg = f"**{type_err}** : {promo} | {jour} {horaire}"
+                    errs_text.append((style, msg))
+                    errs_for_df.append({
+                        "Type": type_err, "Enseignant": "Multi-enseignants", "Jour": jour, "Horaire": horaire, 
+                        "Détail": detail, "Lieu": ", ".join(group['Lieu'].unique()), 
+                        "Matières": ", ".join(matieres), "Promotions": promo
                     })
 
             # --- 2. INTERFACE DE FILTRAGE ET BOUTON RESET ---
@@ -1417,6 +1453,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
