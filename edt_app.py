@@ -1063,7 +1063,9 @@ if df is not None:
         with c2:
             if st.button("🚀 Lancer l'envoi groupé", type="primary", use_container_width=True):
                 import smtplib
+                import io
                 import os
+                import pandas as pd
                 from email.mime.text import MIMEText
                 from email.mime.multipart import MIMEMultipart
                 from email.mime.base import MIMEBase
@@ -1071,85 +1073,105 @@ if df is not None:
                 from datetime import datetime
 
                 try:
-                    # Configuration du serveur
                     server = smtplib.SMTP('smtp.gmail.com', 587)
                     server.starttls()
                     server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
                     
-                    nom_fichier_pj = "EDT_S2_2026.xlsx" # Nom du fichier à joindre
-
                     for row in donnees_finales:
-                        # On envoie si c'est "En attente" OU si c'est un mail trouvé dans la source Excel
+                        # On envoie si le mail est présent et l'état est "En attente" ou "Dispo Source"
                         if (row["État d'envoi"] in ["⏳ En attente", "🟡 Dispo (Source Excel)"]) and "@" in str(row["Email"]):
                             
-                            # Filtrage des données de l'enseignant
-                            df_perso = df[df["Enseignants"].str.contains(row['Enseignant'], case=False, na=False)]
-                            
-                            # Respect de la disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+                            # 1. FILTRAGE ET CALCULS
+                            nom_cible = str(row['Enseignant']).strip().upper()
+                            # Filtrage qui inclut les noms composés (comme FETHIMILOUA)
+                            df_perso = df[df["Enseignants"].astype(str).str.upper().str.contains(nom_cible, na=False)]
                             df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
                             
-                            # Création du message
+                            nb_cours = df_mail['Enseignements'].str.contains('Cours', case=False).sum()
+                            nb_td = df_mail['Enseignements'].str.contains('TD', case=False).sum()
+                            nb_tp = df_mail['Enseignements'].str.contains('TP', case=False).sum()
+
                             msg = MIMEMultipart()
                             msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
                             msg['From'] = st.secrets["EMAIL_USER"]
                             msg['To'] = row["Email"]
                             
-                            # Corps de l'e-mail avec le message personnalisé
+                            # 2. CORPS DU MESSAGE (Structure identique à l'individuel)
                             corps_html = f"""
                             <html>
                             <body style="font-family: Arial, sans-serif; line-height: 1.6;">
-                                <h2 style="color: #1E3A8A;">Plateforme de gestion des Emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                                <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
                                 <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
-                                <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
                                 
+                                <div style="background-color: #f8f9fa; padding: 10px; border: 1px solid #dee2e6; border-radius: 5px; margin-bottom: 15px;">
+                                    <b>📊 Récapitulatif de votre charge (S2-2026) :</b><br>
+                                    <ul>
+                                        <li>Nombre de Cours : <b>{nb_cours}</b></li>
+                                        <li>Nombre de TD : <b>{nb_td}</b></li>
+                                        <li>Nombre de TP : <b>{nb_tp}</b></li>
+                                    </ul>
+                                </div>
+
                                 <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic;">
-                                    Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
-                                    cela nous permettra de régler le problème de chevauchement de salles, ou de cours, TD ou TP. 
-                                    Merci de nous renseigner le fichier Excel corrigé, au cas où votre emploi du temps est bon merci de nous envoyer <b>RAS</b>.
+                                    <p>J'ai été chargé en tant que représentant des responsables des équipes de formation, en concertation avec le chef de département et le vice doyen chargé de la graduation, de coordonner l'élaboration de ces emplois du temps.</p>
+                                    <p>Je vous prie de bien vouloir nous signaler une éventuelle anomalie. Merci de nous renseigner le fichier Excel corrigé, au cas où tout est bon merci de nous envoyer <b>RAS</b>.</p>
                                 </div>
 
-                                <div style="margin: 20px 0;">
-                                    {df_mail.to_html(index=False, border=1, justify='center')}
-                                </div>
+                                {df_mail.to_html(index=False, border=1, justify='center')}
 
-                                <p>Cordialement.</p>
-                                <p>---<br>
-                                <b>Service d'enseignement du département d'électrotechnique.</b><br>
-                                Faculté de génie électrique - UDL-SBA</p>
+                                <p><br>Cordialement.<br>---<br><b>Service d'enseignement du département d'électrotechnique.</b></p>
                             </body>
                             </html>
                             """
                             msg.attach(MIMEText(corps_html, 'html'))
 
-                            # --- AJOUT DE LA PIÈCE JOINTE ---
-                            # Assurez-vous que le fichier existe sur votre serveur/ordinateur
-                            if os.path.exists(nom_fichier_pj):
-                                with open(nom_fichier_pj, "rb") as attachment:
-                                    part = MIMEBase('application', 'octet-stream')
-                                    part.set_payload(attachment.read())
-                                    encoders.encode_base64(part)
-                                    part.add_header(
-                                        'Content-Disposition',
-                                        f'attachment; filename={nom_fichier_pj}',
-                                    )
-                                    msg.attach(part)
+                            # 3. GÉNÉRATION DE L'EXCEL COLORÉ ET FILTRÉ (En mémoire)
+                            buffer = io.BytesIO()
+                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                                df_mail.to_excel(writer, index=False, sheet_name='Mon EDT')
+                                workbook = writer.book
+                                worksheet = writer.sheets['Mon EDT']
 
-                            # Envoi de l'e-mail
+                                # Formats
+                                fmt_cours = workbook.add_format({'bg_color': '#D9EAD3', 'border': 1})
+                                fmt_td = workbook.add_format({'bg_color': '#FFF2CC', 'border': 1})
+                                fmt_tp = workbook.add_format({'bg_color': '#F4CCCC', 'border': 1})
+                                fmt_header = workbook.add_format({'bold': True, 'bg_color': '#4472C4', 'font_color': 'white', 'border': 1})
+
+                                for col_num, value in enumerate(df_mail.columns.values):
+                                    worksheet.write(0, col_num, value, fmt_header)
+
+                                for i, enseignement in enumerate(df_mail['Enseignements']):
+                                    current_fmt = None
+                                    if 'Cours' in str(enseignement): current_fmt = fmt_cours
+                                    elif 'TD' in str(enseignement): current_fmt = fmt_td
+                                    elif 'TP' in str(enseignement): current_fmt = fmt_tp
+                                    if current_fmt: worksheet.set_row(i + 1, None, current_fmt)
+                                
+                                worksheet.set_column('A:G', 20)
+                            
+                            buffer.seek(0)
+                            part = MIMEBase('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                            part.set_payload(buffer.read())
+                            encoders.encode_base64(part)
+                            part.add_header('Content-Disposition', f'attachment; filename="EDT_S2_2026_{row["Enseignant"]}.xlsx"')
+                            msg.attach(part)
+                            
+                            # 4. ENVOI ET MISE À JOUR
                             server.send_message(msg)
                             
-                            # Si c'est un compte inscrit (Supabase), on marque comme envoyé
+                            # Si c'est un inscrit Supabase, on met à jour la date
                             if row["État d'envoi"] == "⏳ En attente":
                                 supabase.table("enseignants_auth").update({
                                     "last_sent": datetime.now().isoformat()
                                 }).eq("email", row["Email"]).execute()
                     
                     server.quit()
-                    st.success("✅ Envoi groupé terminé avec succès !")
+                    st.success("✅ Envoi groupé terminé ! Chaque enseignant a reçu son Excel personnalisé.")
                     st.rerun()
 
                 except Exception as e:
-                    st.error(f"Une erreur est survenue lors de l'envoi : {e}")
-
+                    st.error(f"Erreur lors de l'envoi groupé : {e}")
         # 3. AFFICHAGE DU TABLEAU RECAPITULATIF
         st.divider()
         st.dataframe(pd.DataFrame(donnees_finales), use_container_width=True, hide_index=True)
@@ -1305,6 +1327,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
