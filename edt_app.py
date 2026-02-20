@@ -1098,12 +1098,12 @@ if df is not None:
                             corps_html = f"""
                             <html>
                             <body style="font-family: Arial, sans-serif; line-height: 1.6;">
-                                <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                                <h2 style="color: #1E3A8A;">Plateforme de gestion des Emplois du temps 2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
                                 <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
                                 <p>Veuillez recevoir votre emploi du temps du <b>Semestre 02 - Année 2026</b> :</p>
                                 
                                 <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic;">
-                                    Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
+                                    Remarques:Je vous prie de bien vouloir nous signaler une éventuelle anomalie dans votre emploi du temps individuel, 
                                     cela nous permettra de régler le problème de chevauchement de salles, ou de cours, TD ou TP. 
                                     Merci de nous renseigner le fichier Excel corrigé, au cas où votre emploi du temps est bon merci de nous envoyer <b>RAS</b>.
                                 </div>
@@ -1283,6 +1283,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
