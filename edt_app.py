@@ -5,7 +5,20 @@ import hashlib
 import io
 from datetime import datetime
 from supabase import create_client
-
+# --- LOGIQUE TEMPORELLE (À placer juste après les imports) ---
+def est_en_conflit_horaire(h1, h2):
+    try:
+        def convertir(h_str):
+            h_str = str(h_str).lower().replace('h', ':').replace(' ', '')
+            start_part, end_part = h_str.split('-')
+            if ':' not in start_part: start_part += ":00"
+            if ':' not in end_part: end_part += ":00"
+            return datetime.strptime(start_part, "%H:%M"), datetime.strptime(end_part, "%H:%M")
+        s1, e1 = convertir(h1)
+        s2, e2 = convertir(h2)
+        return s1 < e2 and s2 < e1
+    except:
+        return str(h1).strip() == str(h2).strip()
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(
     page_title="EDT UDL 2026",
@@ -777,258 +790,121 @@ if df is not None:
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
         elif is_admin and mode_view == "🚩 Vérificateur de conflits":
-            st.subheader("🚩 Analyse des Conflits Individuels")
-            st.markdown("---")
-            
-            errs_text = []      
-            errs_for_df = []    
-            
-            # --- 1. DÉTECTION DES CONFLITS (ENSEIGNANTS, SALLES ET PROMOS) ---
-            errs_text = []      
-            errs_for_df = []    
+    st.subheader("🚩 Analyse des Conflits Individuels & Chevauchements")
+    st.markdown("---")
+    
+    errs_text = []      
+    errs_for_df = []    
+    
+    # --- 1. DÉTECTION DES CONFLITS (LOGIQUE DE CHEVAUCHEMENT) ---
+    jours_uniques = df['Jours'].unique()
 
-            # A. CONFLITS D'ENSEIGNANTS (Un prof ne peut pas être à 2 lieux/matières)
-            p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
-            for (jour, horaire, prof), group in p_groups:
-                lieux_uniques = group['Lieu'].unique()
-                matieres_uniques = group['Enseignements'].unique()
-                if len(lieux_uniques) > 1 or len(matieres_uniques) > 1:
-                    type_err = "❌ CONFLIT ENSEIGNANT"
-                    style = "error"
-                    detail = f"L'enseignant est affecté à plusieurs lieux ({', '.join(lieux_uniques)}) ou matières."
-                    
-                    msg = f"**{type_err}** : {prof} | {jour} {horaire}"
-                    errs_text.append((style, msg))
-                    errs_for_df.append({
-                        "Type": type_err, "Enseignant": prof, "Jour": jour, "Horaire": horaire, 
-                        "Détail": detail, "Lieu": ", ".join(lieux_uniques), 
-                        "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(group['Promotion'].unique())
-                    })
+    for jour in jours_uniques:
+        df_jour = df[df['Jours'] == jour]
+        creneaux = df_jour.to_dict('records')
 
-            # B. CONFLITS DE SALLES (Deux profs différents dans la même salle) -> RÉSOUT VOTRE PROBLÈME
-            s_groups = df[(df["Lieu"] != "Non défini") & (df["Lieu"] != "A distance")].groupby(['Jours', 'Horaire', 'Lieu'])
-            for (jour, horaire, lieu), group in s_groups:
-                if len(group['Enseignants'].unique()) > 1:
-                    type_err = "❌ CONFLIT SALLE OCCUPÉE"
-                    style = "error"
-                    profs_concernees = group['Enseignants'].unique()
-                    detail = f"La salle '{lieu}' est utilisée par : {', '.join(profs_concernees)}"
-                    
-                    msg = f"**{type_err}** : {lieu} | {jour} {horaire} ({', '.join(profs_concernees)})"
-                    errs_text.append((style, msg))
-                    
-                    # On ajoute l'erreur pour chaque enseignant impliqué pour qu'ils la voient dans leur filtre
-                    for p in profs_concernees:
+        for i in range(len(creneaux)):
+            for j in range(i + 1, len(creneaux)):
+                c1 = creneaux[i]
+                c2 = creneaux[j]
+
+                # Utilisation de la fonction datetime définie plus haut
+                if est_en_conflit_horaire(c1['Horaire'], c2['Horaire']):
+                    conflit = False
+                    t_err, det, prof = "", "", ""
+
+                    # A. Conflit Enseignant
+                    if c1['Enseignants'] == c2['Enseignants'] and c1['Enseignants'] != "Non défini":
+                        t_err = "❌ CONFLIT ENSEIGNANT"
+                        prof = c1['Enseignants']
+                        det = f"{prof} a deux cours simultanés : {c1['Enseignements']} et {c2['Enseignements']}"
+                        conflit = True
+
+                    # B. Conflit Salle
+                    elif c1['Lieu'] == c2['Lieu'] and c1['Lieu'] not in ["Non défini", "A distance"]:
+                        t_err = "❌ CONFLIT SALLE OCCUPÉE"
+                        prof = c1['Enseignants']
+                        det = f"La salle {c1['Lieu']} est occupée par {c1['Enseignants']} et {c2['Enseignants']}"
+                        conflit = True
+
+                    # C. Conflit Promotion
+                    elif c1['Promotion'] == c2['Promotion'] and c1['Promotion'] != "Non défini":
+                        t_err = "⚠️ CONFLIT PROMOTION"
+                        prof = "Multi-enseignants"
+                        det = f"La promo {c1['Promotion']} a deux cours : {c1['Enseignements']} et {c2['Enseignements']}"
+                        conflit = True
+
+                    if conflit:
+                        msg = f"**{t_err}** : {jour} | {c1['Horaire']} vs {c2['Horaire']}"
+                        errs_text.append(("error" if "❌" in t_err else "warning", msg))
                         errs_for_df.append({
-                            "Type": type_err, "Enseignant": p, "Jour": jour, "Horaire": horaire, 
-                            "Détail": detail, "Lieu": lieu, 
-                            "Matières": ", ".join(group['Enseignements'].unique()), 
-                            "Promotions": ", ".join(group['Promotion'].unique())
+                            "Type": t_err, "Enseignant": prof, "Jour": jour, 
+                            "Horaire": f"{c1['Horaire']} / {c2['Horaire']}", 
+                            "Détail": det, "Lieu": c1['Lieu'], 
+                            "Matières": f"{c1['Enseignements']}, {c2['Enseignements']}",
+                            "Promotions": c1['Promotion']
                         })
 
-            # C. CONFLITS DE PROMOTION (Une classe ne peut pas avoir deux cours en même temps)
-            pr_groups = df[df["Promotion"] != "Non défini"].groupby(['Jours', 'Horaire', 'Promotion'])
-            for (jour, horaire, promo), group in pr_groups:
-                if len(group['Enseignements'].unique()) > 1:
-                    type_err = "⚠️ CONFLIT PROMOTION"
-                    style = "warning"
-                    matieres = group['Enseignements'].unique()
-                    detail = f"La promotion {promo} a plusieurs cours simultanés : {', '.join(matieres)}"
+    # --- 2. INTERFACE ET FILTRAGE ---
+    if errs_for_df:
+        st.markdown("### 🔍 Résolution ciblée")
+        profs_conflit = sorted(list(set([e["Enseignant"] for e in errs_for_df])))
+        
+        if "filtre_prof_conflit" not in st.session_state:
+            st.session_state.filtre_prof_conflit = "Tous"
+
+        c_sel, c_res = st.columns([3, 1])
+        with c_sel:
+            selected_prof = st.selectbox("🎯 Filtrer par enseignant :", ["Tous"] + profs_conflit, key="filtre_prof_conflit")
+        with c_res:
+            st.write(" ") # Alignement
+            if st.button("🔄 Reset Filtre", use_container_width=True):
+                st.session_state.filtre_prof_conflit = "Tous"
+                st.rerun()
+
+        st.divider()
+
+        # --- 3. RAPPORT GLOBAL ---
+        st.markdown("### 🌍 Rapport Global")
+        for style, m in errs_text:
+            if selected_prof == "Tous" or selected_prof in m:
+                if style == "error": st.error(m)
+                else: st.warning(m)
+
+        # --- 4. ASSISTANT ET EXPORT EXCEL ---
+        st.divider()
+        st.subheader("💡 Assistant & Export des Solutions")
+        
+        solutions_finales = []
+        for i, cp in enumerate(errs_for_df):
+            if selected_prof == "Tous" or cp['Enseignant'] == selected_prof:
+                with st.expander(f"📍 {cp['Type']} - {cp['Jour']}"):
+                    st.write(f"**Problème :** {cp['Détail']}")
+                    choix = st.selectbox("🚀 Solution proposée :", ["-- Garder actuel --", "Changer Horaire", "Changer Salle", "A distance"], key=f"assistant_sol_{i}")
                     
-                    msg = f"**{type_err}** : {promo} | {jour} {horaire}"
-                    errs_text.append((style, msg))
-                    errs_for_df.append({
-                        "Type": type_err, "Enseignant": "Multi-enseignants", "Jour": jour, "Horaire": horaire, 
-                        "Détail": detail, "Lieu": ", ".join(group['Lieu'].unique()), 
-                        "Matières": ", ".join(matieres), "Promotions": promo
+                    solutions_finales.append({
+                        "Type": cp['Type'], "Enseignant": cp['Enseignant'], 
+                        "Jour": cp['Jour'], "Horaire": cp['Horaire'], 
+                        "Solution": choix
                     })
 
-            # --- 2. INTERFACE DE FILTRAGE ET BOUTON RESET ---
-            if errs_for_df:
-                st.markdown("### 🔍 Résolution ciblée")
-                
-                # Récupération de la liste des enseignants ayant au moins un conflit
-                profs_en_conflit = sorted(list(set([e["Enseignant"] for e in errs_for_df])))
-                options_menu = ["Tous"] + profs_en_conflit
-
-                # Initialisation de la clé dans le session_state si elle n'existe pas
-                if "filtre_prof_conflit" not in st.session_state:
-                    st.session_state.filtre_prof_conflit = "Tous"
-
-                # Sélecteur d'enseignant
-                selected_prof = st.selectbox(
-                    "🎯 Filtrer par enseignant :", 
-                    options=options_menu,
-                    key="filtre_prof_conflit"
-                )
-
-                # --- LE BOUTON RESET ---
-                if selected_prof != "Tous":
-                    st.write("") # Espacement visuel
-                    if st.button("🔄 Réinitialiser la vue (Afficher tout)", use_container_width=True):
-                        # Suppression sécurisée pour éviter l'erreur StreamlitAPIException
-                        if "filtre_prof_conflit" in st.session_state:
-                            del st.session_state.filtre_prof_conflit
-                        st.rerun()
-
-                st.divider()
-
-                # --- 3. AFFICHAGE DES DÉTAILS (SI FILTRÉ) ---
-                if selected_prof != "Tous":
-                    st.info(f"Analyse précise pour : **{selected_prof}**")
-                    
-                    # Filtrage des erreurs pour l'enseignant sélectionné
-                    conflits_specifiques = [e for e in errs_for_df if e["Enseignant"] == selected_prof]
-                    
-                    for i, cp in enumerate(conflits_specifiques):
-                        with st.expander(f"📌 {cp['Type']} - {cp['Jour']} {cp['Horaire']}", expanded=True):
-                            st.error(f"**Problème :** {cp['Détail']}")
-                            
-                            st.markdown("💡 **Solutions suggérées :**")
-                            st.write("- Vérifiez que le nom de la matière est identique pour les deux groupes.")
-                            st.write("- Modifiez l'horaire ou la salle dans l'éditeur de données.")
-                            
-                            # Bouton pour naviguer vers l'éditeur
-                            btn_key = f"btn_solve_{cp['Enseignant']}_{i}"
-                            if st.button(f"🔗 Aller à l'éditeur pour {selected_prof}", key=btn_key):
-                                st.session_state.mode_view = "✍️ Éditeur de données"
-                                st.rerun()
-
-                # --- 4. RAPPORT GLOBAL ---
-                st.markdown("### 🌍 Rapport Global des Anomalies")
-                for style, m in errs_text:
-                    # On affiche le message si on est en mode "Tous" ou si le nom du prof est dans le message
-                    if selected_prof == "Tous" or selected_prof in m:
-                        if style == "error":
-                            st.error(m)
-                        else:
-                            st.warning(m)
-
-                # --- 5. ASSISTANT DE RÉSOLUTION ET EXPORT DES SOLUTIONS ---
-            if errs_for_df:
-                st.divider()
-                st.subheader("💡 Assistant de Résolution Intelligent")
-                st.info("L'assistant propose des créneaux libres (Horaire + Salle) en respectant le type de lieu initial.")
-
-                # On récupère la liste de tous les lieux possibles à partir du fichier
-                tous_les_lieux = sorted([l for l in df['Lieu'].unique() if str(l) != "nan" and l != "Non défini"])
-                
-                solutions_finales = []
-
-                # Affichage interactif pour chaque conflit
-                for i, cp in enumerate(errs_for_df):
-                    with st.expander(f"📍 Conflit n°{i+1} : {cp['Enseignant']} ({cp['Jour']} - {cp['Horaire']})", expanded=True):
-                        c1, c2 = st.columns([2, 1])
-                        
-                        with c1:
-                            st.error(f"**Anomalie :** {cp['Détail']}")
-                            st.caption(f"Matières impliquées : {cp.get('Matières', 'N/A')}")
-                        
-                        with c2:
-                            # 1. ANALYSE DU TYPE DE LIEU INITIAL
-                            lieu_initial = str(cp['Lieu']).upper()
-                            
-                            # Détermination intelligente du type (Labo, Amphi, ou Salle)
-                            est_tp = any(keyword in lieu_initial for keyword in ["LABO", "TP", "ATELIER", "CC", "MICRO"])
-                            est_amphi = "AMPHI" in lieu_initial or "A0" in lieu_initial
-                            
-                            # 2. FILTRAGE DES LIEUX DU MÊME GENRE UNIQUEMENT
-                            lieux_compatibles = []
-                            for l in tous_les_lieux:
-                                l_str = str(l).upper()
-                                if est_tp and any(k in l_str for k in ["LABO", "TP", "CC", "MICRO"]):
-                                    lieux_compatibles.append(l)
-                                elif est_amphi and ("AMPHI" in l_str or "A0" in l_str):
-                                    lieux_compatibles.append(l)
-                                elif not est_tp and not est_amphi and ("S" in l_str or "SALLE" in l_str):
-                                    lieux_compatibles.append(l)
-
-                            # 3. RECHERCHE DE CRÉNEAUX ET LIEUX DISPONIBLES (Même Jour)
-                            tous_horaires = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
-                            suggestions_valides = []
-                            
-                            for hor in tous_horaires:
-                                # A. Vérifier si l'ENSEIGNANT est libre à cette heure 'hor' ce jour-là
-                                # (On ignore la vérification pour "ND" car c'est un placeholder multi-profs)
-                                prof_occupe = False
-                                if cp['Enseignant'] not in ["ND", "Multi-enseignants"]:
-                                    prof_occupe = not df[(df['Jours'] == cp['Jour']) & 
-                                                         (df['Horaire'] == hor) & 
-                                                         (df['Enseignants'] == cp['Enseignant'])].empty
-                                
-                                if not prof_occupe:
-                                    # B. Vérifier quels LIEUX COMPATIBLES sont libres à cette heure 'hor'
-                                    lieux_occupes = df[(df['Jours'] == cp['Jour']) & 
-                                                       (df['Horaire'] == hor)]['Lieu'].unique()
-                                    
-                                    libres = [l for l in lieux_compatibles if l not in lieux_occupes]
-                                    
-                                    for salle_libre in libres:
-                                        # Éviter de proposer l'option qui est déjà en conflit
-                                        if not (hor == cp['Horaire'] and salle_libre in cp['Lieu']):
-                                            suggestions_valides.append(f"{hor} en {salle_libre}")
-
-                            # 4. SÉLECTEUR DE SOLUTION
-                            choix_sol = st.selectbox(
-                                "🚀 Solution (Heure + Lieu compatible) :",
-                                options=["-- Garder actuel --"] + suggestions_valides[:30], # Top 30 suggestions
-                                key=f"assistant_sol_{i}",
-                                help="Propose uniquement des créneaux où l'enseignant et la salle sont libres."
-                            )
-                        
-                        # Construction de la ligne pour le rapport Excel final
-                        solutions_finales.append({
-                            "Type de Conflit": cp['Type'],
-                            "Personne/Salle concernée": cp['Enseignant'] if cp['Enseignant'] != "Multi-enseignants" else cp['Détail'],
-                            "Jour": cp['Jour'],
-                            "Horaire Initial": cp['Horaire'],
-                            "Lieu Initial": cp['Lieu'],
-                            "SOLUTION PROPOSÉE": choix_sol if choix_sol != "-- Garder actuel --" else "À CORRIGER MANUELLEMENT"
-                        })
-
-                # --- 6. ACTIONS : GÉNÉRATION DU RAPPORT ET RÉINITIALISATION ---
-                st.divider()
-                st.markdown("### 📥 Actions sur le plan de correction")
-                
-                col_down, col_reset = st.columns(2)
-
-                with col_down:
-                    df_sol = pd.DataFrame(solutions_finales)
-                    buf_sol = io.BytesIO()
-                    with pd.ExcelWriter(buf_sol, engine='xlsxwriter') as writer:
-                        df_sol.to_excel(writer, index=False, sheet_name='Solutions_Proposees')
-                        
-                        workbook = writer.book
-                        worksheet = writer.sheets['Solutions_Proposees']
-                        header_fmt = workbook.add_format({
-                            'bold': True, 'bg_color': '#10B981', 'font_color': 'white', 'border': 1
-                        })
-                        
-                        for col_num, value in enumerate(df_sol.columns.values):
-                            worksheet.write(0, col_num, value, header_fmt)
-                        worksheet.set_column('A:F', 25)
-
-                    st.download_button(
-                        label="💾 Télécharger le Tableau des Solutions (Excel)",
-                        data=buf_sol.getvalue(),
-                        file_name=f"Solutions_Conflits_EDT_S2_2026.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                        type="primary"
-                    )
-
-                with col_reset:
-                    if st.button("🔄 Réinitialiser tous les choix", use_container_width=True):
-                        for key in list(st.session_state.keys()):
-                            if key.startswith("assistant_sol_"):
-                                del st.session_state[key]
-                        st.rerun()
-
-                st.caption("ℹ️ Utilisez ce fichier Excel pour appliquer les corrections dans l'Éditeur de données.")
-
-            else:
-                st.success("✅ Félicitations ! Aucun conflit détecté dans l'emploi du temps actuel.")
-                st.balloons()
+        # --- BOUTONS D'ACTION ---
+        col_dl, col_reset_all = st.columns(2)
+        with col_dl:
+            df_export = pd.DataFrame(solutions_finales)
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                df_export.to_excel(writer, index=False)
+            st.download_button("💾 Télécharger Solutions (Excel)", buf.getvalue(), "Plan_Correction.xlsx", "application/vnd.ms-excel", use_container_width=True, type="primary")
+        
+        with col_reset_all:
+            if st.button("🗑️ Réinitialiser tous les choix", use_container_width=True):
+                for key in list(st.session_state.keys()):
+                    if key.startswith("assistant_sol_"): del st.session_state[key]
+                st.rerun()
+    else:
+        st.success("✅ Aucun conflit détecté dans l'EDT-S2-2026.")
+        st.balloons()
     elif portail == "📅 Surveillances Examens":
         FILE_S = "surveillances_2026.xlsx"
         if os.path.exists(FILE_S):
@@ -1555,6 +1431,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
