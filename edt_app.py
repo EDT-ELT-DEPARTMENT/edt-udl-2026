@@ -790,11 +790,11 @@ if df is not None:
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
    elif is_admin and mode_view == "🚩 Vérificateur de conflits":
-       st.subheader("🚩 Analyse des Conflits Individuels & Chevauchements")
-       st.markdown("---")
-    
-      errs_text = []      
-      errs_for_df = []    
+            st.subheader("🚩 Analyse des Conflits Individuels")
+            st.markdown("---")
+            
+            errs_text = []      
+            errs_for_df = []    
     
     # --- 1. DÉTECTION DES CONFLITS (LOGIQUE DE CHEVAUCHEMENT) ---
     jours_uniques = df['Jours'].unique()
@@ -1431,6 +1431,7 @@ elif portail == "🎓 Portail Étudiants":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
