@@ -805,26 +805,35 @@ if df is not None:
                         "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(group['Promotion'].unique())
                     })
 
-            # B. CONFLITS DE SALLES (Deux profs différents dans la même salle) -> RÉSOUT VOTRE PROBLÈME
-            s_groups = df[(df["Lieu"] != "Non défini") & (df["Lieu"] != "A distance")].groupby(['Jours', 'Horaire', 'Lieu'])
-            for (jour, horaire, lieu), group in s_groups:
-                if len(group['Enseignants'].unique()) > 1:
-                    type_err = "❌ CONFLIT SALLE OCCUPÉE"
-                    style = "error"
-                    profs_concernees = group['Enseignants'].unique()
-                    detail = f"La salle '{lieu}' est utilisée par : {', '.join(profs_concernees)}"
-                    
-                    msg = f"**{type_err}** : {lieu} | {jour} {horaire} ({', '.join(profs_concernees)})"
-                    errs_text.append((style, msg))
-                    
-                    # On ajoute l'erreur pour chaque enseignant impliqué pour qu'ils la voient dans leur filtre
-                    for p in profs_concernees:
-                        errs_for_df.append({
-                            "Type": type_err, "Enseignant": p, "Jour": jour, "Horaire": horaire, 
-                            "Détail": detail, "Lieu": lieu, 
-                            "Matières": ", ".join(group['Enseignements'].unique()), 
-                            "Promotions": ", ".join(group['Promotion'].unique())
-                        })
+            # B. GESTION DES CHARGES COMMUNES (Même lieu, même heure)
+    s_groups = df[(df["Lieu"] != "Non défini") & (df["Lieu"] != "A distance")].groupby(['Jours', 'Horaire', 'Lieu'])
+    for (jour, horaire, lieu), group in s_groups:
+        profs_en_salle = group['Enseignants'].unique()
+        
+        if len(profs_en_salle) > 1:
+            # On ignore le signalement si ce ne sont que des "ND"
+            profs_reels = [p for p in profs_en_salle if str(p).upper() not in ["ND", "NON DÉFINI"]]
+            
+            if len(profs_reels) > 0:
+                type_info = "👥 Charge commune"
+                style = "info" # Bleu au lieu de Rouge
+                detail = f"La salle '{lieu}' est partagée par : {', '.join(profs_en_salle)}"
+                
+                msg = f"**{type_info}** : {lieu} | {jour} {horaire} ({', '.join(profs_en_salle)})"
+                errs_text.append((style, msg))
+                
+                # Ajout pour le rapport Excel et l'assistant
+                for p in profs_reels:
+                    errs_for_df.append({
+                        "Type": type_info, 
+                        "Enseignant": p, 
+                        "Jour": jour, 
+                        "Horaire": horaire, 
+                        "Détail": detail, 
+                        "Lieu": lieu, 
+                        "Matières": ", ".join(group['Enseignements'].unique()), 
+                        "Promotion": ", ".join(group['Promotion'].unique())
+                    })
 
             # C. CONFLITS DE PROMOTION (Une classe ne peut pas avoir deux cours en même temps)
             pr_groups = df[df["Promotion"] != "Non défini"].groupby(['Jours', 'Horaire', 'Promotion'])
@@ -1555,6 +1564,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
