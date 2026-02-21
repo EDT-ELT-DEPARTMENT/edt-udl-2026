@@ -751,9 +751,13 @@ if df is not None:
                 color_res = "#e74c3c" if h_sup > 0 else "#3498db"
                 st.markdown(f"<div class='metric-card' style='border-color:{color_res};'>Heures Sup. Réelles<br><h2 style='color:{color_res};'>+{round(h_sup, 2)} h</h2></div>", unsafe_allow_html=True)
 
+           # --- REMPLACEMENT DE LA NOTE TECHNIQUE ---
             if h_sup > 0:
-                st.caption(f"💡 **Note technique :** {seances_utilisees} séance(s) impactée(s) pour le seuil (dont {round(surplus_derniere_seance_reel, 2)}h de reliquat sup).")
-
+                st.caption(f"✅ L'enseignant a complété son service et totalise {round(h_sup, 2)}h en supplément.")
+            elif h_sup < 0:
+                st.caption(f"⚠️ Attention : Sous-service détecté de {round(abs(h_sup), 2)}h par rapport au seuil réglementaire.")
+            else:
+                st.caption("⚖️ Service réglementaire exactement rempli (Pile 6.0 eq/h).")
             # --- 3. GÉNÉRATION DU TABLEAU (EMPLOI DU TEMPS INDIVIDUEL) ---
             st.divider()
             st.markdown("### 📅 Emploi du Temps Individuel")
@@ -1616,6 +1620,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
