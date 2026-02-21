@@ -711,52 +711,64 @@ if df is not None:
             df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
             
             # --- CALCUL DES COMPTEURS ---
+           # --- CALCUL DES COMPTEURS ---
             nb_cours = len(df_u[df_u['Type'] == 'COURS'])
             nb_td    = len(df_u[df_u['Type'] == 'TD'])
             nb_tp    = len(df_u[df_u['Type'] == 'TP'])
 
+            # --- LOGIQUE DE CALCUL PRIORITÉ RÉGLEMENTAIRE (STYLE BENHAMIDA) ---
+            seuil_obligatoire = 3.0 if poste_sup else 6.0
+            
+            # 1. Calcul de ce qui remplit les 6h (Conversion : 1 séance TD/TP = 1h cours)
+            # On utilise d'abord les cours (1.5h/séance)
+            apport_cours = nb_cours * 1.5
+            
+            # Reste à combler pour atteindre les 6h
+            besoin_restant = max(0, seuil_obligatoire - apport_cours)
+            
+            # Nombre de séances TD/TP nécessaires pour combler (1 séance = 1h)
+            seances_tdtp_pour_seuil = min(nb_td + nb_tp, besoin_restant)
+            
+            # 2. Calcul de la charge réelle affichée (Limitée au seuil)
+            charge_statutaire = min(seuil_obligatoire, apport_cours + seances_tdtp_pour_seuil)
+            
+            # 3. Calcul des Heures Supplémentaires (Le surplus non converti : 1.5h par séance)
+            # Séances restantes = (Total séances TD+TP) - (celles utilisées pour le seuil)
+            seances_restantes = (nb_td + nb_tp) - seances_tdtp_pour_seuil
+            
+            # Bonus : si les cours dépassent déjà les 6h
+            surplus_cours_direct = max(0, apport_cours - seuil_obligatoire)
+            
+            h_sup = (surplus_cours_direct) + (seances_restantes * 1.5)
+
+            # --- AFFICHAGE DES RÉSULTATS (Plateforme de gestion des EDTs-S2-2026) ---
             st.markdown(f"### 📊 Bilan Horaire : {cible}")
             st.markdown(f"""<div class="stat-container">
                 <div class="stat-box bg-cours">📘 {nb_cours} Séances Cours</div>
                 <div class="stat-box bg-td">📗 {nb_td} Séances TD</div>
-                <div class="stat-box bg-tp">📙 {nb_tp} Séances TP</div>
+                <div class="stat-box bg-tp">🧡 {nb_tp} Séances TP</div>
             </div>""", unsafe_allow_html=True)
 
-            # --- LOGIQUE DE CALCUL DÉPARTEMENT ÉLECTROTECHNIQUE ---
-            partie_cours = nb_cours * 1.5
-            partie_td = nb_td * 1.0
-            partie_tp = nb_tp * 1.0
-            
-            charge_reelle = partie_cours + partie_td + partie_tp
-            charge_reg = 3.0 if poste_sup else 6.0
-            h_sup = charge_reelle - charge_reg
-
-            # --- AFFICHAGE DES RÉSULTATS ---
             c1, c2, c3 = st.columns(3)
-            
             with c1:
-                st.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{round(charge_reelle, 2)} eq/h</h2></div>", unsafe_allow_html=True)
-            
+                st.markdown(f"<div class='metric-card'>Charge Statutaire<br><h2>{round(charge_statutaire, 2)} eq/h</h2></div>", unsafe_allow_html=True)
             with c2:
-                st.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} eq/h</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='metric-card'>Seuil Réglementaire<br><h2>{seuil_obligatoire} eq/h</h2></div>", unsafe_allow_html=True)
 
-            if h_sup >= 0:
-                color_res, label_res, prefix = "#e74c3c", "Heures Sup.", "+"
-            else:
-                color_res, label_res, prefix = "#3498db", "Reliquat", ""
-
+            color_res = "#e74c3c" if h_sup > 0 else "#3498db"
+            label_res = "Heures Sup. (1.5h/s)" if h_sup > 0 else "Reliquat"
+            
             with c3:
                 st.markdown(f"""
                     <div class='metric-card' style='border-color:{color_res};'>
                         {label_res}<br>
-                        <h2 style='color:{color_res};'>{prefix}{round(h_sup, 2)} eq/h</h2>
+                        <h2 style='color:{color_res};'>+{round(h_sup, 2)} h</h2>
                     </div>
                 """, unsafe_allow_html=True)
 
-            if h_sup < 0:
-                reliq = abs(h_sup)
-                st.info(f"📋 **Déficit de charge :** Il manque **{round(reliq, 2)} heure(s) de cours** pour atteindre le seuil réglementaire.")
-
+            if charge_statutaire < seuil_obligatoire:
+                reliq = seuil_obligatoire - charge_statutaire
+                st.info(f"📋 **Déficit :** Il manque {round(reliq, 2)}h pour atteindre le seuil de la Plateforme de gestion des EDTs-S2-2026.")
             # --- FIN DU REMPLACEMENT ---
             def format_case(rows):
                 items = []
@@ -1582,6 +1594,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
