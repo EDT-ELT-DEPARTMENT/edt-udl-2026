@@ -489,10 +489,10 @@ if user is None:
 
 is_admin = user.get("role") == "admin"
 
-# 1. Définition précise de votre nouvelle liste d'horaires (13 créneaux)
+# 1. Définition précise de votre nouvelle liste d'horaires (14 créneaux)
 horaires_list = [
-    "8h - 9h", "8h - 9h30", "9h - 10h", "9h30 - 11h", 
-    "10h - 11h", "11h - 12h", "11h - 12h30", "11h - 14h", 
+    "8h - 9h", "8h - 9h30", "8h - 10h", "9h - 10h", "9h30 - 11h", 
+    "10h - 11h", "11h - 12h", "11h - 12h30", "14h - 16h", 
     "12h - 13h", "12h30 - 14h", "13h - 14h", "14h - 15h30", "15h30 - 17h"
 ]
 
@@ -1555,6 +1555,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
