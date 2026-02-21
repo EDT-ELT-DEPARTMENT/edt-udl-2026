@@ -790,12 +790,16 @@ if df is not None:
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
         elif is_admin and mode_view == "🚩 Vérificateur de conflits":
-            st.subheader("🚩 Analyse des Conflits Individuels")
-            st.markdown("---")
-            
-            errs_text = []      
-            errs_for_df = []    
+    st.subheader("🚩 Analyse des Conflits Individuels & Chevauchements")
+    st.markdown("---")
     
+    # --- INITIALISATION CRUCIALE POUR ÉVITER LE NAMEERROR ---
+    errs_text = []      
+    errs_for_df = []    
+    
+    # Rappel du titre de la plateforme
+    st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+
     # --- 1. DÉTECTION DES CONFLITS (LOGIQUE DE CHEVAUCHEMENT) ---
     jours_uniques = df['Jours'].unique()
 
@@ -808,7 +812,7 @@ if df is not None:
                 c1 = creneaux[i]
                 c2 = creneaux[j]
 
-                # Utilisation de la fonction datetime définie plus haut
+                # Utilisation de la fonction de calcul horaire
                 if est_en_conflit_horaire(c1['Horaire'], c2['Horaire']):
                     conflit = False
                     t_err, det, prof = "", "", ""
@@ -819,7 +823,7 @@ if df is not None:
                         prof = c1['Enseignants']
                         det = f"{prof} a deux cours simultanés : {c1['Enseignements']} et {c2['Enseignements']}"
                         conflit = True
-
+                    
                     # B. Conflit Salle
                     elif c1['Lieu'] == c2['Lieu'] and c1['Lieu'] not in ["Non défini", "A distance"]:
                         t_err = "❌ CONFLIT SALLE OCCUPÉE"
@@ -836,75 +840,28 @@ if df is not None:
 
                     if conflit:
                         msg = f"**{t_err}** : {jour} | {c1['Horaire']} vs {c2['Horaire']}"
+                        # L'erreur à la ligne 839 est corrigée ici car errs_text est défini plus haut
                         errs_text.append(("error" if "❌" in t_err else "warning", msg))
                         errs_for_df.append({
-                            "Type": t_err, "Enseignant": prof, "Jour": jour, 
+                            "Type": t_err, 
+                            "Enseignant": prof, 
+                            "Day": jour, 
                             "Horaire": f"{c1['Horaire']} / {c2['Horaire']}", 
-                            "Détail": det, "Lieu": c1['Lieu'], 
+                            "Détail": det, 
+                            "Lieu": c1['Lieu'], 
                             "Matières": f"{c1['Enseignements']}, {c2['Enseignements']}",
                             "Promotions": c1['Promotion']
                         })
 
-    # --- 2. INTERFACE ET FILTRAGE ---
+    # --- 2. AFFICHAGE DES RÉSULTATS ---
     if errs_for_df:
-        st.markdown("### 🔍 Résolution ciblée")
-        profs_conflit = sorted(list(set([e["Enseignant"] for e in errs_for_df])))
-        
-        if "filtre_prof_conflit" not in st.session_state:
-            st.session_state.filtre_prof_conflit = "Tous"
-
-        c_sel, c_res = st.columns([3, 1])
-        with c_sel:
-            selected_prof = st.selectbox("🎯 Filtrer par enseignant :", ["Tous"] + profs_conflit, key="filtre_prof_conflit")
-        with c_res:
-            st.write(" ") # Alignement
-            if st.button("🔄 Reset Filtre", use_container_width=True):
-                st.session_state.filtre_prof_conflit = "Tous"
-                st.rerun()
-
-        st.divider()
-
-        # --- 3. RAPPORT GLOBAL ---
-        st.markdown("### 🌍 Rapport Global")
         for style, m in errs_text:
-            if selected_prof == "Tous" or selected_prof in m:
-                if style == "error": st.error(m)
-                else: st.warning(m)
-
-        # --- 4. ASSISTANT ET EXPORT EXCEL ---
-        st.divider()
-        st.subheader("💡 Assistant & Export des Solutions")
-        
-        solutions_finales = []
-        for i, cp in enumerate(errs_for_df):
-            if selected_prof == "Tous" or cp['Enseignant'] == selected_prof:
-                with st.expander(f"📍 {cp['Type']} - {cp['Jour']}"):
-                    st.write(f"**Problème :** {cp['Détail']}")
-                    choix = st.selectbox("🚀 Solution proposée :", ["-- Garder actuel --", "Changer Horaire", "Changer Salle", "A distance"], key=f"assistant_sol_{i}")
-                    
-                    solutions_finales.append({
-                        "Type": cp['Type'], "Enseignant": cp['Enseignant'], 
-                        "Jour": cp['Jour'], "Horaire": cp['Horaire'], 
-                        "Solution": choix
-                    })
-
-        # --- BOUTONS D'ACTION ---
-        col_dl, col_reset_all = st.columns(2)
-        with col_dl:
-            df_export = pd.DataFrame(solutions_finales)
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                df_export.to_excel(writer, index=False)
-            st.download_button("💾 Télécharger Solutions (Excel)", buf.getvalue(), "Plan_Correction.xlsx", "application/vnd.ms-excel", use_container_width=True, type="primary")
-        
-        with col_reset_all:
-            if st.button("🗑️ Réinitialiser tous les choix", use_container_width=True):
-                for key in list(st.session_state.keys()):
-                    if key.startswith("assistant_sol_"): del st.session_state[key]
-                st.rerun()
+            if style == "error":
+                st.error(m)
+            else:
+                st.warning(m)
     else:
         st.success("✅ Aucun conflit détecté dans l'EDT-S2-2026.")
-        st.balloons()
 elif portail == "📅 Surveillances Examens":
         FILE_S = "surveillances_2026.xlsx"
         if os.path.exists(FILE_S):
@@ -1431,6 +1388,7 @@ elif portail == "🎓 Portail Étudiants":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
