@@ -677,84 +677,79 @@ if is_admin and mode_view == "✍️ Éditeur de données":
 
     with c3:
         import io
+        import re
         df_complet = st.session_state.df_admin.copy()
         conflits_list = []
 
-        # --- 1. FONCTION DE DÉTECTION AMÉLIORÉE ---
-        # On définit les clés de détection
-        doublons_salle = df_complet.duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False) & (df_complet['Lieu'] != "Non défini") & (df_complet['Lieu'] != "")
-        doublons_prof = df_complet.duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False) & (df_complet['Enseignants'] != "Non défini") & (df_complet['Enseignants'] != "")
-        doublons_promo = df_complet.duplicated(subset=['Jours', 'Horaire', 'Promotion'], keep=False) & (df_complet['Promotion'] != "Non défini")
+        # 1. Détection des doublons sur les colonnes clés
+        doublons_salle = df_complet.duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False) & (df_complet['Lieu'].astype(str).str.len() > 1)
+        doublons_prof = df_complet.duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False) & (df_complet['Enseignants'] != "ND") & (df_complet['Enseignants'] != "")
+        doublons_promo = df_complet.duplicated(subset=['Jours', 'Horaire', 'Promotion'], keep=False) & (df_complet['Promotion'] != "")
 
-        # --- 2. REMPLISSAGE DU RAPPORT (Ligne par Ligne) ---
+        # 2. Construction du rapport ligne par ligne pour garantir l'affichage de la Promotion
         for i, row in df_complet.iterrows():
-            # Cas Salle
+            #--- CONFLIT SALLE ---
             if doublons_salle[i]:
                 conflits_list.append({
                     "Type de Conflit": "❌ SALLE OCCUPÉE",
                     "Promotion": row['Promotion'],
-                    "Enseignant": row['Enseignants'],
-                    "Lieu": row['Lieu'],
+                    "Intervenant/Salle": row['Lieu'],
                     "Jour": row['Jours'],
                     "Horaire": row['Horaire'],
-                    "Détails": f"La salle {row['Lieu']} est partagée avec une autre promo."
+                    "Détails": f"La salle {row['Lieu']} est réservée par plusieurs groupes."
                 })
             
-            # Cas Enseignant
+            #--- CONFLIT ENSEIGNANT ---
             if doublons_prof[i]:
                 conflits_list.append({
                     "Type de Conflit": "👤 CONFLIT ENSEIGNANT",
                     "Promotion": row['Promotion'],
-                    "Enseignant": row['Enseignants'],
-                    "Lieu": row['Lieu'],
+                    "Intervenant/Salle": row['Enseignants'],
                     "Jour": row['Jours'],
                     "Horaire": row['Horaire'],
-                    "Détails": f"M. {row['Enseignants']} est affecté ailleurs au même moment."
+                    "Détails": f"L'enseignant {row['Enseignants']} a deux cours en même temps."
                 })
 
-            # Cas Promotion (Chevauchement de cours pour une même promo)
+            #--- CONFLIT PROMOTION (Chevauchement de cours) ---
             if doublons_promo[i]:
                 conflits_list.append({
                     "Type de Conflit": "⚠️ CONFLIT PROMOTION",
                     "Promotion": row['Promotion'],
-                    "Enseignant": row['Enseignants'],
-                    "Lieu": row['Lieu'],
+                    "Intervenant/Salle": row['Promotion'],
                     "Jour": row['Jours'],
                     "Horaire": row['Horaire'],
-                    "Détails": f"La promotion {row['Promotion']} a plusieurs cours simultanés."
+                    "Détails": "Cette promotion a plusieurs enseignements affectés au même créneau."
                 })
 
-        # Création du DataFrame de rapport
+        # Création du DataFrame final
         df_rapport = pd.DataFrame(conflits_list).drop_duplicates()
 
-        # --- 3. GÉNÉRATION DU FICHIER EXCEL ---
+        # 3. Génération du fichier Excel
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            # Feuille 1 : Emploi du Temps complet
+            # Onglet 1 : Emploi du Temps
             df_complet[cols_format].to_excel(writer, sheet_name='Emploi du Temps', index=False)
             
-            # Feuille 2 : Rapport de Conflits
+            # Onglet 2 : Rapport des Conflits
             if not df_rapport.empty:
-                # On définit l'ordre des colonnes tel que vous le souhaitez
-                cols_ordre = ["Type de Conflit", "Promotion", "Enseignant", "Jour", "Horaire", "Lieu", "Détails"]
-                df_rapport[cols_ordre].to_excel(writer, sheet_name='Rapport Conflits', index=False)
+                # Disposition demandée : Promotion bien isolée en 2ème colonne
+                colonnes_rapport = ["Type de Conflit", "Promotion", "Intervenant/Salle", "Jour", "Horaire", "Détails"]
+                df_rapport[colonnes_rapport].to_excel(writer, sheet_name='Rapport Conflits', index=False)
                 
-                # Ajustement automatique de la largeur des colonnes
-                ws = writer.sheets['Rapport Conflits']
-                for i, col in enumerate(cols_ordre):
-                    ws.set_column(i, i, 20)
+                # Mise en forme (largeur colonnes)
+                worksheet = writer.sheets['Rapport Conflits']
+                for idx, col in enumerate(colonnes_rapport):
+                    worksheet.set_column(idx, idx, 22)
             else:
-                pd.DataFrame({"Message": ["Aucun conflit détecté"]}).to_excel(writer, sheet_name='Rapport Conflits', index=False)
+                pd.DataFrame({"Résultat": ["Aucun conflit détecté"]}).to_excel(writer, sheet_name='Rapport Conflits', index=False)
 
         st.download_button(
-            label="📥 Télécharger Excel (EDT + Conflits)",
+            label="📥 Télécharger le Rapport d'Erreurs Excel",
             data=buffer.getvalue(),
-            file_name=f"EDT_S2_2026_REPORT.xlsx",
+            file_name=f"Rapport_Conflits_EDT_2026.xlsx",
             mime="application/vnd.ms-excel",
             use_container_width=True
-        )
-
-    st.stop() 
+        ) 
 
 
 # --- EN-TÊTE HARMONISÉ (LOGO + TITRE + DATE) ---
@@ -1713,6 +1708,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
