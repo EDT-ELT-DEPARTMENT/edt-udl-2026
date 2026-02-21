@@ -789,7 +789,7 @@ if df is not None:
             grid_s.columns = jours_list
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
-        elif is_admin and mode_view == "🚩 Vérificateur de conflits":
+elif is_admin and mode_view == "🚩 Vérificateur de conflits":
     st.subheader("🚩 Analyse des Conflits Individuels & Chevauchements")
     st.markdown("---")
     
@@ -1431,6 +1431,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
