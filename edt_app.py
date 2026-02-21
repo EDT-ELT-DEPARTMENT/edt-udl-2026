@@ -777,7 +777,7 @@ if df is not None:
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
       elif is_admin and mode_view == "🚩 Vérificateur de conflits":
-    st.subheader("🚩 Analyse des Conflits & Assistant de Résolution")
+          st.subheader("🚩 Analyse des Conflits & Assistant de Résolution")
     # Rappel du titre officiel mémorisé
     st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
     st.markdown("---")
@@ -1452,6 +1452,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
