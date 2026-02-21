@@ -920,9 +920,9 @@ elif portail == "📅 Surveillances Examens":
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
 
-        elif portail == "🤖 Générateur Automatique":
-            if not is_admin:
-            st.error("Accès réservé au Bureau des Examens.")
+    elif portail == "🤖 Générateur Automatique":
+        if not is_admin:
+        st.error("Accès réservé au Bureau des Examens.")
         else:
             st.header("⚙️ Moteur de Génération de Surveillances")
             if "effectifs_db" not in st.session_state:
@@ -1388,6 +1388,7 @@ elif portail == "🎓 Portail Étudiants":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
