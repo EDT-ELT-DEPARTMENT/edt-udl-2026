@@ -710,17 +710,19 @@ if df is not None:
             df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
             df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
             
+            # --- CALCUL DES COMPTEURS ---
+            nb_cours = len(df_u[df_u['Type'] == 'COURS'])
+            nb_td    = len(df_u[df_u['Type'] == 'TD'])
+            nb_tp    = len(df_u[df_u['Type'] == 'TP'])
+
             st.markdown(f"### 📊 Bilan Horaire : {cible}")
             st.markdown(f"""<div class="stat-container">
-                <div class="stat-box bg-cours">📘 {len(df_u[df_u['Type'] == 'COURS'])} Séances Cours</div>
-                <div class="stat-box bg-td">📗 {len(df_u[df_u['Type'] == 'TD'])} Séances TD</div>
-                <div class="stat-box bg-tp">📙 {len(df_u[df_u['Type'] == 'TP'])} Séances TP</div>
+                <div class="stat-box bg-cours">📘 {nb_cours} Séances Cours</div>
+                <div class="stat-box bg-td">📗 {nb_td} Séances TD</div>
+                <div class="stat-box bg-tp">📙 {nb_tp} Séances TP</div>
             </div>""", unsafe_allow_html=True)
 
-           # --- LOGIQUE DE CALCUL DÉPARTEMENT ÉLECTROTECHNIQUE ---
-            # 1 séance de cours (1.5h) = 1.5 eq/h
-            # 1 séance de TD/TP (1.5h) = 1.0 eq/h (car 1.5h TD équivaut à 1h de cours)
-            
+            # --- LOGIQUE DE CALCUL DÉPARTEMENT ÉLECTROTECHNIQUE ---
             partie_cours = nb_cours * 1.5
             partie_td = nb_td * 1.0
             partie_tp = nb_tp * 1.0
@@ -738,7 +740,6 @@ if df is not None:
             with c2:
                 st.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} eq/h</h2></div>", unsafe_allow_html=True)
 
-            # Style dynamique : Heures Sup (Rouge) ou Reliquat (Bleu)
             if h_sup >= 0:
                 color_res, label_res, prefix = "#e74c3c", "Heures Sup.", "+"
             else:
@@ -752,10 +753,11 @@ if df is not None:
                     </div>
                 """, unsafe_allow_html=True)
 
-            # --- RÉCAPITULATIF TEXTUEL ---
             if h_sup < 0:
                 reliq = abs(h_sup)
-                st.info(f"📋 **Déficit de charge :** Il manque **{round(reliq, 2)} heure(s) de cours** (soit {round(reliq, 1)} séance(s) de TD/TP de 1.5h) pour atteindre le seuil réglementaire.")
+                st.info(f"📋 **Déficit de charge :** Il manque **{round(reliq, 2)} heure(s) de cours** pour atteindre le seuil réglementaire.")
+
+            # --- FIN DU REMPLACEMENT ---
             def format_case(rows):
                 items = []
                 for _, r in rows.iterrows():
@@ -1580,6 +1582,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
