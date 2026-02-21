@@ -590,7 +590,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             submit_add = st.form_submit_button("🔍 Vérifier et Insérer", use_container_width=True)
 
             if submit_add:
-                # Vérification des conflits (Salle OU Enseignant occupés au même moment)
+                # 1. Vérification des conflits avec extraction de la promotion concernée
                 conflit_salle = st.session_state.df_admin[
                     (st.session_state.df_admin['Jours'] == n_jour) & 
                     (st.session_state.df_admin['Horaire'] == n_horaire) & 
@@ -604,20 +604,35 @@ if is_admin and mode_view == "✍️ Éditeur de données":
                 ]
 
                 if not conflit_salle.empty:
-                    st.error(f"❌ CONFLIT SALLE : La salle {n_lieu} est déjà prise par {conflit_salle.iloc[0]['Enseignants']}.")
+                    # On affiche quelle promotion occupe déjà la salle
+                    promo_conflit = conflit_salle.iloc[0]['Promotion']
+                    prof_conflit = conflit_salle.iloc[0]['Enseignants']
+                    st.error(f"❌ CONFLIT SALLE : La salle {n_lieu} est déjà prise par **{prof_conflit}** pour la promotion **{promo_conflit}**.")
+                
                 elif not conflit_prof.empty:
-                    st.error(f"❌ CONFLIT ENSEIGNANT : M. {n_prof} a déjà un cours à cette heure en salle {conflit_prof.iloc[0]['Lieu']}.")
+                    # On affiche quelle promotion l'enseignant a déjà
+                    promo_conflit = conflit_prof.iloc[0]['Promotion']
+                    lieu_conflit = conflit_prof.iloc[0]['Lieu']
+                    st.error(f"❌ CONFLIT ENSEIGNANT : M. {n_prof} a déjà un cours avec la promotion **{promo_conflit}** en salle {lieu_conflit}.")
+                
                 else:
+                    # 2. Insertion si tout est correct
                     new_row = pd.DataFrame([{
-                        'Enseignements': n_ensg, 'Code': n_code, 'Enseignants': n_prof,
-                        'Horaire': n_horaire, 'Jours': n_jour, 'Lieu': n_lieu,
-                        'Promotion': n_promo, 'Chevauchement': n_chev
+                        'Enseignements': n_ensg, 
+                        'Code': n_code, 
+                        'Enseignants': n_prof,
+                        'Horaire': n_horaire, 
+                        'Jours': n_jour, 
+                        'Lieu': n_lieu,
+                        'Promotion': n_promo, 
+                        'Chevauchement': n_chev
                     }])
                     st.session_state.df_admin = pd.concat([st.session_state.df_admin, new_row], ignore_index=True)
-                    st.success("✅ Ligne ajoutée sans conflit !")
+                    st.success(f"✅ Ligne ajoutée avec succès pour la promotion {n_promo} !")
                     st.rerun()
 
     # --- ÉDITEUR DE TABLEAU ---
+    st.markdown("### 📝 Modification des données")
     edited_df = st.data_editor(
         df_to_edit[cols_format],
         use_container_width=True,
@@ -628,11 +643,11 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires),
             "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
             "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=promos_existantes if promos_existantes else ["M2RE"]),
-            "Chevauchement": st.column_config.TextColumn("⚠️ Chevauchement"),
+            "Chevauchement": st.column_config.TextColumn("⚠️ État Conflit"),
         }
     )
 
-    # Synchronisation
+    # Synchronisation intelligente (Gère le filtre par prof)
     if edited_df is not None and not edited_df.equals(df_to_edit[cols_format]):
         if search_prof:
             indices_modifies = df_to_edit.index
@@ -1625,6 +1640,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
