@@ -717,20 +717,45 @@ if df is not None:
                 <div class="stat-box bg-tp">📙 {len(df_u[df_u['Type'] == 'TP'])} Séances TP</div>
             </div>""", unsafe_allow_html=True)
 
-            c1, c2, c3 = st.columns(3)
-            charge_reelle = df_u['h_val'].sum()
+           # --- LOGIQUE DE CALCUL DÉPARTEMENT ÉLECTROTECHNIQUE ---
+            # 1 séance de cours (1.5h) = 1.5 eq/h
+            # 1 séance de TD/TP (1.5h) = 1.0 eq/h (car 1.5h TD équivaut à 1h de cours)
+            
+            partie_cours = nb_cours * 1.5
+            partie_td = nb_td * 1.0
+            partie_tp = nb_tp * 1.0
+            
+            charge_reelle = partie_cours + partie_td + partie_tp
             charge_reg = 3.0 if poste_sup else 6.0
+            h_sup = charge_reelle - charge_reg
+
+            # --- AFFICHAGE DES RÉSULTATS ---
+            c1, c2, c3 = st.columns(3)
             
             with c1:
-                st.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{charge_reelle} h</h2></div>", unsafe_allow_html=True)
-            with c2:
-                st.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} h</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='metric-card'>Charge Réelle<br><h2>{round(charge_reelle, 2)} eq/h</h2></div>", unsafe_allow_html=True)
             
-            h_sup = charge_reelle - charge_reg
-            color_sup = "#e74c3c" if h_sup > 0 else "#27ae60"
-            with c3:
-                st.markdown(f"<div class='metric-card' style='border-color:{color_sup};'>Heures Sup.<br><h2 style='color:{color_sup};'>{h_sup} h</h2></div>", unsafe_allow_html=True)
+            with c2:
+                st.markdown(f"<div class='metric-card'>Réglementaire<br><h2>{charge_reg} eq/h</h2></div>", unsafe_allow_html=True)
 
+            # Style dynamique : Heures Sup (Rouge) ou Reliquat (Bleu)
+            if h_sup >= 0:
+                color_res, label_res, prefix = "#e74c3c", "Heures Sup.", "+"
+            else:
+                color_res, label_res, prefix = "#3498db", "Reliquat", ""
+
+            with c3:
+                st.markdown(f"""
+                    <div class='metric-card' style='border-color:{color_res};'>
+                        {label_res}<br>
+                        <h2 style='color:{color_res};'>{prefix}{round(h_sup, 2)} eq/h</h2>
+                    </div>
+                """, unsafe_allow_html=True)
+
+            # --- RÉCAPITULATIF TEXTUEL ---
+            if h_sup < 0:
+                reliq = abs(h_sup)
+                st.info(f"📋 **Déficit de charge :** Il manque **{round(reliq, 2)} heure(s) de cours** (soit {round(reliq, 1)} séance(s) de TD/TP de 1.5h) pour atteindre le seuil réglementaire.")
             def format_case(rows):
                 items = []
                 for _, r in rows.iterrows():
@@ -1555,6 +1580,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
