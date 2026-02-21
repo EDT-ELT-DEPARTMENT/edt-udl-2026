@@ -758,9 +758,9 @@ if df is not None:
 
             # --- NOTES DE SYNTHÈSE ---
             if h_sup > 0:
-                st.caption(f"✅ L'enseignant a complété son service et totalise {round(h_sup, 2)}h en supplément.")
+                st.caption(f"✅ L'enseignant a complété sa charge et totalise {round(h_sup, 2)}h en supplément.")
             elif h_sup < 0:
-                st.caption(f"⚠️ Attention : Sous-service détecté de {round(abs(h_sup), 2)}h par rapport au seuil.")
+                st.caption(f"⚠️ Attention : Sous-charge détectée de {round(abs(h_sup), 2)}h par rapport au seuil.")
             else:
                 st.caption("⚖️ Service réglementaire exactement rempli (Pile 6.0 eq/h).")
             # --- 3. GÉNÉRATION DU TABLEAU (EMPLOI DU TEMPS INDIVIDUEL) ---
@@ -1625,6 +1625,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
