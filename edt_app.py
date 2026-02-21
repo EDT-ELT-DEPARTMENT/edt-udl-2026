@@ -1252,7 +1252,7 @@ if df is not None:
                 etat = "🟡 Dispo (Source Excel)"
             else:
                 email = "⚠️ Mail introuvable"
-                etat = "❌ Absent"
+                etat = "❌ Adresse non communiquée"
                 
             donnees_finales.append({
                 "Enseignant": nom,
@@ -1398,7 +1398,7 @@ if df is not None:
             liste_noms = ["TOUS"] + sorted([row["Enseignant"] for row in donnees_finales])
             choix_enseignant = st.selectbox("🔍 Chercher un nom :", liste_noms)
         with col_f2:
-            choix_statut = st.selectbox("📊 Filtrer par statut :", ["TOUS", "⏳ En attente", "✅ Envoyé", "❌ Absent"])
+            choix_statut = st.selectbox("📊 Filtrer par statut :", ["TOUS", "⏳ En attente", "✅ Envoyé", "❌ Adrèsse non communiquée"])
 
         # Pré-filtrage de la liste pour les deux modes
         enseignants_filtres = []
@@ -1625,6 +1625,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
