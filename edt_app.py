@@ -908,7 +908,7 @@ if df is not None:
             if errs_for_df:
                 st.divider()
                 st.subheader("💡 Assistant de Résolution Intelligent")
-                st.info("Sélectionnez une salle libre dans la liste déroulante pour chaque conflit détecté.")
+                st.info("L'assistant propose des créneaux libres (Horaire + Salle) en respectant le type de lieu initial.")
 
                 # On récupère la liste de tous les lieux possibles à partir du fichier
                 tous_les_lieux = sorted([l for l in df['Lieu'].unique() if str(l) != "nan" and l != "Non défini"])
@@ -924,95 +924,88 @@ if df is not None:
                             st.error(f"**Anomalie :** {cp['Détail']}")
                             st.caption(f"Matières impliquées : {cp.get('Matières', 'N/A')}")
                         
-                       with c2:
+                        with c2:
                             # 1. ANALYSE DU TYPE DE LIEU INITIAL
-                            # On regarde le premier lieu mentionné dans le conflit pour définir le genre
                             lieu_initial = str(cp['Lieu']).upper()
                             
-                            # Détermination intelligente du type
-                            est_tp = any(keyword in lieu_initial for keyword in ["LABO", "TP", "ATELIER"])
-                            est_amphi = "AMPHI" in lieu_initial
+                            # Détermination intelligente du type (Labo, Amphi, ou Salle)
+                            est_tp = any(keyword in lieu_initial for keyword in ["LABO", "TP", "ATELIER", "CC", "MICRO"])
+                            est_amphi = "AMPHI" in lieu_initial or "A0" in lieu_initial
                             
                             # 2. FILTRAGE DES LIEUX DU MÊME GENRE UNIQUEMENT
                             lieux_compatibles = []
                             for l in tous_les_lieux:
                                 l_str = str(l).upper()
-                                if est_tp and any(k in l_str for k in ["LABO", "TP"]):
+                                if est_tp and any(k in l_str for k in ["LABO", "TP", "CC", "MICRO"]):
                                     lieux_compatibles.append(l)
-                                elif est_amphi and "AMPHI" in l_str:
+                                elif est_amphi and ("AMPHI" in l_str or "A0" in l_str):
                                     lieux_compatibles.append(l)
                                 elif not est_tp and not est_amphi and ("S" in l_str or "SALLE" in l_str):
-                                    # Salles de cours classiques
                                     lieux_compatibles.append(l)
 
                             # 3. RECHERCHE DE CRÉNEAUX ET LIEUX DISPONIBLES (Même Jour)
-                            # Liste standard des créneaux horaires
                             tous_horaires = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
                             suggestions_valides = []
                             
                             for hor in tous_horaires:
                                 # A. Vérifier si l'ENSEIGNANT est libre à cette heure 'hor' ce jour-là
-                                prof_deja_pris = not df[(df['Jours'] == cp['Jour']) & 
-                                                        (df['Horaire'] == hor) & 
-                                                        (df['Enseignants'] == cp['Enseignant'])].empty
+                                # (On ignore la vérification pour "ND" car c'est un placeholder multi-profs)
+                                prof_occupe = False
+                                if cp['Enseignant'] not in ["ND", "Multi-enseignants"]:
+                                    prof_occupe = not df[(df['Jours'] == cp['Jour']) & 
+                                                         (df['Horaire'] == hor) & 
+                                                         (df['Enseignants'] == cp['Enseignant'])].empty
                                 
-                                if not prof_deja_pris:
+                                if not prof_occupe:
                                     # B. Vérifier quels LIEUX COMPATIBLES sont libres à cette heure 'hor'
-                                    occupes_a_cette_heure = df[(df['Jours'] == cp['Jour']) & 
-                                                               (df['Horaire'] == hor)]['Lieu'].unique()
+                                    lieux_occupes = df[(df['Jours'] == cp['Jour']) & 
+                                                       (df['Horaire'] == hor)]['Lieu'].unique()
                                     
-                                    libres_a_cette_heure = [l for l in lieux_compatibles if l not in occupes_a_cette_heure]
+                                    libres = [l for l in lieux_compatibles if l not in lieux_occupes]
                                     
-                                    # C. Ajouter les combinaisons (Heure + Salle) à la liste des solutions
-                                    for salle_dispo in libres_a_cette_heure:
-                                        suggestions_valides.append(f"{hor} en {salle_dispo}")
+                                    for salle_libre in libres:
+                                        # Éviter de proposer l'option qui est déjà en conflit
+                                        if not (hor == cp['Horaire'] and salle_libre in cp['Lieu']):
+                                            suggestions_valides.append(f"{hor} en {salle_libre}")
 
                             # 4. SÉLECTEUR DE SOLUTION
                             choix_sol = st.selectbox(
                                 "🚀 Solution (Heure + Lieu compatible) :",
-                                options=["-- Garder actuel --"] + suggestions_valides,
+                                options=["-- Garder actuel --"] + suggestions_valides[:30], # Top 30 suggestions
                                 key=f"assistant_sol_{i}",
-                                help="Propose des créneaux où l'enseignant ET la salle sont libres."
+                                help="Propose uniquement des créneaux où l'enseignant et la salle sont libres."
                             )
                         
                         # Construction de la ligne pour le rapport Excel final
                         solutions_finales.append({
                             "Type de Conflit": cp['Type'],
-                            "Personnes/Salles concernées": cp['Enseignant'] if cp['Enseignant'] != "Multi-enseignants" else cp['Détail'],
+                            "Personne/Salle concernée": cp['Enseignant'] if cp['Enseignant'] != "Multi-enseignants" else cp['Détail'],
                             "Jour": cp['Jour'],
-                            "Horaire": cp['Horaire'],
+                            "Horaire Initial": cp['Horaire'],
                             "Lieu Initial": cp['Lieu'],
-                            "SOLUTION (Lieu libre choisi)": choix_sol if choix_sol != "-- Choisir --" else "À CORRIGER"
+                            "SOLUTION PROPOSÉE": choix_sol if choix_sol != "-- Garder actuel --" else "À CORRIGER MANUELLEMENT"
                         })
 
                 # --- 6. ACTIONS : GÉNÉRATION DU RAPPORT ET RÉINITIALISATION ---
                 st.divider()
-                
                 st.markdown("### 📥 Actions sur le plan de correction")
-                st.write("Téléchargez vos choix ou réinitialisez l'assistant pour recommencer.")
                 
                 col_down, col_reset = st.columns(2)
 
                 with col_down:
-                    # Préparation du fichier Excel
                     df_sol = pd.DataFrame(solutions_finales)
                     buf_sol = io.BytesIO()
                     with pd.ExcelWriter(buf_sol, engine='xlsxwriter') as writer:
                         df_sol.to_excel(writer, index=False, sheet_name='Solutions_Proposees')
                         
-                        # Mise en forme du fichier Excel
                         workbook = writer.book
                         worksheet = writer.sheets['Solutions_Proposees']
                         header_fmt = workbook.add_format({
-                            'bold': True, 
-                            'bg_color': '#10B981', 
-                            'font_color': 'white', 
-                            'border': 1
+                            'bold': True, 'bg_color': '#10B981', 'font_color': 'white', 'border': 1
                         })
                         
                         for col_num, value in enumerate(df_sol.columns.values):
                             worksheet.write(0, col_num, value, header_fmt)
-                        
                         worksheet.set_column('A:F', 25)
 
                     st.download_button(
@@ -1025,18 +1018,15 @@ if df is not None:
                     )
 
                 with col_reset:
-                    # Bouton de réinitialisation
-                    if st.button("🔄 Réinitialiser tous les choix", use_container_width=True, help="Efface toutes les solutions sélectionnées ci-dessus"):
-                        # Suppression des clés spécifiques à l'assistant dans le session_state
+                    if st.button("🔄 Réinitialiser tous les choix", use_container_width=True):
                         for key in list(st.session_state.keys()):
                             if key.startswith("assistant_sol_"):
                                 del st.session_state[key]
                         st.rerun()
 
-                st.caption("ℹ️ Une fois téléchargé, ce fichier sert de base pour les modifications dans l'éditeur de données.")
+                st.caption("ℹ️ Utilisez ce fichier Excel pour appliquer les corrections dans l'Éditeur de données.")
 
             else:
-                # Si la liste errs_for_df est vide
                 st.success("✅ Félicitations ! Aucun conflit détecté dans l'emploi du temps actuel.")
                 st.balloons()
     elif portail == "📅 Surveillances Examens":
@@ -1565,6 +1555,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
