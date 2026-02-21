@@ -736,7 +736,7 @@ if df is not None:
             st.markdown(f"""<div class="stat-container">
                 <div class="stat-box bg-cours">📘 {nb_cours} Cours</div>
                 <div class="stat-box bg-td">📗 {nb_td} TD</div>
-                <div class="stat-box bg-tp">🧡 {nb_tp} TP</div>
+                <div class="stat-box bg-tp">🔴 {nb_tp} TP</div>
             </div>""", unsafe_allow_html=True)
 
             c1, c2, c3 = st.columns(3)
@@ -1613,6 +1613,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
