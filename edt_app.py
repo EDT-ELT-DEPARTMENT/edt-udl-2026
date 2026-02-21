@@ -691,66 +691,52 @@ st.markdown(f"<div class='portal-badge'>MODE ACTIF : {portail.upper()}</div>", u
 # --- LOGIQUE PRINCIPALE ---
 if df is not None:
     if portail == "📖 Emploi du Temps":
+        # Sélection de la cible (Enseignant ou Personnel)
         if mode_view == "Personnel" or (is_admin and mode_view == "Enseignant"):
             if mode_view == "Personnel":
                 cible = user['nom_officiel']
             else:
                 cible = st.selectbox("Sélectionner l'Enseignant :", sorted(df["Enseignants"].unique()))
             
+            # Filtrage des données
             df_f = df[df["Enseignants"].str.contains(cible, case=False, na=False)].copy()
             
-            def get_nature(code):
-                val = str(code).upper()
-                if "COURS" in val: return "📘 COURS"
-                if "TD" in val: return "📗 TD"
-                if "TP" in val: return "📙 TP"
-                return "📑"
-
+            # Définition des types pour le calcul
             df_f['Type'] = df_f['Code'].apply(lambda x: "COURS" if "COURS" in str(x).upper() else ("TD" if "TD" in str(x).upper() else "TP"))
-            df_f['h_val'] = df_f['Type'].apply(lambda x: 1.5 if x == "COURS" else 1.0)
             df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
             
-            # --- CALCUL DES COMPTEURS ---
+            # --- 1. CALCUL DES COMPTEURS (LOGIQUE DE PALIER PRÉCISE) ---
             import math
             nb_cours = len(df_u[df_u['Type'] == 'COURS'])
             nb_td    = len(df_u[df_u['Type'] == 'TD'])
             nb_tp    = len(df_u[df_u['Type'] == 'TP'])
             total_td_tp = nb_td + nb_tp
 
-            # --- LOGIQUE DE CALCUL PAR PALIER (SÉANCE INDIVISIBLE) ---
             seuil_obligatoire = 3.0 if poste_sup else 6.0
-            
-            # 1. Apport du cours (1.5h par séance)
             apport_cours = nb_cours * 1.5
-            
-            # 2. Besoin restant en heures "équivalent cours"
             besoin_eq_cours = max(0, seuil_obligatoire - apport_cours)
             
-            # 3. Nombre de séances TD/TP affectées au seuil (on prend des séances entières)
+            # Séances entières pour combler le seuil
             seances_utilisees = min(total_td_tp, math.ceil(besoin_eq_cours))
             
-            # 4. Calcul du Surplus dans la dernière séance utilisée (le reliquat)
-            # Exemple : si besoin de 4.5h, on utilise 5 séances. Le surplus est 5 - 4.5 = 0.5h eq. cours
+            # Surplus de la séance "partagée" (ex: 0.5 eq cours -> 0.75h réelle)
             surplus_derniere_seance_eq = max(0, seances_utilisees - besoin_eq_cours)
             surplus_derniere_seance_reel = surplus_derniere_seance_eq * 1.5
             
-            # 5. Calcul des séances totalement en Heures Sup
+            # Séances totalement en sup
             seances_totalement_sup = max(0, total_td_tp - seances_utilisees)
-            h_sup_totalement_sup = seances_totalement_sup * 1.5
             
-            # 6. Total final des Heures Sup Réelles
+            # Somme finale des Heures Sup Réelles
             surplus_cours_direct = max(0, apport_cours - seuil_obligatoire)
-            h_sup = surplus_cours_direct + surplus_derniere_seance_reel + h_sup_totalement_sup
-            
-            # Charge statutaire plafonnée au seuil pour l'affichage
+            h_sup = surplus_cours_direct + surplus_derniere_seance_reel + (seances_totalement_sup * 1.5)
             charge_statutaire = min(seuil_obligatoire, apport_cours + seances_utilisees)
 
-            # --- AFFICHAGE DES RÉSULTATS ---
+            # --- 2. AFFICHAGE DES MÉTRIQUES (STYLE PLATEFORME EDT 2026) ---
             st.markdown(f"### 📊 Bilan Horaire : {cible}")
             st.markdown(f"""<div class="stat-container">
-                <div class="stat-box bg-cours">📘 {nb_cours} Séances Cours</div>
-                <div class="stat-box bg-td">📗 {nb_td} Séances TD</div>
-                <div class="stat-box bg-tp">🧡 {nb_tp} Séances TP</div>
+                <div class="stat-box bg-cours">📘 {nb_cours} Cours</div>
+                <div class="stat-box bg-td">📗 {nb_td} TD</div>
+                <div class="stat-box bg-tp">🧡 {nb_tp} TP</div>
             </div>""", unsafe_allow_html=True)
 
             c1, c2, c3 = st.columns(3)
@@ -758,21 +744,65 @@ if df is not None:
                 st.markdown(f"<div class='metric-card'>Charge Statutaire<br><h2>{round(charge_statutaire, 2)} eq/h</h2></div>", unsafe_allow_html=True)
             with c2:
                 st.markdown(f"<div class='metric-card'>Seuil Réglementaire<br><h2>{seuil_obligatoire} eq/h</h2></div>", unsafe_allow_html=True)
-
-            color_res = "#e74c3c" if h_sup > 0 else "#3498db"
-            label_res = "Heures Sup. Réelles"
-            
             with c3:
-                st.markdown(f"""
-                    <div class='metric-card' style='border-color:{color_res};'>
-                        {label_res}<br>
-                        <h2 style='color:{color_res};'>+{round(h_sup, 2)} h</h2>
-                    </div>
-                """, unsafe_allow_html=True)
+                color_res = "#e74c3c" if h_sup > 0 else "#3498db"
+                st.markdown(f"<div class='metric-card' style='border-color:{color_res};'>Heures Sup. Réelles<br><h2 style='color:{color_res};'>+{round(h_sup, 2)} h</h2></div>", unsafe_allow_html=True)
 
             if h_sup > 0:
-                st.caption(f"💡 **Note :** {seances_utilisees} séance(s) TD/TP contribuent au seuil, générant {round(surplus_derniere_seance_reel, 2)}h sup. Le reste ({seances_totalement_sup} séc.) est en sup total.")
+                st.caption(f"💡 **Note technique :** {seances_utilisees} séance(s) impactée(s) pour le seuil (dont {round(surplus_derniere_seance_reel, 2)}h de reliquat sup).")
 
+            # --- 3. GÉNÉRATION DU TABLEAU (EMPLOI DU TEMPS INDIVIDUEL) ---
+            st.divider()
+            st.markdown("### 📅 Emploi du Temps Individuel")
+
+            def format_case(rows):
+                items = []
+                for _, r in rows.iterrows():
+                    # Disposition : Enseignements, Code, Lieu, Promotion
+                    nat = '📘' if 'COURS' in str(r['Code']).upper() else '📗' if 'TD' in str(r['Code']).upper() else '🧡'
+                    txt = f"<div style='margin-bottom:8px;'>{nat} <b>{r['Enseignements']}</b><br><small>({r['Code']})</small><br><i>{r['Lieu']}</i><br><b>{r['Promotion']}</b></div>"
+                    items.append(txt)
+                return "<div class='separator'></div>".join(items)
+
+            if not df_f.empty:
+                grid = df_f.groupby(['h_norm', 'j_norm']).apply(format_case, include_groups=False).unstack('j_norm')
+                grid = grid.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
+                grid.index = [map_h.get(i, i) for i in grid.index]
+                grid.columns = [map_j.get(c, c) for c in grid.columns]
+                st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+            else:
+                st.warning("Aucune donnée trouvée pour l'emploi du temps.")
+
+        elif is_admin and mode_view == "Promotion":
+            p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
+            df_p = df[df["Promotion"] == p_sel]
+            
+            def fmt_p(rows):
+                items = []
+                for _, r in rows.iterrows():
+                    nat = '📘' if 'COURS' in str(r['Code']).upper() else '📗' if 'TD' in str(r['Code']).upper() else '🧡'
+                    items.append(f"<b>{nat} {r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>")
+                return "<div class='separator'></div>".join(items)
+                
+            grid_p = df_p.groupby(['h_norm', 'j_norm']).apply(fmt_p, include_groups=False).unstack('j_norm')
+            grid_p = grid_p.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
+            grid_p.index = horaires_list
+            grid_p.columns = jours_list
+            st.write(grid_p.to_html(escape=False), unsafe_allow_html=True)
+
+        elif is_admin and mode_view == "🏢 Planning Salles":
+            s_sel = st.selectbox("Choisir Salle :", sorted(df["Lieu"].unique()))
+            df_s = df[df["Lieu"] == s_sel]
+            
+            def fmt_s(rows):
+                items = [f"<b>{r['Promotion']}</b><br>{r['Enseignements']}<br><i>{r['Enseignants']}</i>" for _, r in rows.iterrows()]
+                return "<div class='separator'></div>".join(items)
+                
+            grid_s = df_s.groupby(['h_norm', 'j_norm']).apply(fmt_s, include_groups=False).unstack('j_norm')
+            grid_s = grid_s.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
+            grid_s.index = horaires_list
+            grid_s.columns = jours_list
+            st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
         elif is_admin and mode_view == "Promotion":
             p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
             df_p = df[df["Promotion"] == p_sel]
@@ -1583,6 +1613,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
