@@ -1023,7 +1023,7 @@ elif portail == "🤖 Générateur Automatique":
                     with pd.ExcelWriter(xlsx_buf, engine='xlsxwriter') as writer: st.session_state.df_genere.to_excel(writer, index=False)
                     st.download_button("📥 TÉLÉCHARGER LE PLANNING", xlsx_buf.getvalue(), "EDT_Surveillances_2026.xlsx")
 
-    elif portail == "👥 Portail Enseignants":
+elif portail == "👥 Portail Enseignants":
         if not is_admin:
             st.error("🚫 ACCÈS RESTREINT.")
             st.stop()
@@ -1408,7 +1408,7 @@ elif portail == "🤖 Générateur Automatique":
                         except Exception as e:
                             st.error(f"Erreur : {e}")
         # --- FIN DE LA BOUCLE ---
-    elif portail == "🎓 Portail Étudiants":
+elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
         # DISPOSITION : Enseignements, Code, Enseignants, Horaire, Jours, Lieu
@@ -1431,6 +1431,7 @@ elif portail == "🤖 Générateur Automatique":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
