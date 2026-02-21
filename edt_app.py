@@ -924,19 +924,55 @@ if df is not None:
                             st.error(f"**Anomalie :** {cp['Détail']}")
                             st.caption(f"Matières impliquées : {cp.get('Matières', 'N/A')}")
                         
-                        with c2:
-                            # --- LOGIQUE DE DISPONIBILITÉ ---
-                            # On regarde qui occupe des salles à ce créneau précis
-                            lieux_occupes = df[(df['Jours'] == cp['Jour']) & 
-                                               (df['Horaire'] == cp['Horaire'])]['Lieu'].unique()
+                       with c2:
+                            # 1. ANALYSE DU TYPE DE LIEU INITIAL
+                            # On regarde le premier lieu mentionné dans le conflit pour définir le genre
+                            lieu_initial = str(cp['Lieu']).upper()
                             
-                            # On ne propose que les lieux qui ne sont PAS dans la liste des occupés
-                            lieux_libres = [l for l in tous_les_lieux if l not in lieux_occupes]
+                            # Détermination intelligente du type
+                            est_tp = any(keyword in lieu_initial for keyword in ["LABO", "TP", "ATELIER"])
+                            est_amphi = "AMPHI" in lieu_initial
                             
+                            # 2. FILTRAGE DES LIEUX DU MÊME GENRE UNIQUEMENT
+                            lieux_compatibles = []
+                            for l in tous_les_lieux:
+                                l_str = str(l).upper()
+                                if est_tp and any(k in l_str for k in ["LABO", "TP"]):
+                                    lieux_compatibles.append(l)
+                                elif est_amphi and "AMPHI" in l_str:
+                                    lieux_compatibles.append(l)
+                                elif not est_tp and not est_amphi and ("S" in l_str or "SALLE" in l_str):
+                                    # Salles de cours classiques
+                                    lieux_compatibles.append(l)
+
+                            # 3. RECHERCHE DE CRÉNEAUX ET LIEUX DISPONIBLES (Même Jour)
+                            # Liste standard des créneaux horaires
+                            tous_horaires = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
+                            suggestions_valides = []
+                            
+                            for hor in tous_horaires:
+                                # A. Vérifier si l'ENSEIGNANT est libre à cette heure 'hor' ce jour-là
+                                prof_deja_pris = not df[(df['Jours'] == cp['Jour']) & 
+                                                        (df['Horaire'] == hor) & 
+                                                        (df['Enseignants'] == cp['Enseignant'])].empty
+                                
+                                if not prof_deja_pris:
+                                    # B. Vérifier quels LIEUX COMPATIBLES sont libres à cette heure 'hor'
+                                    occupes_a_cette_heure = df[(df['Jours'] == cp['Jour']) & 
+                                                               (df['Horaire'] == hor)]['Lieu'].unique()
+                                    
+                                    libres_a_cette_heure = [l for l in lieux_compatibles if l not in occupes_a_cette_heure]
+                                    
+                                    # C. Ajouter les combinaisons (Heure + Salle) à la liste des solutions
+                                    for salle_dispo in libres_a_cette_heure:
+                                        suggestions_valides.append(f"{hor} en {salle_dispo}")
+
+                            # 4. SÉLECTEUR DE SOLUTION
                             choix_sol = st.selectbox(
-                                "Proposer un nouveau lieu :",
-                                options=["-- Choisir --"] + lieux_libres,
-                                key=f"assistant_sol_{i}"
+                                "🚀 Solution (Heure + Lieu compatible) :",
+                                options=["-- Garder actuel --"] + suggestions_valides,
+                                key=f"assistant_sol_{i}",
+                                help="Propose des créneaux où l'enseignant ET la salle sont libres."
                             )
                         
                         # Construction de la ligne pour le rapport Excel final
@@ -1529,6 +1565,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
