@@ -676,58 +676,72 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             st.rerun()
 
     with c3:
-        # --- GÉNÉRATION DYNAMIQUE DU RAPPORT AVEC PROMOTIONS ---
+        import io
         df_complet = st.session_state.df_admin
         conflits_list = []
 
-        # 1. Détection des conflits Enseignants (Même jour, même heure, même prof)
-        doublons_prof = df_complet.duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
-        df_err_prof = df_complet[doublons_prof].copy()
-        
-        for _, row in df_err_prof.iterrows():
-            if row['Enseignants'] != "Non défini":
-                conflits_list.append({
-                    "Type de Conflit": "❌ CONFLIT ENSEIGNANT",
-                    "Personne concernée": row['Enseignants'],
-                    "Promotion concernée": row['Promotion'], # <-- AJOUTÉ ICI
-                    "Jour": row['Jours'],
-                    "Horaire Initial": row['Horaire'],
-                    "Lieu Initial": row['Lieu'],
-                    "SOLUTION PROPOSÉE": "L'enseignant est affecté à deux promotions simultanément"
-                })
-
-        # 2. Détection des conflits de Salles (Même jour, même heure, même lieu)
+        # --- 1. CONFLITS DE SALLES (Même jour, même heure, même lieu) ---
         mask_salle = (df_complet['Lieu'] != "") & (df_complet['Lieu'] != "Non défini")
         doublons_salle = df_complet[mask_salle].duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False)
         df_err_salle = df_complet[mask_salle][doublons_salle].copy()
-
         for _, row in df_err_salle.iterrows():
             conflits_list.append({
-                "Type de Conflit": "❌ CONFLIT SALLE OCCUPÉE",
-                "Personne concernée": row['Enseignants'],
-                "Promotion concernée": row['Promotion'], # <-- AJOUTÉ ICI
+                "Type de Conflit": "❌ SALLE OCCUPÉE",
+                "Cible": row['Lieu'],
+                "Promotion": row['Promotion'],
+                "Enseignant": row['Enseignants'],
                 "Jour": row['Jours'],
-                "Horaire Initial": row['Horaire'],
-                "Lieu Initial": row['Lieu'],
-                "SOLUTION PROPOSÉE": "Deux promotions occupent la même salle"
+                "Horaire": row['Horaire'],
+                "Détails": f"La salle {row['Lieu']} est utilisée par plusieurs groupes."
             })
 
-        df_conflits_final = pd.DataFrame(conflits_list).drop_duplicates()
+        # --- 2. CONFLITS D'ENSEIGNANTS (Même jour, même heure, même prof) ---
+        mask_prof = (df_complet['Enseignants'] != "") & (df_complet['Enseignants'] != "Non défini")
+        doublons_prof = df_complet[mask_prof].duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
+        df_err_prof = df_complet[mask_prof][doublons_prof].copy()
+        for _, row in df_err_prof.iterrows():
+            conflits_list.append({
+                "Type de Conflit": "⚠️ ENSEIGNANT OCCUPÉ",
+                "Cible": row['Enseignants'],
+                "Promotion": row['Promotion'],
+                "Enseignant": row['Enseignants'],
+                "Jour": row['Jours'],
+                "Horaire": row['Horaire'],
+                "Détails": f"M. {row['Enseignants']} a deux cours simultanés."
+            })
 
-        # --- CRÉATION DU FICHIER EXCEL ---
+        # --- 3. CONFLITS DE PROMOTION (Même jour, même heure, même promo) ---
+        mask_promo = (df_complet['Promotion'] != "") & (df_complet['Promotion'] != "Non défini")
+        doublons_promo = df_complet[mask_promo].duplicated(subset=['Jours', 'Horaire', 'Promotion'], keep=False)
+        df_err_promo = df_complet[mask_promo][doublons_promo].copy()
+        for _, row in df_err_promo.iterrows():
+            conflits_list.append({
+                "Type de Conflit": "🚩 PROMOTION SURCHARGÉE",
+                "Cible": row['Promotion'],
+                "Promotion": row['Promotion'],
+                "Enseignant": row['Enseignants'],
+                "Jour": row['Jours'],
+                "Horaire": row['Horaire'],
+                "Détails": f"La promotion {row['Promotion']} a plusieurs cours prévus ici."
+            })
+
+        # Conversion en DataFrame et nettoyage
+        df_rapport = pd.DataFrame(conflits_list).drop_duplicates()
+
+        # --- GÉNÉRATION EXCEL ---
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            # Onglet 1
+            # Feuille 1 : EDT
             df_complet[cols_format].to_excel(writer, sheet_name='Emploi du Temps', index=False)
             
-            # Onglet 2
-            if not df_conflits_final.empty:
-                # Réorganiser les colonnes pour que Promotion soit visible
-                cols_conflit = ["Type de Conflit", "Personne concernée", "Promotion concernée", "Jour", "Horaire Initial", "Lieu Initial", "SOLUTION PROPOSÉE"]
-                df_conflits_final[cols_conflit].to_excel(writer, sheet_name='Rapport Conflits', index=False)
+            # Feuille 2 : Rapport
+            if not df_rapport.empty:
+                # Réorganiser les colonnes pour que Promotion soit bien visible au début
+                cols_ordre = ["Type de Conflit", "Promotion", "Enseignant", "Cible", "Jour", "Horaire", "Détails"]
+                df_rapport[cols_ordre].to_excel(writer, sheet_name='Rapport Conflits', index=False)
                 
                 ws = writer.sheets['Rapport Conflits']
-                for i, col in enumerate(cols_conflit):
+                for i, col in enumerate(cols_ordre):
                     ws.set_column(i, i, 20)
             else:
                 pd.DataFrame({"Message": ["Aucun conflit détecté"]}).to_excel(writer, sheet_name='Rapport Conflits', index=False)
@@ -735,12 +749,12 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         st.download_button(
             label="📥 Télécharger Excel (EDT + Conflits)",
             data=buffer.getvalue(),
-            file_name=f"EDT_S2_2026_AVEC_PROMOTIONS.xlsx",
+            file_name=f"EDT_S2_2026_COMPLET.xlsx",
             mime="application/vnd.ms-excel",
             use_container_width=True
         )
 
-    st.stop() # Fin de la section Admin 
+    st.stop() # Gardien de la section Admin 
 
 
 # --- EN-TÊTE HARMONISÉ (LOGO + TITRE + DATE) ---
@@ -1699,6 +1713,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
