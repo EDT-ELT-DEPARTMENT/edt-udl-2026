@@ -905,7 +905,7 @@ elif is_admin and mode_view == "🚩 Vérificateur de conflits":
     else:
         st.success("✅ Aucun conflit détecté dans l'EDT-S2-2026.")
         st.balloons()
-    elif portail == "📅 Surveillances Examens":
+elif portail == "📅 Surveillances Examens":
         FILE_S = "surveillances_2026.xlsx"
         if os.path.exists(FILE_S):
             df_surv = pd.read_excel(FILE_S)
@@ -1431,6 +1431,7 @@ elif is_admin and mode_view == "🚩 Vérificateur de conflits":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
