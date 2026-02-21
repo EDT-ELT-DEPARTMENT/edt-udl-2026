@@ -782,12 +782,19 @@ if df is not None:
     st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
     st.markdown("---")
     
+    # Nettoyage et filtrage pour exclure les enseignants non désignés (ND)
+    # On considère comme ND : "ND", "nd", "Non défini", ou vide
+    df_clean = df.copy()
+    mask_nd = df_clean["Enseignants"].str.upper().isin(["ND", "NON DÉFINI", "NON DEFINI", ""]) | df_clean["Enseignants"].isna()
+    df_real = df_clean[~mask_nd]
+
     errs_text = []      
     errs_for_df = []    
 
-    # --- 1. DÉTECTION DES CONFLITS ---
+    # --- 1. DÉTECTION DES CONFLITS (Sur les enseignants réels uniquement) ---
+    
     # A. Conflit Enseignant
-    p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
+    p_groups = df_real.groupby(['Jours', 'Horaire', 'Enseignants'])
     for (jour, horaire, prof), group in p_groups:
         lieux_uniques = group['Lieu'].unique()
         matieres_uniques = group['Enseignements'].unique()
@@ -802,25 +809,28 @@ if df is not None:
                 "Matières": ", ".join(matieres_uniques), "Promotion": ", ".join(group['Promotion'].unique())
             })
 
-    # B. Conflit Salle
+    # B. Conflit Salle (On garde le conflit même si un des profs est ND, car la salle est physiquement occupée)
     s_groups = df[(df["Lieu"] != "Non défini") & (df["Lieu"] != "A distance")].groupby(['Jours', 'Horaire', 'Lieu'])
     for (jour, horaire, lieu), group in s_groups:
-        if len(group['Enseignants'].unique()) > 1:
-            type_err = "❌ CONFLIT SALLE OCCUPÉE"
-            profs_concernees = group['Enseignants'].unique()
-            detail = f"La salle '{lieu}' est utilisée par : {', '.join(profs_concernees)}"
-            msg = f"**{type_err}** : {lieu} | {jour} {horaire} ({', '.join(profs_concernees)})"
-            errs_text.append(("error", msg))
-            for p in profs_concernees:
-                errs_for_df.append({
-                    "Type": type_err, "Enseignant": p, "Jour": jour, "Horaire": horaire, 
-                    "Détail": detail, "Lieu": lieu, 
-                    "Matières": ", ".join(group['Enseignements'].unique()), 
-                    "Promotion": ", ".join(group['Promotion'].unique())
-                })
+        profs_en_salle = group['Enseignants'].unique()
+        if len(profs_en_salle) > 1:
+            # On ne signale le conflit de salle que si au moins un prof n'est pas "ND"
+            profs_reels = [p for p in profs_en_salle if str(p).upper() not in ["ND", "NON DÉFINI"]]
+            if len(profs_reels) > 0:
+                type_err = "❌ CONFLIT SALLE OCCUPÉE"
+                detail = f"La salle '{lieu}' est partagée par : {', '.join(profs_en_salle)}"
+                msg = f"**{type_err}** : {lieu} | {jour} {horaire} ({', '.join(profs_en_salle)})"
+                errs_text.append(("error", msg))
+                for p in profs_reels:
+                    errs_for_df.append({
+                        "Type": type_err, "Enseignant": p, "Jour": jour, "Horaire": horaire, 
+                        "Détail": detail, "Lieu": lieu, 
+                        "Matières": ", ".join(group['Enseignements'].unique()), 
+                        "Promotion": ", ".join(group['Promotion'].unique())
+                    })
 
-    # C. Conflit Promotion (Disponibilité Étudiants)
-    pr_groups = df[df["Promotion"] != "Non défini"].groupby(['Jours', 'Horaire', 'Promotion'])
+    # C. Conflit Promotion
+    pr_groups = df.groupby(['Jours', 'Horaire', 'Promotion'])
     for (jour, horaire, promo), group in pr_groups:
         if len(group['Enseignements'].unique()) > 1:
             type_err = "⚠️ CONFLIT PROMOTION"
@@ -836,15 +846,13 @@ if df is not None:
 
     # --- 2. AFFICHAGE ET RÉSOLUTION ---
     if errs_for_df:
-        st.markdown(f"### 📊 Liste des anomalies détectées ({len(errs_text)})")
-        # On affiche uniquement les 20 premiers messages pour ne pas saturer l'interface si trop de conflits
-        for style, m in errs_text[:20]:
+        st.markdown(f"### 📊 Anomalies prioritaires (Hors ND) : {len(errs_text)}")
+        for style, m in errs_text[:30]: # Limite à 30 pour la fluidité
             if style == "error": st.error(m)
             else: st.warning(m)
-        if len(errs_text) > 20: st.info(f"... et {len(errs_text)-20} autres conflits.")
 
         st.divider()
-        st.subheader("💡 Assistant de Résolution Intelligent")
+        st.subheader("💡 Assistant de Résolution")
         
         tous_jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
         tous_horaires = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
@@ -853,12 +861,11 @@ if df is not None:
         solutions_finales = []
 
         for i, cp in enumerate(errs_for_df):
-            # On n'affiche l'expandeur que pour les conflits réels (limite d'affichage pour performance)
-            with st.expander(f"📍 Solution pour {cp['Enseignant']} ({cp['Jour']})", expanded=False):
+            with st.expander(f"📍 Solution : {cp['Enseignant']} - {cp['Jour']}", expanded=(i==0)):
                 c1, c2 = st.columns([2, 1])
                 with c1:
                     st.write(f"**Problème :** {cp['Détail']}")
-                    st.caption(f"Actuel : {cp['Jour']} à {cp['Horaire']} | Matières : {cp['Matières']}")
+                    st.caption(f"Matières : {cp['Matières']} | Promo : {cp['Promotion']}")
                 
                 with c2:
                     l_init = str(cp['Lieu']).upper()
@@ -872,19 +879,22 @@ if df is not None:
                     )]
 
                     suggestions = []
-                    # Recherche intelligente sur la semaine
                     for j_sol in tous_jours:
                         for h_sol in tous_horaires:
-                            p_free = df[(df['Jours']==j_sol) & (df['Horaire']==h_sol) & (df['Enseignants']==cp['Enseignant'])].empty
+                            # Prof libre ? (Seulement si prof réel)
+                            p_check = True
+                            if cp['Enseignant'] != "Multi-enseignants":
+                                p_check = df[(df['Jours']==j_sol) & (df['Horaire']==h_sol) & (df['Enseignants']==cp['Enseignant'])].empty
+                            
                             pr_free = df[(df['Jours']==j_sol) & (df['Horaire']==h_sol) & (df['Promotion']==cp['Promotion'])].empty
                             
-                            if p_free and pr_free:
+                            if p_check and pr_free:
                                 l_occ = df[(df['Jours']==j_sol) & (df['Horaire']==h_sol)]['Lieu'].unique()
                                 s_libres = [sl for sl in lieux_compatibles if sl not in l_occ]
                                 for s in s_libres[:1]:
                                     suggestions.append(f"{j_sol} | {h_sol} en {s}")
 
-                    choix = st.selectbox("🚀 Créneau Libre :", ["-- Garder actuel --"] + suggestions[:10], key=f"ai_sol_{i}")
+                    choix = st.selectbox("🚀 Créneau suggéré :", ["-- Garder actuel --"] + suggestions[:10], key=f"ai_sol_{i}")
                     
                     solutions_finales.append({
                         "Enseignements": cp['Matières'],
@@ -897,39 +907,25 @@ if df is not None:
                         "PROPOSITION_CORRECTION": choix
                     })
 
-        # --- 3. ACTIONS ET RESET ---
+        # --- 3. EXPORT ---
         st.divider()
-        col_exp, col_res = st.columns(2)
+        df_final = pd.DataFrame(solutions_finales)
+        # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+        order = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion", "PROPOSITION_CORRECTION"]
+        df_final = df_final[order]
         
-        with col_exp:
-            df_final = pd.DataFrame(solutions_finales)
-            # Respect de l'ordre mémorisé
-            order = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion", "PROPOSITION_CORRECTION"]
-            df_final = df_final[order]
-            
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_final.to_excel(writer, index=False, sheet_name='Corrections_EDT')
-            
-            st.download_button(
-                label="📥 Télécharger le Plan de Correction (Excel)",
-                data=output.getvalue(),
-                file_name="Plan_Correction_EDT_S2_2026.xlsx",
-                mime="application/vnd.ms-excel",
-                use_container_width=True,
-                type="primary"
-            )
-
-        with col_res:
-            if st.button("🔄 Réinitialiser l'Assistant (Reset)", use_container_width=True):
-                for key in list(st.session_state.keys()):
-                    if key.startswith("ai_sol_"):
-                        del st.session_state[key]
-                st.rerun()
-
-    else:
-        st.success("✅ Aucun conflit détecté dans l'EDT-S2-2026 pour le Département d'Électrotechnique.")
-        st.balloons()
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_final.to_excel(writer, index=False, sheet_name='Plan_Correction')
+        
+        st.download_button(
+            label="📥 Télécharger le Plan de Correction (Excel)",
+            data=output.getvalue(),
+            file_name="Plan_Correction_EDT_S2_2026.xlsx",
+            mime="application/vnd.ms-excel",
+            use_container_width=True,
+            type="primary"
+        )
     elif portail == "📅 Surveillances Examens":
         FILE_S = "surveillances_2026.xlsx"
         if os.path.exists(FILE_S):
@@ -1456,6 +1452,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
