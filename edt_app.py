@@ -756,7 +756,7 @@ if df is not None:
                 st.markdown(f"<div class='metric-card'>Seuil Réglementaire<br><h2>{seuil_obligatoire} eq/h</h2></div>", unsafe_allow_html=True)
 
             color_res = "#e74c3c" if h_sup > 0 else "#3498db"
-            label_res = "Heures Sup. (1.5h/s)" if h_sup > 0 else "Reliquat"
+            label_res = "Heures Sup. (1.5h/s)" if h_sup > 0 else "Heures suplémentaires"
             
             with c3:
                 st.markdown(f"""
@@ -1594,6 +1594,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
