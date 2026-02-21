@@ -790,8 +790,8 @@ if df is not None:
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
         elif is_admin and mode_view == "🚩 Vérificateur de conflits":
-    st.subheader("🚩 Analyse des Conflits Individuels & Chevauchements")
-    st.markdown("---")
+        st.subheader("🚩 Analyse des Conflits Individuels & Chevauchements")
+         st.markdown("---")
     
     # --- INITIALISATION CRUCIALE POUR ÉVITER LE NAMEERROR ---
     errs_text = []      
@@ -1388,6 +1388,7 @@ elif portail == "🎓 Portail Étudiants":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
