@@ -676,47 +676,66 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             st.rerun()
 
     with c3:
-        # --- GÉNÉRATION DYNAMIQUE DU RAPPORT DE CONFLITS ---
+        # --- GÉNÉRATION DYNAMIQUE DU RAPPORT AVEC PROMOTIONS ---
         df_complet = st.session_state.df_admin
         conflits_list = []
 
-        # Détection des doublons de salle
+        # 1. Détection des conflits Enseignants (Même jour, même heure, même prof)
+        doublons_prof = df_complet.duplicated(subset=['Jours', 'Horaire', 'Enseignants'], keep=False)
+        df_err_prof = df_complet[doublons_prof].copy()
+        
+        for _, row in df_err_prof.iterrows():
+            if row['Enseignants'] != "Non défini":
+                conflits_list.append({
+                    "Type de Conflit": "❌ CONFLIT ENSEIGNANT",
+                    "Personne concernée": row['Enseignants'],
+                    "Promotion concernée": row['Promotion'], # <-- AJOUTÉ ICI
+                    "Jour": row['Jours'],
+                    "Horaire Initial": row['Horaire'],
+                    "Lieu Initial": row['Lieu'],
+                    "SOLUTION PROPOSÉE": "L'enseignant est affecté à deux promotions simultanément"
+                })
+
+        # 2. Détection des conflits de Salles (Même jour, même heure, même lieu)
         mask_salle = (df_complet['Lieu'] != "") & (df_complet['Lieu'] != "Non défini")
         doublons_salle = df_complet[mask_salle].duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False)
-        df_err_salle = df_complet[mask_salle][doublons_salle]
+        df_err_salle = df_complet[mask_salle][doublons_salle].copy()
 
         for _, row in df_err_salle.iterrows():
             conflits_list.append({
                 "Type de Conflit": "❌ CONFLIT SALLE OCCUPÉE",
                 "Personne concernée": row['Enseignants'],
-                "Promotion": row['Promotion'], # Ajout dynamique de la promotion
+                "Promotion concernée": row['Promotion'], # <-- AJOUTÉ ICI
                 "Jour": row['Jours'],
                 "Horaire Initial": row['Horaire'],
                 "Lieu Initial": row['Lieu'],
-                "SOLUTION PROPOSÉE": "Vérifier la disponibilité de la salle"
+                "SOLUTION PROPOSÉE": "Deux promotions occupent la même salle"
             })
 
         df_conflits_final = pd.DataFrame(conflits_list).drop_duplicates()
 
-        # --- CRÉATION DU FICHIER EXCEL MULTI-FEUILLES ---
+        # --- CRÉATION DU FICHIER EXCEL ---
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-            # Feuille 1 : Emploi du Temps
+            # Onglet 1
             df_complet[cols_format].to_excel(writer, sheet_name='Emploi du Temps', index=False)
             
-            # Feuille 2 : Rapport des Conflits
+            # Onglet 2
             if not df_conflits_final.empty:
-                df_conflits_final.to_excel(writer, sheet_name='Rapport Conflits', index=False)
+                # Réorganiser les colonnes pour que Promotion soit visible
+                cols_conflit = ["Type de Conflit", "Personne concernée", "Promotion concernée", "Jour", "Horaire Initial", "Lieu Initial", "SOLUTION PROPOSÉE"]
+                df_conflits_final[cols_conflit].to_excel(writer, sheet_name='Rapport Conflits', index=False)
+                
                 ws = writer.sheets['Rapport Conflits']
-                for i, col in enumerate(df_conflits_final.columns):
-                    ws.set_column(i, i, 22)
+                for i, col in enumerate(cols_conflit):
+                    ws.set_column(i, i, 20)
             else:
-                pd.DataFrame({"Statut": ["Aucun conflit détecté"]}).to_excel(writer, sheet_name='Rapport Conflits', index=False)
+                pd.DataFrame({"Message": ["Aucun conflit détecté"]}).to_excel(writer, sheet_name='Rapport Conflits', index=False)
 
         st.download_button(
             label="📥 Télécharger Excel (EDT + Conflits)",
             data=buffer.getvalue(),
-            file_name=f"EDT_S2_2026_COMPLET.xlsx",
+            file_name=f"EDT_S2_2026_AVEC_PROMOTIONS.xlsx",
             mime="application/vnd.ms-excel",
             use_container_width=True
         )
@@ -1680,6 +1699,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
