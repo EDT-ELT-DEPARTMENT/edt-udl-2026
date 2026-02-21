@@ -904,29 +904,105 @@ if df is not None:
                         else:
                             st.warning(m)
 
-                # --- 5. TABLEAU RÉCAPITULATIF ET EXPORT ---
+                # --- 5. ASSISTANT DE RÉSOLUTION ET EXPORT DES SOLUTIONS ---
+            if errs_for_df:
                 st.divider()
-                df_report = pd.DataFrame(errs_for_df)
-                
-                with st.expander("👁️ Voir le tableau récapitulatif"):
-                    st.dataframe(df_report, use_container_width=True)
+                st.subheader("💡 Assistant de Résolution Intelligent")
+                st.info("Sélectionnez une salle libre dans la liste déroulante pour chaque conflit détecté.")
 
-                # Génération du fichier Excel pour téléchargement
-                buf = io.BytesIO()
-                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                    df_report.to_excel(writer, index=False, sheet_name='Anomalies')
+                # On récupère la liste de tous les lieux possibles à partir du fichier
+                tous_les_lieux = sorted([l for l in df['Lieu'].unique() if str(l) != "nan" and l != "Non défini"])
                 
-                st.download_button(
-                    label="📥 Télécharger le Rapport Excel",
-                    data=buf.getvalue(),
-                    file_name="Rapport_Conflits_EDT_2026.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+                solutions_finales = []
+
+                # Affichage interactif pour chaque conflit
+                for i, cp in enumerate(errs_for_df):
+                    with st.expander(f"📍 Conflit n°{i+1} : {cp['Enseignant']} ({cp['Jour']} - {cp['Horaire']})", expanded=True):
+                        c1, c2 = st.columns([2, 1])
+                        
+                        with c1:
+                            st.error(f"**Anomalie :** {cp['Détail']}")
+                            st.caption(f"Matières impliquées : {cp.get('Matières', 'N/A')}")
+                        
+                        with c2:
+                            # --- LOGIQUE DE DISPONIBILITÉ ---
+                            # On regarde qui occupe des salles à ce créneau précis
+                            lieux_occupes = df[(df['Jours'] == cp['Jour']) & 
+                                               (df['Horaire'] == cp['Horaire'])]['Lieu'].unique()
+                            
+                            # On ne propose que les lieux qui ne sont PAS dans la liste des occupés
+                            lieux_libres = [l for l in tous_les_lieux if l not in lieux_occupes]
+                            
+                            choix_sol = st.selectbox(
+                                "Proposer un nouveau lieu :",
+                                options=["-- Choisir --"] + lieux_libres,
+                                key=f"assistant_sol_{i}"
+                            )
+                        
+                        # Construction de la ligne pour le rapport Excel final
+                        solutions_finales.append({
+                            "Type de Conflit": cp['Type'],
+                            "Personnes/Salles concernées": cp['Enseignant'] if cp['Enseignant'] != "Multi-enseignants" else cp['Détail'],
+                            "Jour": cp['Jour'],
+                            "Horaire": cp['Horaire'],
+                            "Lieu Initial": cp['Lieu'],
+                            "SOLUTION (Lieu libre choisi)": choix_sol if choix_sol != "-- Choisir --" else "À CORRIGER"
+                        })
+
+                # --- 6. ACTIONS : GÉNÉRATION DU RAPPORT ET RÉINITIALISATION ---
+                st.divider()
                 
+                st.markdown("### 📥 Actions sur le plan de correction")
+                st.write("Téléchargez vos choix ou réinitialisez l'assistant pour recommencer.")
+                
+                col_down, col_reset = st.columns(2)
+
+                with col_down:
+                    # Préparation du fichier Excel
+                    df_sol = pd.DataFrame(solutions_finales)
+                    buf_sol = io.BytesIO()
+                    with pd.ExcelWriter(buf_sol, engine='xlsxwriter') as writer:
+                        df_sol.to_excel(writer, index=False, sheet_name='Solutions_Proposees')
+                        
+                        # Mise en forme du fichier Excel
+                        workbook = writer.book
+                        worksheet = writer.sheets['Solutions_Proposees']
+                        header_fmt = workbook.add_format({
+                            'bold': True, 
+                            'bg_color': '#10B981', 
+                            'font_color': 'white', 
+                            'border': 1
+                        })
+                        
+                        for col_num, value in enumerate(df_sol.columns.values):
+                            worksheet.write(0, col_num, value, header_fmt)
+                        
+                        worksheet.set_column('A:F', 25)
+
+                    st.download_button(
+                        label="💾 Télécharger le Tableau des Solutions (Excel)",
+                        data=buf_sol.getvalue(),
+                        file_name=f"Solutions_Conflits_EDT_S2_2026.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        type="primary"
+                    )
+
+                with col_reset:
+                    # Bouton de réinitialisation
+                    if st.button("🔄 Réinitialiser tous les choix", use_container_width=True, help="Efface toutes les solutions sélectionnées ci-dessus"):
+                        # Suppression des clés spécifiques à l'assistant dans le session_state
+                        for key in list(st.session_state.keys()):
+                            if key.startswith("assistant_sol_"):
+                                del st.session_state[key]
+                        st.rerun()
+
+                st.caption("ℹ️ Une fois téléchargé, ce fichier sert de base pour les modifications dans l'éditeur de données.")
+
             else:
-                # Message si tout est correct
-                st.success("✅ Aucun conflit d'enseignant détecté. La Plateforme est à jour.")
+                # Si la liste errs_for_df est vide
+                st.success("✅ Félicitations ! Aucun conflit détecté dans l'emploi du temps actuel.")
+                st.balloons()
     elif portail == "📅 Surveillances Examens":
         FILE_S = "surveillances_2026.xlsx"
         if os.path.exists(FILE_S):
@@ -1453,6 +1529,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
