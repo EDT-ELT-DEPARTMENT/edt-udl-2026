@@ -921,13 +921,19 @@ elif portail == "📅 Surveillances Examens":
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
 
       elif portail == "🤖 Générateur Automatique":
-          if not is_admin:
-              st.error("Accès réservé au Bureau des Examens.")
-          else:
+        if not is_admin:
+            st.error("Accès réservé au Bureau des Examens.")
+        else:
             st.header("⚙️ Moteur de Génération de Surveillances")
             if "effectifs_db" not in st.session_state:
                 st.session_state.effectifs_db = {"ING1": [50, 4], "MCIL1": [40, 3], "L1MCIL": [288, 4], "L2ELT": [90, 2], "M1RE": [15, 1], "ING2": [16, 1]}
 
+            with st.expander("📦 Gestion des Effectifs", expanded=False):
+                data_eff = [{"Promotion": k, "Effectif Total": v[0], "Nb de Salles": v[1]} for k, v in st.session_state.effectifs_db.items()]
+                edited_eff = st.data_editor(pd.DataFrame(data_eff), use_container_width=True, num_rows="dynamic", hide_index=True)
+                if st.button("💾 Sauvegarder la configuration"):
+                    st.session_state.effectifs_db = {row["Promotion"]: [int(row["Effectif Total"]), int(row["Nb de Salles"])] for _, row in edited_eff.iterrows()}
+                    st.success("Mis à jour !")
             with st.expander("📦 Gestion des Effectifs", expanded=False):
                 data_eff = [{"Promotion": k, "Effectif Total": v[0], "Nb de Salles": v[1]} for k, v in st.session_state.effectifs_db.items()]
                 edited_eff = st.data_editor(pd.DataFrame(data_eff), use_container_width=True, num_rows="dynamic", hide_index=True)
@@ -1388,6 +1394,7 @@ elif portail == "🎓 Portail Étudiants":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
