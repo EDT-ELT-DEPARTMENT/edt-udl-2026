@@ -711,37 +711,41 @@ if df is not None:
             df_u = df_f.drop_duplicates(subset=['j_norm', 'h_norm'])
             
             # --- CALCUL DES COMPTEURS ---
-           # --- CALCUL DES COMPTEURS ---
+            import math
             nb_cours = len(df_u[df_u['Type'] == 'COURS'])
             nb_td    = len(df_u[df_u['Type'] == 'TD'])
             nb_tp    = len(df_u[df_u['Type'] == 'TP'])
+            total_td_tp = nb_td + nb_tp
 
-            # --- LOGIQUE DE CALCUL PRIORITÉ RÉGLEMENTAIRE (STYLE BENHAMIDA) ---
+            # --- LOGIQUE DE CALCUL PAR PALIER (SÉANCE INDIVISIBLE) ---
             seuil_obligatoire = 3.0 if poste_sup else 6.0
             
-            # 1. Calcul de ce qui remplit les 6h (Conversion : 1 séance TD/TP = 1h cours)
-            # On utilise d'abord les cours (1.5h/séance)
+            # 1. Apport du cours (1.5h par séance)
             apport_cours = nb_cours * 1.5
             
-            # Reste à combler pour atteindre les 6h
-            besoin_restant = max(0, seuil_obligatoire - apport_cours)
+            # 2. Besoin restant en heures "équivalent cours"
+            besoin_eq_cours = max(0, seuil_obligatoire - apport_cours)
             
-            # Nombre de séances TD/TP nécessaires pour combler (1 séance = 1h)
-            seances_tdtp_pour_seuil = min(nb_td + nb_tp, besoin_restant)
+            # 3. Nombre de séances TD/TP affectées au seuil (on prend des séances entières)
+            seances_utilisees = min(total_td_tp, math.ceil(besoin_eq_cours))
             
-            # 2. Calcul de la charge réelle affichée (Limitée au seuil)
-            charge_statutaire = min(seuil_obligatoire, apport_cours + seances_tdtp_pour_seuil)
+            # 4. Calcul du Surplus dans la dernière séance utilisée (le reliquat)
+            # Exemple : si besoin de 4.5h, on utilise 5 séances. Le surplus est 5 - 4.5 = 0.5h eq. cours
+            surplus_derniere_seance_eq = max(0, seances_utilisees - besoin_eq_cours)
+            surplus_derniere_seance_reel = surplus_derniere_seance_eq * 1.5
             
-            # 3. Calcul des Heures Supplémentaires (Le surplus non converti : 1.5h par séance)
-            # Séances restantes = (Total séances TD+TP) - (celles utilisées pour le seuil)
-            seances_restantes = (nb_td + nb_tp) - seances_tdtp_pour_seuil
+            # 5. Calcul des séances totalement en Heures Sup
+            seances_totalement_sup = max(0, total_td_tp - seances_utilisees)
+            h_sup_totalement_sup = seances_totalement_sup * 1.5
             
-            # Bonus : si les cours dépassent déjà les 6h
+            # 6. Total final des Heures Sup Réelles
             surplus_cours_direct = max(0, apport_cours - seuil_obligatoire)
+            h_sup = surplus_cours_direct + surplus_derniere_seance_reel + h_sup_totalement_sup
             
-            h_sup = (surplus_cours_direct) + (seances_restantes * 1.5)
+            # Charge statutaire plafonnée au seuil pour l'affichage
+            charge_statutaire = min(seuil_obligatoire, apport_cours + seances_utilisees)
 
-            # --- AFFICHAGE DES RÉSULTATS (Plateforme de gestion des EDTs-S2-2026) ---
+            # --- AFFICHAGE DES RÉSULTATS ---
             st.markdown(f"### 📊 Bilan Horaire : {cible}")
             st.markdown(f"""<div class="stat-container">
                 <div class="stat-box bg-cours">📘 {nb_cours} Séances Cours</div>
@@ -756,7 +760,7 @@ if df is not None:
                 st.markdown(f"<div class='metric-card'>Seuil Réglementaire<br><h2>{seuil_obligatoire} eq/h</h2></div>", unsafe_allow_html=True)
 
             color_res = "#e74c3c" if h_sup > 0 else "#3498db"
-            label_res = "Heures Sup. (1.5h/s)" if h_sup > 0 else "Heures suplémentaires"
+            label_res = "Heures Sup. Réelles"
             
             with c3:
                 st.markdown(f"""
@@ -766,23 +770,8 @@ if df is not None:
                     </div>
                 """, unsafe_allow_html=True)
 
-            if charge_statutaire < seuil_obligatoire:
-                reliq = seuil_obligatoire - charge_statutaire
-                st.info(f"📋 **Déficit :** Il manque {round(reliq, 2)}h pour atteindre le seuil de la Plateforme de gestion des EDTs-S2-2026.")
-            # --- FIN DU REMPLACEMENT ---
-            def format_case(rows):
-                items = []
-                for _, r in rows.iterrows():
-                    txt = f"<b>{get_nature(r['Code'])} : {r['Enseignements']}</b><br>({r['Promotion']})<br><i>{r['Lieu']}</i>"
-                    items.append(txt)
-                return "<div class='separator'></div>".join(items)
-            
-            if not df_f.empty:
-                grid = df_f.groupby(['h_norm', 'j_norm']).apply(format_case, include_groups=False).unstack('j_norm')
-                grid = grid.reindex(index=[normalize(h) for h in horaires_list], columns=[normalize(j) for j in jours_list]).fillna("")
-                grid.index = [map_h.get(i, i) for i in grid.index]
-                grid.columns = [map_j.get(c, c) for c in grid.columns]
-                st.write(grid.to_html(escape=False), unsafe_allow_html=True)
+            if h_sup > 0:
+                st.caption(f"💡 **Note :** {seances_utilisees} séance(s) TD/TP contribuent au seuil, générant {round(surplus_derniere_seance_reel, 2)}h sup. Le reste ({seances_totalement_sup} séc.) est en sup total.")
 
         elif is_admin and mode_view == "Promotion":
             p_sel = st.selectbox("Choisir Promotion :", sorted(df["Promotion"].unique()))
@@ -1594,6 +1583,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
