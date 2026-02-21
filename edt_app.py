@@ -730,7 +730,9 @@ if df is not None:
             surplus_cours_direct = max(0, apport_cours - seuil_obligatoire)
             h_sup = surplus_cours_direct + surplus_derniere_seance_reel + (seances_totalement_sup * 1.5)
             charge_statutaire = min(seuil_obligatoire, apport_cours + seances_utilisees)
-
+            # --- AJOUTEZ CETTE LIGNE ---
+            # Charge effective = Total des séances réelles (Cours + TD + TP) * 1.5h
+            charge_effective = (nb_cours + nb_td + nb_tp) * 1.5
             # --- 2. AFFICHAGE DES MÉTRIQUES (STYLE PLATEFORME EDT 2026) ---
             st.markdown(f"### 📊 Bilan Horaire : {cible}")
             st.markdown(f"""<div class="stat-container">
@@ -741,8 +743,8 @@ if df is not None:
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                st.markdown(f"<div class='metric-card'>Charge Statutaire<br><h2>{round(charge_statutaire, 2)} eq/h</h2></div>", unsafe_allow_html=True)
-            with c2:
+                # On remplace 'Charge Statutaire' par 'Charge Effective'
+                st.markdown(f"<div class='metric-card'>Charge Effective<br><h2>{round(charge_effective, 2)} h</h2></div>", unsafe_allow_html=True)            with c2:
                 st.markdown(f"<div class='metric-card'>Seuil Réglementaire<br><h2>{seuil_obligatoire} eq/h</h2></div>", unsafe_allow_html=True)
             with c3:
                 color_res = "#e74c3c" if h_sup > 0 else "#3498db"
@@ -1613,6 +1615,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
