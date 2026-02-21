@@ -780,7 +780,7 @@ if df is not None:
             def fmt_p(rows):
                 items = []
                 for _, r in rows.iterrows():
-                    nat = '📘' if 'COURS' in str(r['Code']).upper() else '📗' if 'TD' in str(r['Code']).upper() else '🧡'
+                    nat = '📘' if 'COURS' in str(r['Code']).upper() else '📗' if 'TD' in str(r['Code']).upper() else '🔴'
                     items.append(f"<b>{nat} {r['Enseignements']}</b><br>{r['Enseignants']}<br><i>{r['Lieu']}</i>")
                 return "<div class='separator'></div>".join(items)
                 
@@ -1613,6 +1613,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
