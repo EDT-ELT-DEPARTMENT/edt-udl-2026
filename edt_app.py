@@ -776,9 +776,9 @@ if df is not None:
             grid_s.columns = jours_list
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
-       elif is_admin and mode_view == "🚩 Vérificateur de conflits":
+      elif is_admin and mode_view == "🚩 Vérificateur de conflits":
     st.subheader("🚩 Analyse des Conflits & Assistant de Résolution")
-    # Rappel du titre officiel
+    # Rappel du titre officiel mémorisé
     st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
     st.markdown("---")
     
@@ -834,59 +834,57 @@ if df is not None:
                 "Matières": ", ".join(matieres), "Promotion": promo
             })
 
-    # --- 2. AFFICHAGE ET FILTRAGE ---
+    # --- 2. AFFICHAGE ET RÉSOLUTION ---
     if errs_for_df:
-        st.markdown("### 📊 Liste des anomalies détectées")
-        for style, m in errs_text:
+        st.markdown(f"### 📊 Liste des anomalies détectées ({len(errs_text)})")
+        # On affiche uniquement les 20 premiers messages pour ne pas saturer l'interface si trop de conflits
+        for style, m in errs_text[:20]:
             if style == "error": st.error(m)
             else: st.warning(m)
+        if len(errs_text) > 20: st.info(f"... et {len(errs_text)-20} autres conflits.")
 
         st.divider()
         st.subheader("💡 Assistant de Résolution Intelligent")
-        st.info("Recherche de créneaux libres (Enseignant + Salle + Promotion) sur toute la semaine.")
-
+        
         tous_jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
         tous_horaires = ["8h - 9h30", "9h30 - 11h", "11h - 12h30", "12h30 - 14h", "14h - 15h30", "15h30 - 17h"]
-        tous_les_lieux = sorted([l for l in df['Lieu'].unique() if str(l) != "nan" and l != "Non défini"])
+        tous_les_lieux = sorted([str(l) for l in df['Lieu'].unique() if str(l) not in ["nan", "Non défini"]])
         
         solutions_finales = []
 
         for i, cp in enumerate(errs_for_df):
-            with st.expander(f"📍 Solution pour {cp['Enseignant']} ({cp['Matières']})", expanded=True):
+            # On n'affiche l'expandeur que pour les conflits réels (limite d'affichage pour performance)
+            with st.expander(f"📍 Solution pour {cp['Enseignant']} ({cp['Jour']})", expanded=False):
                 c1, c2 = st.columns([2, 1])
                 with c1:
                     st.write(f"**Problème :** {cp['Détail']}")
-                    st.caption(f"Actuel : {cp['Jour']} à {cp['Horaire']}")
+                    st.caption(f"Actuel : {cp['Jour']} à {cp['Horaire']} | Matières : {cp['Matières']}")
                 
                 with c2:
-                    # Analyse du type de salle pour suggestion intelligente
                     l_init = str(cp['Lieu']).upper()
                     est_tp = any(k in l_init for k in ["LABO", "TP", "MICRO"])
                     est_amphi = "AMPHI" in l_init
                     
                     lieux_compatibles = [l for l in tous_les_lieux if (
-                        (est_tp and any(k in str(l).upper() for k in ["LABO", "TP", "MICRO"])) or
-                        (est_amphi and "AMPHI" in str(l).upper()) or
-                        (not est_tp and not est_amphi and "S" in str(l).upper())
+                        (est_tp and any(k in l.upper() for k in ["LABO", "TP", "MICRO"])) or
+                        (est_amphi and "AMPHI" in l.upper()) or
+                        (not est_tp and not est_amphi and ("S" in l.upper() or "A" in l.upper()))
                     )]
 
                     suggestions = []
-                    # Recherche sur tous les jours pour trouver une vraie solution
+                    # Recherche intelligente sur la semaine
                     for j_sol in tous_jours:
                         for h_sol in tous_horaires:
-                            # 1. Prof libre ?
                             p_free = df[(df['Jours']==j_sol) & (df['Horaire']==h_sol) & (df['Enseignants']==cp['Enseignant'])].empty
-                            # 2. Promo libre ?
                             pr_free = df[(df['Jours']==j_sol) & (df['Horaire']==h_sol) & (df['Promotion']==cp['Promotion'])].empty
                             
                             if p_free and pr_free:
-                                # 3. Salles libres ?
                                 l_occ = df[(df['Jours']==j_sol) & (df['Horaire']==h_sol)]['Lieu'].unique()
                                 s_libres = [sl for sl in lieux_compatibles if sl not in l_occ]
-                                for s in s_libres[:2]: # On limite à 2 salles par créneau
+                                for s in s_libres[:1]:
                                     suggestions.append(f"{j_sol} | {h_sol} en {s}")
 
-                    choix = st.selectbox("🚀 Créneaux Libres :", ["-- Garder actuel --"] + suggestions[:15], key=f"ai_sol_{i}")
+                    choix = st.selectbox("🚀 Créneau Libre :", ["-- Garder actuel --"] + suggestions[:10], key=f"ai_sol_{i}")
                     
                     solutions_finales.append({
                         "Enseignements": cp['Matières'],
@@ -905,13 +903,13 @@ if df is not None:
         
         with col_exp:
             df_final = pd.DataFrame(solutions_finales)
-            # Disposition demandée : Enseignements, Code, Enseignants, Horaire, Jours, Lieu, Promotion
+            # Respect de l'ordre mémorisé
             order = ["Enseignements", "Code", "Enseignants", "Horaire", "Jours", "Lieu", "Promotion", "PROPOSITION_CORRECTION"]
             df_final = df_final[order]
             
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_final.to_excel(writer, index=False, sheet_name='Corrections')
+                df_final.to_excel(writer, index=False, sheet_name='Corrections_EDT')
             
             st.download_button(
                 label="📥 Télécharger le Plan de Correction (Excel)",
@@ -1458,6 +1456,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
