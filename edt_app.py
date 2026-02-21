@@ -5,20 +5,7 @@ import hashlib
 import io
 from datetime import datetime
 from supabase import create_client
-# --- LOGIQUE TEMPORELLE (À placer juste après les imports) ---
-def est_en_conflit_horaire(h1, h2):
-    try:
-        def convertir(h_str):
-            h_str = str(h_str).lower().replace('h', ':').replace(' ', '')
-            start_part, end_part = h_str.split('-')
-            if ':' not in start_part: start_part += ":00"
-            if ':' not in end_part: end_part += ":00"
-            return datetime.strptime(start_part, "%H:%M"), datetime.strptime(end_part, "%H:%M")
-        s1, e1 = convertir(h1)
-        s2, e2 = convertir(h2)
-        return s1 < e2 and s2 < e1
-    except:
-        return str(h1).strip() == str(h2).strip()
+
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(
     page_title="EDT UDL 2026",
@@ -502,11 +489,11 @@ if user is None:
 
 is_admin = user.get("role") == "admin"
 
-# 1. Définition précise de votre nouvelle liste d'horaires (14 créneaux)
+# 1. Définition précise de votre nouvelle liste d'horaires (13 créneaux)
 horaires_list = [
-    "8h - 9h", "8h - 9h30", "8h - 10h", "9h - 10h", "9h30 - 11h", 
-    "10h - 11h", "11h - 12h", "11h - 12h30", 
-    "12h - 13h", "12h30 - 14h", "13h - 14h", "14h - 15h30", "14h - 16h", "15h30 - 17h"
+    "8h - 9h", "8h - 9h30", "9h - 10h", "9h30 - 11h", 
+    "10h - 11h", "11h - 12h", "11h - 12h30", "11h - 14h", 
+    "12h - 13h", "12h30 - 14h", "13h - 14h", "14h - 15h30", "15h30 - 17h"
 ]
 
 # 2. Définition des jours de la semaine
@@ -790,79 +777,121 @@ if df is not None:
             st.write(grid_s.to_html(escape=False), unsafe_allow_html=True)
 
         elif is_admin and mode_view == "🚩 Vérificateur de conflits":
-          st.subheader("🚩 Analyse des Conflits Individuels & Chevauchements")
-          st.markdown("---")
-    
-    # --- INITIALISATION CRUCIALE POUR ÉVITER LE NAMEERROR ---
-    errs_text = []      
-    errs_for_df = []    
-    
-    # Rappel du titre de la plateforme
-    st.info("Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA")
+            st.subheader("🚩 Analyse des Conflits Individuels")
+            st.markdown("---")
+            
+            errs_text = []      
+            errs_for_df = []    
+            
+            # --- 1. DÉTECTION INDIVIDUELLE (Un prof ne peut pas être à 2 lieux/matières) ---
+            p_groups = df[df["Enseignants"] != "Non défini"].groupby(['Jours', 'Horaire', 'Enseignants'])
 
-    # --- 1. DÉTECTION DES CONFLITS (LOGIQUE DE CHEVAUCHEMENT) ---
-    jours_uniques = df['Jours'].unique()
+            for (jour, horaire, prof), group in p_groups:
+                lieux_uniques = group['Lieu'].unique()
+                matieres_uniques = group['Enseignements'].unique()
+                promos_uniques = group['Promotion'].unique()
 
-    for jour in jours_uniques:
-        df_jour = df[df['Jours'] == jour]
-        creneaux = df_jour.to_dict('records')
+                if len(lieux_uniques) > 1 or len(matieres_uniques) > 1:
+                    if len(lieux_uniques) > 1:
+                        type_err, style = "❌ CONFLIT LIEU", "error"
+                        detail = f"Salles différentes détectées : {', '.join(lieux_uniques)}"
+                    else:
+                        type_err, style = "⚠️ CONFLIT MATIÈRE", "warning"
+                        detail = f"Matières différentes détectées : {', '.join(matieres_uniques)}"
 
-        for i in range(len(creneaux)):
-            for j in range(i + 1, len(creneaux)):
-                c1 = creneaux[i]
-                c2 = creneaux[j]
+                    msg = f"**{type_err}** : {prof} | {jour} {horaire}"
+                    errs_text.append((style, msg))
+                    errs_for_df.append({
+                        "Type": type_err, "Enseignant": prof, "Jour": jour, "Horaire": horaire, 
+                        "Détail": detail, "Lieu": ", ".join(lieux_uniques), 
+                        "Matières": ", ".join(matieres_uniques), "Promotions": ", ".join(promos_uniques)
+                    })
 
-                # Utilisation de la fonction de calcul horaire
-                if est_en_conflit_horaire(c1['Horaire'], c2['Horaire']):
-                    conflit = False
-                    t_err, det, prof = "", "", ""
+            # --- 2. INTERFACE DE FILTRAGE ET BOUTON RESET ---
+            if errs_for_df:
+                st.markdown("### 🔍 Résolution ciblée")
+                
+                # Récupération de la liste des enseignants ayant au moins un conflit
+                profs_en_conflit = sorted(list(set([e["Enseignant"] for e in errs_for_df])))
+                options_menu = ["Tous"] + profs_en_conflit
 
-                    # A. Conflit Enseignant
-                    if c1['Enseignants'] == c2['Enseignants'] and c1['Enseignants'] != "Non défini":
-                        t_err = "❌ CONFLIT ENSEIGNANT"
-                        prof = c1['Enseignants']
-                        det = f"{prof} a deux cours simultanés : {c1['Enseignements']} et {c2['Enseignements']}"
-                        conflit = True
+                # Initialisation de la clé dans le session_state si elle n'existe pas
+                if "filtre_prof_conflit" not in st.session_state:
+                    st.session_state.filtre_prof_conflit = "Tous"
+
+                # Sélecteur d'enseignant
+                selected_prof = st.selectbox(
+                    "🎯 Filtrer par enseignant :", 
+                    options=options_menu,
+                    key="filtre_prof_conflit"
+                )
+
+                # --- LE BOUTON RESET ---
+                if selected_prof != "Tous":
+                    st.write("") # Espacement visuel
+                    if st.button("🔄 Réinitialiser la vue (Afficher tout)", use_container_width=True):
+                        # Suppression sécurisée pour éviter l'erreur StreamlitAPIException
+                        if "filtre_prof_conflit" in st.session_state:
+                            del st.session_state.filtre_prof_conflit
+                        st.rerun()
+
+                st.divider()
+
+                # --- 3. AFFICHAGE DES DÉTAILS (SI FILTRÉ) ---
+                if selected_prof != "Tous":
+                    st.info(f"Analyse précise pour : **{selected_prof}**")
                     
-                    # B. Conflit Salle
-                    elif c1['Lieu'] == c2['Lieu'] and c1['Lieu'] not in ["Non défini", "A distance"]:
-                        t_err = "❌ CONFLIT SALLE OCCUPÉE"
-                        prof = c1['Enseignants']
-                        det = f"La salle {c1['Lieu']} est occupée par {c1['Enseignants']} et {c2['Enseignants']}"
-                        conflit = True
+                    # Filtrage des erreurs pour l'enseignant sélectionné
+                    conflits_specifiques = [e for e in errs_for_df if e["Enseignant"] == selected_prof]
+                    
+                    for i, cp in enumerate(conflits_specifiques):
+                        with st.expander(f"📌 {cp['Type']} - {cp['Jour']} {cp['Horaire']}", expanded=True):
+                            st.error(f"**Problème :** {cp['Détail']}")
+                            
+                            st.markdown("💡 **Solutions suggérées :**")
+                            st.write("- Vérifiez que le nom de la matière est identique pour les deux groupes.")
+                            st.write("- Modifiez l'horaire ou la salle dans l'éditeur de données.")
+                            
+                            # Bouton pour naviguer vers l'éditeur
+                            btn_key = f"btn_solve_{cp['Enseignant']}_{i}"
+                            if st.button(f"🔗 Aller à l'éditeur pour {selected_prof}", key=btn_key):
+                                st.session_state.mode_view = "✍️ Éditeur de données"
+                                st.rerun()
 
-                    # C. Conflit Promotion
-                    elif c1['Promotion'] == c2['Promotion'] and c1['Promotion'] != "Non défini":
-                        t_err = "⚠️ CONFLIT PROMOTION"
-                        prof = "Multi-enseignants"
-                        det = f"La promo {c1['Promotion']} a deux cours : {c1['Enseignements']} et {c2['Enseignements']}"
-                        conflit = True
+                # --- 4. RAPPORT GLOBAL ---
+                st.markdown("### 🌍 Rapport Global des Anomalies")
+                for style, m in errs_text:
+                    # On affiche le message si on est en mode "Tous" ou si le nom du prof est dans le message
+                    if selected_prof == "Tous" or selected_prof in m:
+                        if style == "error":
+                            st.error(m)
+                        else:
+                            st.warning(m)
 
-                    if conflit:
-                        msg = f"**{t_err}** : {jour} | {c1['Horaire']} vs {c2['Horaire']}"
-                        # L'erreur à la ligne 839 est corrigée ici car errs_text est défini plus haut
-                        errs_text.append(("error" if "❌" in t_err else "warning", msg))
-                        errs_for_df.append({
-                            "Type": t_err, 
-                            "Enseignant": prof, 
-                            "Day": jour, 
-                            "Horaire": f"{c1['Horaire']} / {c2['Horaire']}", 
-                            "Détail": det, 
-                            "Lieu": c1['Lieu'], 
-                            "Matières": f"{c1['Enseignements']}, {c2['Enseignements']}",
-                            "Promotions": c1['Promotion']
-                        })
+                # --- 5. TABLEAU RÉCAPITULATIF ET EXPORT ---
+                st.divider()
+                df_report = pd.DataFrame(errs_for_df)
+                
+                with st.expander("👁️ Voir le tableau récapitulatif"):
+                    st.dataframe(df_report, use_container_width=True)
 
-    # --- 2. AFFICHAGE DES RÉSULTATS ---
-    if errs_for_df:
-        for style, m in errs_text:
-            if style == "error":
-                st.error(m)
+                # Génération du fichier Excel pour téléchargement
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                    df_report.to_excel(writer, index=False, sheet_name='Anomalies')
+                
+                st.download_button(
+                    label="📥 Télécharger le Rapport Excel",
+                    data=buf.getvalue(),
+                    file_name="Rapport_Conflits_EDT_2026.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                
             else:
-                st.warning(m)
-    else:
-        st.success("✅ Aucun conflit détecté dans l'EDT-S2-2026.")
-elif portail == "📅 Surveillances Examens":
+                # Message si tout est correct
+                st.success("✅ Aucun conflit d'enseignant détecté. La Plateforme est à jour.")
+    elif portail == "📅 Surveillances Examens":
         FILE_S = "surveillances_2026.xlsx"
         if os.path.exists(FILE_S):
             df_surv = pd.read_excel(FILE_S)
@@ -920,20 +949,14 @@ elif portail == "📅 Surveillances Examens":
         else:
             st.error("Le fichier 'surveillances_2026.xlsx' est absent.")
 
-       elif portail == "🤖 Générateur Automatique":
-           if not is_admin:
-               st.error("Accès réservé au Bureau des Examens.")
-           else:
-               st.header("⚙️ Moteur de Génération de Surveillances")
-               if "effectifs_db" not in st.session_state:
-                  st.session_state.effectifs_db = {"ING1": [50, 4], "MCIL1": [40, 3], "L1MCIL": [288, 4], "L2ELT": [90, 2], "M1RE": [15, 1], "ING2": [16, 1]}
+    elif portail == "🤖 Générateur Automatique":
+        if not is_admin:
+            st.error("Accès réservé au Bureau des Examens.")
+        else:
+            st.header("⚙️ Moteur de Génération de Surveillances")
+            if "effectifs_db" not in st.session_state:
+                st.session_state.effectifs_db = {"ING1": [50, 4], "MCIL1": [40, 3], "L1MCIL": [288, 4], "L2ELT": [90, 2], "M1RE": [15, 1], "ING2": [16, 1]}
 
-            with st.expander("📦 Gestion des Effectifs", expanded=False):
-                data_eff = [{"Promotion": k, "Effectif Total": v[0], "Nb de Salles": v[1]} for k, v in st.session_state.effectifs_db.items()]
-                edited_eff = st.data_editor(pd.DataFrame(data_eff), use_container_width=True, num_rows="dynamic", hide_index=True)
-                if st.button("💾 Sauvegarder la configuration"):
-                    st.session_state.effectifs_db = {row["Promotion"]: [int(row["Effectif Total"]), int(row["Nb de Salles"])] for _, row in edited_eff.iterrows()}
-                    st.success("Mis à jour !")
             with st.expander("📦 Gestion des Effectifs", expanded=False):
                 data_eff = [{"Promotion": k, "Effectif Total": v[0], "Nb de Salles": v[1]} for k, v in st.session_state.effectifs_db.items()]
                 edited_eff = st.data_editor(pd.DataFrame(data_eff), use_container_width=True, num_rows="dynamic", hide_index=True)
@@ -1152,14 +1175,9 @@ elif portail == "📅 Surveillances Examens":
         # 3. AFFICHAGE DU TABLEAU RECAPITULATIF
         st.divider()
         st.dataframe(pd.DataFrame(donnees_finales), use_container_width=True, hide_index=True)
-        # --- 3. GESTION DES ENVOIS PERSONNALISÉS (INDIVIDUEL OU SÉLECTION) ---
+        # 3. LISTE INDIVIDUELLE AVEC FILTRES DE RECHERCHE ET STATUT
         st.divider()
-        st.subheader("📬 Gestion des envois personnalisés")
-
-        # Option de mode d'envoi
-        mode_envoi = st.radio("Choisir le mode d'envoi :", 
-                              ["Un par un (Individuel)", "Sélection groupée (Multi-choix)"], 
-                              horizontal=True)
+        st.subheader("📬 Gestion individuelle des envois")
 
         # --- ZONE DE FILTRES ---
         col_f1, col_f2 = st.columns(2)
@@ -1169,27 +1187,23 @@ elif portail == "📅 Surveillances Examens":
         with col_f2:
             choix_statut = st.selectbox("📊 Filtrer par statut :", ["TOUS", "⏳ En attente", "✅ Envoyé", "❌ Absent"])
 
-        # Pré-filtrage de la liste pour les deux modes
-        enseignants_filtres = []
-        for row in donnees_finales:
+        # --- BOUCLE D'AFFICHAGE ET D'ENVOI ---
+        for idx, row in enumerate(donnees_finales):
             if choix_enseignant != "TOUS" and row["Enseignant"] != choix_enseignant:
                 continue
             if choix_statut != "TOUS" and row["État d'envoi"] != choix_statut:
                 continue
-            enseignants_filtres.append(row)
-
-        if mode_envoi == "Sélection groupée (Multi-choix)":
-            # --- MODE MULTI-SÉLECTION ---
-            st.info("Cochez les enseignants dans la liste déroulante ci-dessous pour lancer un envoi groupé spécifique.")
+                
+            col_ens, col_mail, col_stat, col_act = st.columns([2, 2, 1, 1])
+            col_ens.write(f"**{row['Enseignant']}**")
+            col_mail.write(row['Email'])
+            col_stat.write(row["État d'envoi"])
             
-            noms_disponibles = [e["Enseignant"] for e in enseignants_filtres if "@" in str(e["Email"])]
-            selection = st.multiselect("Sélectionner les enseignants :", noms_disponibles)
-            
-            if st.button(f"🚀 Envoyer à la sélection ({len(selection)})", type="primary"):
-                if not selection:
-                    st.warning("Veuillez sélectionner au moins un enseignant.")
-                else:
-                    import smtplib, io, pandas as pd
+            if "@" in str(row["Email"]):
+                if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}_{idx}"):
+                    import smtplib
+                    import io
+                    import pandas as pd
                     from email.mime.text import MIMEText
                     from email.mime.multipart import MIMEMultipart
                     from email.mime.base import MIMEBase
@@ -1201,177 +1215,96 @@ elif portail == "📅 Surveillances Examens":
                         server.starttls()
                         server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
                         
-                        progress_bar = st.progress(0)
-                        for i, nom in enumerate(selection):
-                            # Trouver les infos de l'enseignant sélectionné
-                            info_ens = next(e for e in enseignants_filtres if e["Enseignant"] == nom)
-                            
-                            # 1. FILTRAGE ET RECAP
-                            nom_cible = str(nom).strip().upper()
-                            df_perso = df[df["Enseignants"].astype(str).str.upper().str.contains(nom_cible, na=False)]
-                            df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
-                            
-                            nb_cours = df_mail['Enseignements'].str.contains('Cours', case=False).sum()
-                            nb_td = df_mail['Enseignements'].str.contains('TD', case=False).sum()
-                            nb_tp = df_mail['Enseignements'].str.contains('TP', case=False).sum()
-
-                            msg = MIMEMultipart()
-                            msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {nom}"
-                            msg['From'] = st.secrets["EMAIL_USER"]
-                            msg['To'] = info_ens["Email"]
-
-                            # 2. CORPS DU MESSAGE
-                            corps_html = f"""
-                            <html>
-                            <body style="font-family: Arial, sans-serif; line-height: 1.6;">
-                                <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
-                                <p>Sallem M./Mme <b>{nom}</b>,</p>
-                                <div style="background-color: #f8f9fa; padding: 10px; border: 1px solid #dee2e6; border-radius: 5px;">
-                                    <b>📊 Récapitulatif de votre charge (S2-2026) :</b><br>
-                                    <ul>
-                                        <li>Nombre de Cours : <b>{nb_cours}</b></li>
-                                        <li>Nombre de TD : <b>{nb_td}</b></li>
-                                        <li>Nombre de TP : <b>{nb_tp}</b></li>
-                                    </ul>
-                                </div>
-                                <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic;">
-                                    <p>J'ai été chargé en tant que représentant des responsables des équipes de formation, en concertation avec le chef de département et le vice doyen chargé de la graduation, de coordonner l'élaboration de ces emplois du temps.</p>
-                                    <p>Je vous prie de bien vouloir nous signaler une éventuelle anomalie. Merci de nous renseigner le fichier Excel corrigé, au cas où tout est bon merci de nous envoyer <b>RAS</b>.</p>
-                                </div>
-                                {df_mail.to_html(index=False, border=1, justify='center')}
-                                <p><br>Cordialement.<br>---<br><b>Service d'enseignement du département d'électrotechnique.</b></p>
-                            </body>
-                            </html>
-                            """
-                            msg.attach(MIMEText(corps_html, 'html'))
-
-                            # 3. EXCEL COLORÉ
-                            buffer = io.BytesIO()
-                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                                df_mail.to_excel(writer, index=False, sheet_name='Mon EDT')
-                                workbook = writer.book
-                                worksheet = writer.sheets['Mon EDT']
-                                fmt_cours = workbook.add_format({'bg_color': '#D9EAD3', 'border': 1})
-                                fmt_td = workbook.add_format({'bg_color': '#FFF2CC', 'border': 1})
-                                fmt_tp = workbook.add_format({'bg_color': '#F4CCCC', 'border': 1})
-                                fmt_header = workbook.add_format({'bold': True, 'bg_color': '#4472C4', 'font_color': 'white', 'border': 1})
-                                for col_num, val in enumerate(df_mail.columns.values): worksheet.write(0, col_num, val, fmt_header)
-                                for idx_row, ens in enumerate(df_mail['Enseignements']):
-                                    f = None
-                                    if 'Cours' in str(ens): f = fmt_cours
-                                    elif 'TD' in str(ens): f = fmt_td
-                                    elif 'TP' in str(ens): f = fmt_tp
-                                    if f: worksheet.set_row(idx_row + 1, None, f)
-                                worksheet.set_column('A:G', 18)
-                            
-                            buffer.seek(0)
-                            part = MIMEBase('application', 'octet-stream')
-                            part.set_payload(buffer.read())
-                            encoders.encode_base64(part)
-                            part.add_header('Content-Disposition', f'attachment; filename="EDT_2026_{nom}.xlsx"')
-                            msg.attach(part)
-                            
-                            server.send_message(msg)
-                            progress_bar.progress((i + 1) / len(selection))
+                        # 1. FILTRAGE ET RECAPITULATIF
+                        nom_cible = str(row['Enseignant']).strip().upper()
+                        # On utilise .contains pour attraper "FETHIMILOUA" si vous êtes MILOUA
+                        df_perso = df[df["Enseignants"].astype(str).str.upper().str.contains(nom_cible, na=False)]
+                        df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
                         
+                        # Calcul du récapitulatif
+                        nb_cours = df_mail['Enseignements'].str.contains('Cours', case=False).sum()
+                        nb_td = df_mail['Enseignements'].str.contains('TD', case=False).sum()
+                        nb_tp = df_mail['Enseignements'].str.contains('TP', case=False).sum()
+
+                        msg = MIMEMultipart()
+                        msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
+                        msg['From'] = st.secrets["EMAIL_USER"]
+                        msg['To'] = row["Email"]
+                        
+                        # 2. CORPS DU MESSAGE AVEC RÉCAPITULATIF
+                        corps_html = f"""
+                        <html>
+                        <body style="font-family: Arial, sans-serif; line-height: 1.6;">
+                            <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
+                            <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
+                            
+                            <div style="background-color: #f8f9fa; padding: 10px; border: 1px solid #dee2e6; border-radius: 5px;">
+                                <b>📊 Récapitulatif de votre charge (S2-2026) :</b><br>
+                                <ul>
+                                    <li>Nombre de Cours : <b>{nb_cours}</b></li>
+                                    <li>Nombre de TD : <b>{nb_td}</b></li>
+                                    <li>Nombre de TP : <b>{nb_tp}</b></li>
+                                </ul>
+                            </div>
+
+                            <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic;">
+                                <p>J'ai été chargé en tant que représentant des responsables des équipes de formation, en concertation avec le chef de département et le vice doyen chargé de la graduation, de coordonner l'élaboration de ces emplois du temps.</p>
+                                <p>Je vous prie de bien vouloir nous signaler une éventuelle anomalie. Merci de nous renseigner le fichier Excel corrigé, au cas où tout est bon merci de nous envoyer <b>RAS</b>.</p>
+                            </div>
+
+                            {df_mail.to_html(index=False, border=1, justify='center')}
+
+                            <p><br>Cordialement.<br>---<br><b>Service d'enseignement du département d'électrotechnique.</b></p>
+                        </body>
+                        </html>
+                        """
+                        msg.attach(MIMEText(corps_html, 'html'))
+
+                        # 3. CRÉATION DE L'EXCEL COLORÉ
+                        buffer = io.BytesIO()
+                        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                            df_mail.to_excel(writer, index=False, sheet_name='Mon EDT')
+                            workbook  = writer.book
+                            worksheet = writer.sheets['Mon EDT']
+
+                            # Définition des formats de couleurs
+                            fmt_cours = workbook.add_format({'bg_color': '#D9EAD3', 'border': 1}) # Vert clair
+                            fmt_td    = workbook.add_format({'bg_color': '#FFF2CC', 'border': 1}) # Jaune clair
+                            fmt_tp    = workbook.add_format({'bg_color': '#F4CCCC', 'border': 1}) # Rouge clair
+                            fmt_header = workbook.add_format({'bold': True, 'bg_color': '#4472C4', 'font_color': 'white', 'border': 1})
+
+                            # Appliquer le format aux en-têtes
+                            for col_num, value in enumerate(df_mail.columns.values):
+                                worksheet.write(0, col_num, value, fmt_header)
+
+                            # Appliquer les couleurs selon le contenu (Colonne A: Enseignements)
+                            for i, enseignement in enumerate(df_mail['Enseignements']):
+                                current_fmt = None
+                                if 'Cours' in str(enseignement): current_fmt = fmt_cours
+                                elif 'TD' in str(enseignement): current_fmt = fmt_td
+                                elif 'TP' in str(enseignement): current_fmt = fmt_tp
+                                
+                                if current_fmt:
+                                    worksheet.set_row(i + 1, None, current_fmt)
+
+                            worksheet.set_column('A:G', 18) # Ajuster la largeur des colonnes
+                        
+                        buffer.seek(0)
+                        part = MIMEBase('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                        part.set_payload(buffer.read())
+                        encoders.encode_base64(part)
+                        part.add_header('Content-Disposition', f'attachment; filename="EDT_2026_{row["Enseignant"]}.xlsx"')
+                        msg.attach(part)
+                        
+                        server.send_message(msg)
                         server.quit()
-                        st.success(f"✅ Envoi terminé pour les {len(selection)} enseignant(s) sélectionné(s).")
+                        st.success(f"✅ Envoyé avec récapitulatif et Excel coloré à {row['Enseignant']}")
                         st.rerun()
+
                     except Exception as e:
                         st.error(f"Erreur : {e}")
-
-        else:
-            # --- MODE INDIVIDUEL (Bouton par ligne) ---
-            for idx, row in enumerate(enseignants_filtres):
-                col_ens, col_mail, col_stat, col_act = st.columns([2, 2, 1, 1])
-                col_ens.write(f"**{row['Enseignant']}**")
-                col_mail.write(row['Email'])
-                col_stat.write(row["État d'envoi"])
-                
-                if "@" in str(row["Email"]):
-                    if col_act.button("📧 Envoyer", key=f"btn_unit_{row['Enseignant']}_{idx}"):
-                        import smtplib, io, pandas as pd
-                        from email.mime.text import MIMEText
-                        from email.mime.multipart import MIMEMultipart
-                        from email.mime.base import MIMEBase
-                        from email import encoders
-                        from datetime import datetime
-
-                        try:
-                            server = smtplib.SMTP('smtp.gmail.com', 587)
-                            server.starttls()
-                            server.login(st.secrets["EMAIL_USER"], st.secrets["EMAIL_PASS"])
-                            
-                            nom_cible = str(row['Enseignant']).strip().upper()
-                            df_perso = df[df["Enseignants"].astype(str).str.upper().str.contains(nom_cible, na=False)]
-                            df_mail = df_perso[['Enseignements', 'Code', 'Enseignants', 'Horaire', 'Jours', 'Lieu', 'Promotion']]
-                            
-                            nb_cours = df_mail['Enseignements'].str.contains('Cours', case=False).sum()
-                            nb_td = df_mail['Enseignements'].str.contains('TD', case=False).sum()
-                            nb_tp = df_mail['Enseignements'].str.contains('TP', case=False).sum()
-
-                            msg = MIMEMultipart()
-                            msg['Subject'] = f"Votre Emploi du Temps S2-2026 - {row['Enseignant']}"
-                            msg['From'] = st.secrets["EMAIL_USER"]
-                            msg['To'] = row["Email"]
-                            
-                            corps_html = f"""
-                            <html>
-                            <body style="font-family: Arial, sans-serif; line-height: 1.6;">
-                                <h2 style="color: #1E3A8A;">Plateforme de gestion des EDTs-S2-2026-Département d'Électrotechnique-Faculté de génie électrique-UDL-SBA</h2>
-                                <p>Sallem M./Mme <b>{row['Enseignant']}</b>,</p>
-                                <div style="background-color: #f8f9fa; padding: 10px; border: 1px solid #dee2e6; border-radius: 5px; margin-bottom:10px;">
-                                    <b>📊 Récapitulatif de votre charge (S2-2026) :</b><br>
-                                    <ul>
-                                        <li>Nombre de Cours : <b>{nb_cours}</b></li>
-                                        <li>Nombre de TD : <b>{nb_td}</b></li>
-                                        <li>Nombre de TP : <b>{nb_tp}</b></li>
-                                    </ul>
-                                </div>
-                                <div style="background-color: #fff4e5; border-left: 5px solid #ffa500; padding: 15px; margin: 20px 0; font-style: italic;">
-                                    <p>J'ai été chargé en tant que représentant des responsables des équipes de formation, en concertation avec le chef de département et le vice doyen chargé de la graduation, de coordonner l'élaboration de ces emplois du temps.</p>
-                                    <p>Je vous prie de bien vouloir nous signaler une éventuelle anomalie. Merci de nous renseigner le fichier Excel corrigé, au cas où tout est bon merci de nous envoyer <b>RAS</b>.</p>
-                                </div>
-                                {df_mail.to_html(index=False, border=1, justify='center')}
-                                <p><br>Cordialement.<br>---<br><b>Service d'enseignement du département d'électrotechnique.</b></p>
-                            </body>
-                            </html>
-                            """
-                            msg.attach(MIMEText(corps_html, 'html'))
-
-                            buffer = io.BytesIO()
-                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                                df_mail.to_excel(writer, index=False, sheet_name='Mon EDT')
-                                workbook = writer.book
-                                worksheet = writer.sheets['Mon EDT']
-                                f_cours = workbook.add_format({'bg_color': '#D9EAD3', 'border': 1})
-                                f_td = workbook.add_format({'bg_color': '#FFF2CC', 'border': 1})
-                                f_tp = workbook.add_format({'bg_color': '#F4CCCC', 'border': 1})
-                                f_head = workbook.add_format({'bold': True, 'bg_color': '#4472C4', 'font_color': 'white', 'border': 1})
-                                for c, v in enumerate(df_mail.columns.values): worksheet.write(0, c, v, f_head)
-                                for i, ens in enumerate(df_mail['Enseignements']):
-                                    fmt = None
-                                    if 'Cours' in str(ens): fmt = f_cours
-                                    elif 'TD' in str(ens): fmt = f_td
-                                    elif 'TP' in str(ens): fmt = f_tp
-                                    if fmt: worksheet.set_row(i + 1, None, fmt)
-                                worksheet.set_column('A:G', 18)
-                            
-                            buffer.seek(0)
-                            part = MIMEBase('application', 'octet-stream')
-                            part.set_payload(buffer.read())
-                            encoders.encode_base64(part)
-                            part.add_header('Content-Disposition', f'attachment; filename="EDT_2026_{row["Enseignant"]}.xlsx"')
-                            msg.attach(part)
-                            
-                            server.send_message(msg)
-                            server.quit()
-                            st.success(f"✅ Envoyé à {row['Enseignant']}")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erreur : {e}")
         # --- FIN DE LA BOUCLE ---
-elif portail == "🎓 Portail Étudiants":
+    elif portail == "🎓 Portail Étudiants":
         st.header("📚 Espace Étudiants")
         p_etu = st.selectbox("Choisir votre Promotion :", sorted(df["Promotion"].unique()))
         # DISPOSITION : Enseignements, Code, Enseignants, Horaire, Jours, Lieu
@@ -1394,32 +1327,6 @@ elif portail == "🎓 Portail Étudiants":
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
