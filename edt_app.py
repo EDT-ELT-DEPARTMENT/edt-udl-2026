@@ -656,7 +656,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         else:
             st.session_state.df_admin = edited_df
 
-    # 4. SAUVEGARDE ET EXPORT
+    # 4. SAUVEGARDE ET EXPORT AVEC RAPPORT DE CONFLITS DYNAMIQUE
     st.write("---")
     c1, c2, c3 = st.columns(3)
     
@@ -664,10 +664,10 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         if st.button("💾 Enregistrer sur Serveur", type="primary", use_container_width=True):
             try:
                 st.session_state.df_admin[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
-                st.success("✅ Modifications enregistrées !")
+                st.success("✅ Modifications enregistrées sur le serveur !")
                 st.balloons()
             except Exception as e:
-                st.error(f"Erreur : {e}")
+                st.error(f"Erreur d'écriture : {e}")
 
     with c2:
         if st.button("🔄 Réinitialiser l'éditeur", use_container_width=True):
@@ -676,12 +676,52 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             st.rerun()
 
     with c3:
-        import io
-        buffer = io.BytesIO()
-        st.session_state.df_admin[cols_format].to_excel(buffer, index=False, engine='xlsxwriter')
-        st.download_button("📥 Télécharger Excel", buffer.getvalue(), f"EDT_S2_2026.xlsx", use_container_width=True)
+        # --- GÉNÉRATION DYNAMIQUE DU RAPPORT DE CONFLITS ---
+        df_complet = st.session_state.df_admin
+        conflits_list = []
 
-    st.stop() 
+        # Détection des doublons de salle
+        mask_salle = (df_complet['Lieu'] != "") & (df_complet['Lieu'] != "Non défini")
+        doublons_salle = df_complet[mask_salle].duplicated(subset=['Jours', 'Horaire', 'Lieu'], keep=False)
+        df_err_salle = df_complet[mask_salle][doublons_salle]
+
+        for _, row in df_err_salle.iterrows():
+            conflits_list.append({
+                "Type de Conflit": "❌ CONFLIT SALLE OCCUPÉE",
+                "Personne concernée": row['Enseignants'],
+                "Promotion": row['Promotion'], # Ajout dynamique de la promotion
+                "Jour": row['Jours'],
+                "Horaire Initial": row['Horaire'],
+                "Lieu Initial": row['Lieu'],
+                "SOLUTION PROPOSÉE": "Vérifier la disponibilité de la salle"
+            })
+
+        df_conflits_final = pd.DataFrame(conflits_list).drop_duplicates()
+
+        # --- CRÉATION DU FICHIER EXCEL MULTI-FEUILLES ---
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            # Feuille 1 : Emploi du Temps
+            df_complet[cols_format].to_excel(writer, sheet_name='Emploi du Temps', index=False)
+            
+            # Feuille 2 : Rapport des Conflits
+            if not df_conflits_final.empty:
+                df_conflits_final.to_excel(writer, sheet_name='Rapport Conflits', index=False)
+                ws = writer.sheets['Rapport Conflits']
+                for i, col in enumerate(df_conflits_final.columns):
+                    ws.set_column(i, i, 22)
+            else:
+                pd.DataFrame({"Statut": ["Aucun conflit détecté"]}).to_excel(writer, sheet_name='Rapport Conflits', index=False)
+
+        st.download_button(
+            label="📥 Télécharger Excel (EDT + Conflits)",
+            data=buffer.getvalue(),
+            file_name=f"EDT_S2_2026_COMPLET.xlsx",
+            mime="application/vnd.ms-excel",
+            use_container_width=True
+        )
+
+    st.stop() # Fin de la section Admin 
 
 
 # --- EN-TÊTE HARMONISÉ (LOGO + TITRE + DATE) ---
@@ -1640,6 +1680,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
