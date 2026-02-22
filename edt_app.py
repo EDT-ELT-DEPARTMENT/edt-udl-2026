@@ -656,12 +656,12 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         else:
             st.session_state.df_admin = edited_df
 
-    # --- NOUVEAU : BLOC D'ANALYSE VISUELLE (GRILLE DE CHEVAUCHEMENT) ---
+    # --- BLOC D'ANALYSE VISUELLE (VERSION SÉCURISÉE) ---
     st.divider()
     st.markdown("### 🔍 Analyse Visuelle des Chevauchements")
 
     def afficher_grille_anomalie(df_source, type_tri):
-        # Configuration des axes (14 créneaux)
+        # Configuration stricte des axes
         jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
         horaires_ordre = [
             "8h - 9h", "8h - 9h30", "8h - 10h", "9h - 10h", "9h30 - 11h", 
@@ -672,41 +672,45 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         # Initialisation de la grille vide
         grid = pd.DataFrame("", index=horaires_ordre, columns=jours_ordre)
         
-        # Nettoyage pour éviter les fausses détections (espaces, vides)
+        # Nettoyage et identification des conflits
         df_temp = df_source.copy()
-        for col in ['Jours', 'Horaire', type_tri]:
-            df_temp[col] = df_temp[col].astype(str).str.strip()
+        # On s'assure que les colonnes existent avant de manipuler
+        cols_needed = ['Jours', 'Horaire', type_tri, 'Enseignements', 'Code', 'Lieu', 'Promotion']
+        for col in cols_needed:
+            if col in df_temp.columns:
+                df_temp[col] = df_temp[col].astype(str).str.strip()
         
-        # Identification des conflits réels (doublons sur Jour + Horaire + Cible)
+        # Identification des doublons
         doublons = df_temp.duplicated(subset=['Jours', 'Horaire', type_tri], keep=False)
         df_conflits = df_temp[doublons & (df_temp[type_tri] != "") & (df_temp[type_tri] != "Non défini") & (df_temp[type_tri] != "nan")].copy()
         
         if not df_conflits.empty:
             for _, row in df_conflits.iterrows():
-                emoji = "🔴" if type_tri == "Lieu" else "👤" if type_tri == "Enseignants" else "🎓"
-                # Construction du contenu HTML pour la cellule
-                cell_text = (
-                    f"<div style='color: #b91c1c; font-size: 0.85rem;'>"
-                    f"{emoji} <b>{row['Enseignements']}</b><br>"
-                    f"({row['Code']})<br>"
-                    f"{row['Lieu']}<br>"
-                    f"<i>{row['Promotion']}</i>"
-                    f"</div>"
-                )
-                
-                prev_val = grid.at[row['Horaire'], row['Jours']]
-                if prev_val:
-                    grid.at[row['Horaire'], row['Jours']] = prev_val + "<hr style='margin:5px 0; border:0; border-top:1px dashed #fca5a5;'>" + cell_text
-                else:
-                    grid.at[row['Horaire'], row['Jours']] = cell_text
+                # SÉCURITÉ : On vérifie si l'horaire et le jour existent dans notre grille avant d'écrire
+                if row['Horaire'] in horaires_ordre and row['Jours'] in jours_ordre:
+                    emoji = "🔴" if type_tri == "Lieu" else "👤" if type_tri == "Enseignants" else "🎓"
+                    cell_text = (
+                        f"<div style='color: #b91c1c; font-size: 0.8rem;'>"
+                        f"{emoji} <b>{row['Enseignements']}</b><br>"
+                        f"({row['Code']})<br>"
+                        f"{row['Lieu']}<br>"
+                        f"<i>{row['Promotion']}</i>"
+                        f"</div>"
+                    )
+                    
+                    prev_val = grid.at[row['Horaire'], row['Jours']]
+                    if prev_val:
+                        grid.at[row['Horaire'], row['Jours']] = prev_val + "<hr style='margin:5px 0; border:0; border-top:1px dashed #fca5a5;'>" + cell_text
+                    else:
+                        grid.at[row['Horaire'], row['Jours']] = cell_text
             
-            # Rendu via HTML pour supporter les styles et retours à la ligne
+            # Rendu HTML
             st.write(grid.to_html(escape=False, justify='center'), unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
         else:
             st.info(f"✅ Aucun chevauchement de type **{type_tri}** détecté.")
 
-    # Organisation par onglets pour la clarté
+    # Affichage par onglets
     t_salle, t_prof, t_promo = st.tabs(["🏢 Conflits Salles", "👤 Conflits Enseignants", "🎓 Conflits Promotions"])
     
     with t_salle:
@@ -715,7 +719,6 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         afficher_grille_anomalie(st.session_state.df_admin, "Enseignants")
     with t_promo:
         afficher_grille_anomalie(st.session_state.df_admin, "Promotion")
-    # --- FIN DU BLOC D'ANALYSE ---
 
     # 4. SAUVEGARDE ET EXPORT AVEC RAPPORT DE CONFLITS DYNAMIQUE
     st.write("---")
@@ -1769,6 +1772,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
