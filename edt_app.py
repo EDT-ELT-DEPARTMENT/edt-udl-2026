@@ -631,7 +631,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
                     st.success(f"✅ Ligne ajoutée avec succès pour la promotion {n_promo} !")
                     st.rerun()
 
-    # --- ÉDITEUR DE TABLEAU ---
+   # --- ÉDITEUR DE TABLEAU ---
     st.markdown("### 📝 Modification des données")
     edited_df = st.data_editor(
         df_to_edit[cols_format],
@@ -655,6 +655,57 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             st.session_state.df_admin = pd.concat([df_others, edited_df], ignore_index=True)
         else:
             st.session_state.df_admin = edited_df
+
+    # --- DÉBUT DU BLOC D'ANALYSE VISUELLE (GRILLE) ---
+    st.divider()
+    st.markdown("### 🔍 Analyse Visuelle des Chevauchements")
+
+    def afficher_grille_anomalie(df_source, type_tri):
+        # Configuration des axes (14 créneaux)
+        jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
+        horaires_ordre = [
+            "8h - 9h", "8h - 9h30", "8h - 10h", "9h - 10h", "9h30 - 11h", 
+            "10h - 11h", "11h - 12h", "11h - 12h30", "12h - 13h", 
+            "12h30 - 14h", "13h - 14h", "14h - 15h30", "14h - 16h", "15h30 - 17h"
+        ]
+        
+        # Initialisation de la grille vide
+        grid = pd.DataFrame("", index=horaires_ordre, columns=jours_ordre)
+        
+        # Identification des conflits
+        doublons = df_source.duplicated(subset=['Jours', 'Horaire', type_tri], keep=False)
+        df_conflits = df_source[doublons & (df_source[type_tri] != "") & (df_source[type_tri] != "Non défini")].copy()
+        
+        if not df_conflits.empty:
+            for _, row in df_conflits.iterrows():
+                emoji = "🔴" if type_tri == "Lieu" else "👤" if type_tri == "Enseignants" else "🎓"
+                cell_text = (
+                    f"{emoji} {row['Enseignements']}\n"
+                    f"({row['Code']})\n"
+                    f"{row['Lieu']}\n"
+                    f"{row['Promotion']}"
+                )
+                
+                prev_val = grid.at[row['Horaire'], row['Jours']]
+                if prev_val:
+                    grid.at[row['Horaire'], row['Jours']] = prev_val + "\n──────────\n" + cell_text
+                else:
+                    grid.at[row['Horaire'], row['Jours']] = cell_text
+            
+            st.table(grid.replace("", " ")) 
+        else:
+            st.success(f"✅ Aucune anomalie de type '{type_tri}' détectée.")
+
+    # Affichage par onglets
+    t_salle, t_prof, t_promo = st.tabs(["🏢 Conflits Salles", "👤 Conflits Enseignants", "🎓 Conflits Promotions"])
+    
+    with t_salle:
+        afficher_grille_anomalie(st.session_state.df_admin, "Lieu")
+    with t_prof:
+        afficher_grille_anomalie(st.session_state.df_admin, "Enseignants")
+    with t_promo:
+        afficher_grille_anomalie(st.session_state.df_admin, "Promotion")
+    # --- FIN DU BLOC D'ANALYSE VISUELLE ---
 
     # 4. SAUVEGARDE ET EXPORT AVEC RAPPORT DE CONFLITS DYNAMIQUE
     st.write("---")
@@ -1708,6 +1759,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
