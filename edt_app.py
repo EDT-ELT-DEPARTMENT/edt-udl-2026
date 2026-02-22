@@ -683,7 +683,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         else:
             st.session_state.df_admin = edited_df
 
-    # --- BLOC D'ANALYSE VISUELLE (VERSION AVEC NOMS D'ENSEIGNANTS) ---
+    # --- BLOC D'ANALYSE VISUELLE (STYLE PERSONNALISÉ : SALLE/PROF/PROMO) ---
     st.divider()
     st.markdown("### 🔍 Analyse Visuelle des Chevauchements")
 
@@ -701,8 +701,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         def format_horaire(h):
             h_str = str(h).replace(" ", "").lower()
             for target in horaires_ordre:
-                if h_str == target.replace(" ", "").lower(): 
-                    return target
+                if h_str == target.replace(" ", "").lower(): return target
             return h
 
         df_temp['Horaire_Normalise'] = df_temp['Horaire'].apply(format_horaire)
@@ -710,8 +709,6 @@ if is_admin and mode_view == "✍️ Éditeur de données":
 
         # Détection des doublons
         doublons = df_temp.duplicated(subset=['Jours', 'Horaire_Normalise', type_tri], keep=False)
-        
-        # Correction sécurisée de l'erreur .lower()
         mask_valid = (df_temp[type_tri].astype(str).str.len() > 1) & (df_temp[type_tri].astype(str).str.lower() != "nan")
         df_conflits = df_temp[doublons & mask_valid].copy()
         
@@ -721,30 +718,32 @@ if is_admin and mode_view == "✍️ Éditeur de données":
                 col_j = row['Jours']
                 
                 if idx_h in horaires_ordre and col_j in jours_ordre:
-                    # Affichage du nom de l'enseignant en priorité
-                    if type_tri == "Enseignants":
-                        label_entete = f"👤 <b>{row['Enseignants']}</b>"
-                    elif type_tri == "Lieu":
-                        label_entete = f"🏢 <b>{row['Lieu']}</b><br>(Prof: {row['Enseignants']})"
-                    else:
-                        label_entete = f"🎓 <b>{row['Promotion']}</b><br>(Prof: {row['Enseignants']})"
+                    # Formatage selon votre exemple
+                    salle_label = f"🏢 {row['Lieu']}"
+                    prof_label = f"(Prof: {row['Enseignants']})"
+                    promo_label = f"🎓 {row['Promotion']}"
+                    matiere_label = f"📚 {row['Enseignements']}"
+                    heure_label = f"🕒 {row['Horaire']}"
 
-                    cell_text = (
-                        f"<div style='color: #b91c1c; font-size: 0.75rem; border-left: 3px solid #b91c1c; padding: 4px; margin-bottom: 8px; background-color: #fffafa; line-height: 1.2;'>"
-                        f"{label_entete}<br>"
-                        f"📚 {row['Enseignements']}<br>"
-                        f"🕒 {row['Horaire']}"
+                    cell_html = (
+                        f"<div style='color: #b91c1c; font-size: 0.75rem; border-left: 4px solid #b91c1c; "
+                        f"padding: 6px; margin-bottom: 8px; background-color: #fff5f5; line-height: 1.3;'>"
+                        f"<b>{salle_label}</b><br>"
+                        f"{prof_label}<br>"
+                        f"<b>{promo_label}</b><br>"
+                        f"{matiere_label}<br>"
+                        f"{heure_label}"
                         f"</div>"
                     )
                     
                     prev = grid.at[idx_h, col_j]
-                    grid.at[idx_h, col_j] = (prev + cell_text) if prev else cell_text
+                    grid.at[idx_h, col_j] = (prev + cell_html) if prev else cell_html
             
             st.write(grid.to_html(escape=False, justify='center'), unsafe_allow_html=True)
         else:
-            st.info(f"✅ Aucun conflit de type **{type_tri}** détecté dans cette grille.")
+            st.success(f"✅ Aucun conflit de type **{type_tri}** détecté.")
 
-    # --- NOUVEAUX ONGLETS POUR NAVIGUER ---
+    # Onglets de navigation
     t_salle, t_prof, t_promo = st.tabs(["🏢 Conflits Salles", "👤 Conflits Enseignants", "🎓 Conflits Promotions"])
     
     with t_salle:
@@ -1806,6 +1805,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
