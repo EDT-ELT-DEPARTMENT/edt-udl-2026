@@ -656,12 +656,11 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         else:
             st.session_state.df_admin = edited_df
 
-   # --- BLOC D'ANALYSE VISUELLE (VERSION COMPATIBLE) ---
+   # --- BLOC D'ANALYSE VISUELLE (VERSION AVEC NOMS) ---
     st.divider()
     st.markdown("### 🔍 Analyse Visuelle des Chevauchements")
 
     def afficher_grille_anomalie(df_source, type_tri):
-        # Configuration des axes avec espaces (Format Standard)
         jours_ordre = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi"]
         horaires_ordre = [
             "8h - 9h", "8h - 9h30", "8h - 10h", "9h - 10h", "9h30 - 11h", 
@@ -670,49 +669,52 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         ]
         
         grid = pd.DataFrame("", index=horaires_ordre, columns=jours_ordre)
-        
-        # 1. Nettoyage agressif des données pour la correspondance
         df_temp = df_source.copy()
         
-        # Fonction pour transformer "11h-12h30" en "11h - 12h30"
+        # Normalisation pour la correspondance des cases
         def format_horaire(h):
-            h = str(h).replace(" ", "").lower() # Enlever tous les espaces
+            h = str(h).replace(" ", "").lower()
             for target in horaires_ordre:
-                if h == target.replace(" ", "").lower():
-                    return target
+                if h == target.replace(" ", "").lower(): return target
             return h
 
         df_temp['Horaire_Normalise'] = df_temp['Horaire'].apply(format_horaire)
         df_temp['Jours'] = df_temp['Jours'].astype(str).str.strip().str.capitalize()
 
-        # 2. Détection des doublons sur les noms normalisés
+        # Détection des doublons
         doublons = df_temp.duplicated(subset=['Jours', 'Horaire_Normalise', type_tri], keep=False)
-        df_conflits = df_temp[doublons & (df_temp[type_tri].str.len() > 1)].copy()
+        # On ignore les valeurs vides ou "nan"
+        df_conflits = df_temp[doublons & (df_temp[type_tri].astype(str).str.len() > 1) & (df_temp[type_tri].astype(str).lower() != "nan")].copy()
         
         if not df_conflits.empty:
             for _, row in df_conflits.iterrows():
                 if row['Horaire_Normalise'] in horaires_ordre and row['Jours'] in jours_ordre:
-                    emoji = "🔴" if type_tri == "Lieu" else "👤" if type_tri == "Enseignants" else "🎓"
+                    # Personnalisation de l'affichage selon le type de conflit
+                    if type_tri == "Enseignants":
+                        label_entete = f"👤 <b>{row['Enseignants']}</b>"
+                    elif type_tri == "Lieu":
+                        label_entete = f"🏢 <b>{row['Lieu']}</b> (Prof: {row['Enseignants']})"
+                    else:
+                        label_entete = f"🎓 <b>{row['Promotion']}</b> (Prof: {row['Enseignants']})"
+
                     cell_text = (
-                        f"<div style='color: #b91c1c; font-size: 0.8rem; margin-bottom:5px;'>"
-                        f"{emoji} <b>{row['Enseignements']}</b><br>"
-                        f"({row['Code']})<br>"
-                        f"📍 {row['Lieu']} | 🎓 {row['Promotion']}"
+                        f"<div style='color: #b91c1c; font-size: 0.8rem; border-left: 3px solid #b91c1c; padding-left: 5px; margin-bottom: 8px;'>"
+                        f"{label_entete}<br>"
+                        f"📚 {row['Enseignements']}<br>"
+                        f"🕒 {row['Horaire']}"
                         f"</div>"
                     )
                     
-                    idx = row['Horaire_Normalise']
-                    col = row['Jours']
-                    
+                    idx, col = row['Horaire_Normalise'], row['Jours']
                     prev = grid.at[idx, col]
-                    grid.at[idx, col] = (prev + "<hr style='margin:2px 0; border-top:1px solid #ffcccc;'>" + cell_text) if prev else cell_text
+                    grid.at[idx, col] = (prev + cell_text) if prev else cell_text
             
-            # 3. Rendu final
+            # Affichage du tableau HTML
             st.write(grid.to_html(escape=False, justify='center'), unsafe_allow_html=True)
         else:
-            st.info(f"✅ La grille ne détecte aucun conflit de type **{type_tri}** (Vérifiez les espaces dans vos noms de salles/profs).")
+            st.info(f"✅ Aucun conflit de type **{type_tri}** détecté dans cette grille.")
 
-    # Affichage par onglets
+    # Onglets de navigation
     t_salle, t_prof, t_promo = st.tabs(["🏢 Conflits Salles", "👤 Conflits Enseignants", "🎓 Conflits Promotions"])
     
     with t_salle:
@@ -1773,6 +1775,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
