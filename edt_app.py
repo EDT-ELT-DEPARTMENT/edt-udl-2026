@@ -656,7 +656,32 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         else:
             st.session_state.df_admin = edited_df
 
-   # --- BLOC D'ANALYSE VISUELLE (VERSION AVEC NOMS) ---
+   # --- ÉDITEUR DE TABLEAU ---
+    st.markdown("### 📝 Modification des données")
+    edited_df = st.data_editor(
+        df_to_edit[cols_format],
+        use_container_width=True,
+        num_rows="dynamic",
+        key="editor_with_filter_2026",
+        column_config={
+            "Enseignements": st.column_config.TextColumn("📚 Matière"),
+            "Horaire": st.column_config.SelectboxColumn("🕒 Horaire", options=liste_horaires),
+            "Jours": st.column_config.SelectboxColumn("📅 Jours", options=jours_std),
+            "Promotion": st.column_config.SelectboxColumn("🎓 Promotion", options=promos_existantes if promos_existantes else ["M2RE"]),
+            "Chevauchement": st.column_config.TextColumn("⚠️ État Conflit"),
+        }
+    )
+
+    # Synchronisation intelligente
+    if edited_df is not None and not edited_df.equals(df_to_edit[cols_format]):
+        if search_prof:
+            indices_modifies = df_to_edit.index
+            df_others = st.session_state.df_admin.drop(indices_modifies)
+            st.session_state.df_admin = pd.concat([df_others, edited_df], ignore_index=True)
+        else:
+            st.session_state.df_admin = edited_df
+
+    # --- BLOC D'ANALYSE VISUELLE (VERSION AVEC NOMS) ---
     st.divider()
     st.markdown("### 🔍 Analyse Visuelle des Chevauchements")
 
@@ -673,9 +698,10 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         
         # Normalisation pour la correspondance des cases
         def format_horaire(h):
-            h = str(h).replace(" ", "").lower()
+            h_str = str(h).replace(" ", "").lower()
             for target in horaires_ordre:
-                if h == target.replace(" ", "").lower(): return target
+                if h_str == target.replace(" ", "").lower(): 
+                    return target
             return h
 
         df_temp['Horaire_Normalise'] = df_temp['Horaire'].apply(format_horaire)
@@ -683,31 +709,35 @@ if is_admin and mode_view == "✍️ Éditeur de données":
 
         # Détection des doublons
         doublons = df_temp.duplicated(subset=['Jours', 'Horaire_Normalise', type_tri], keep=False)
-        # On ignore les valeurs vides ou "nan"
-        df_conflits = df_temp[doublons & (df_temp[type_tri].astype(str).str.len() > 1) & (df_temp[type_tri].astype(str).lower() != "nan")].copy()
+        
+        # Correction de l'erreur .lower() sur la Series
+        mask_valid = (df_temp[type_tri].astype(str).str.len() > 1) & (df_temp[type_tri].astype(str).str.lower() != "nan")
+        df_conflits = df_temp[doublons & mask_valid].copy()
         
         if not df_conflits.empty:
             for _, row in df_conflits.iterrows():
-                if row['Horaire_Normalise'] in horaires_ordre and row['Jours'] in jours_ordre:
+                idx_h = row['Horaire_Normalise']
+                col_j = row['Jours']
+                
+                if idx_h in horaires_ordre and col_j in jours_ordre:
                     # Personnalisation de l'affichage selon le type de conflit
                     if type_tri == "Enseignants":
                         label_entete = f"👤 <b>{row['Enseignants']}</b>"
                     elif type_tri == "Lieu":
-                        label_entete = f"🏢 <b>{row['Lieu']}</b> (Prof: {row['Enseignants']})"
+                        label_entete = f"🏢 <b>{row['Lieu']}</b><br>(Prof: {row['Enseignants']})"
                     else:
-                        label_entete = f"🎓 <b>{row['Promotion']}</b> (Prof: {row['Enseignants']})"
+                        label_entete = f"🎓 <b>{row['Promotion']}</b><br>(Prof: {row['Enseignants']})"
 
                     cell_text = (
-                        f"<div style='color: #b91c1c; font-size: 0.8rem; border-left: 3px solid #b91c1c; padding-left: 5px; margin-bottom: 8px;'>"
+                        f"<div style='color: #b91c1c; font-size: 0.75rem; border-left: 3px solid #b91c1c; padding-left: 5px; margin-bottom: 8px; background-color: #fffafa;'>"
                         f"{label_entete}<br>"
                         f"📚 {row['Enseignements']}<br>"
                         f"🕒 {row['Horaire']}"
                         f"</div>"
                     )
                     
-                    idx, col = row['Horaire_Normalise'], row['Jours']
-                    prev = grid.at[idx, col]
-                    grid.at[idx, col] = (prev + cell_text) if prev else cell_text
+                    prev = grid.at[idx_h, col_j]
+                    grid.at[idx_h, col_j] = (prev + cell_text) if prev else cell_text
             
             # Affichage du tableau HTML
             st.write(grid.to_html(escape=False, justify='center'), unsafe_allow_html=True)
@@ -723,6 +753,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
         afficher_grille_anomalie(st.session_state.df_admin, "Enseignants")
     with t_promo:
         afficher_grille_anomalie(st.session_state.df_admin, "Promotion")
+
     # 4. SAUVEGARDE ET EXPORT AVEC RAPPORT DE CONFLITS DYNAMIQUE
     st.write("---")
     c1, c2, c3 = st.columns(3)
@@ -1775,6 +1806,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
