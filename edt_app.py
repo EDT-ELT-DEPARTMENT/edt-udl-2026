@@ -730,7 +730,7 @@ if is_admin and mode_view == "✍️ Éditeur de données":
                         label_entete = f"🎓 <b>{row['Promotion']}</b><br>(Prof: {row['Enseignants']})"
 
                     cell_text = (
-                        f"<div style='color: #b91c1c; font-size: 0.75rem; border-left: 3px solid #b91c1c; padding: 4px; margin-bottom: 8px; background-color: #fffafa;'>"
+                        f"<div style='color: #b91c1c; font-size: 0.75rem; border-left: 3px solid #b91c1c; padding: 4px; margin-bottom: 8px; background-color: #fffafa; line-height: 1.2;'>"
                         f"{label_entete}<br>"
                         f"📚 {row['Enseignements']}<br>"
                         f"🕒 {row['Horaire']}"
@@ -742,7 +742,17 @@ if is_admin and mode_view == "✍️ Éditeur de données":
             
             st.write(grid.to_html(escape=False, justify='center'), unsafe_allow_html=True)
         else:
-            st.info(f"✅ Aucun conflit de type **{type_tri}** détect
+            st.info(f"✅ Aucun conflit de type **{type_tri}** détecté dans cette grille.")
+
+    # --- NOUVEAUX ONGLETS POUR NAVIGUER ---
+    t_salle, t_prof, t_promo = st.tabs(["🏢 Conflits Salles", "👤 Conflits Enseignants", "🎓 Conflits Promotions"])
+    
+    with t_salle:
+        afficher_grille_anomalie(st.session_state.df_admin, "Lieu")
+    with t_prof:
+        afficher_grille_anomalie(st.session_state.df_admin, "Enseignants")
+    with t_promo:
+        afficher_grille_anomalie(st.session_state.df_admin, "Promotion")
 
     # 4. SAUVEGARDE ET EXPORT AVEC RAPPORT DE CONFLITS DYNAMIQUE
     st.write("---")
@@ -1796,6 +1806,7 @@ if df is not None:
                     df[cols_format].to_excel(NOM_FICHIER_FIXE, index=False)
                     st.success("✅ Modifications enregistrées !"); st.rerun()
                 except Exception as e: st.error(f"Erreur : {e}")
+
 
 
 
